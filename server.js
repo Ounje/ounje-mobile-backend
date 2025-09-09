@@ -2,22 +2,24 @@ const express = require("express");
 const mongoose = require("mongoose");
 const cors = require("cors");
 require("dotenv").config();
-
 const authRoutes = require("./routes/authRoutes");
 const foodRoutes = require("./routes/foodRoutes");
 const orderRoutes = require("./routes/orderRoutes");
 
 const app = express();
 
-
+app.use(cors());
+app.use(express.json());
 //api routes
 app.use("/api/auth", authRoutes);
 app.use("/api/food", foodRoutes);
 app.use("/api/orders", orderRoutes);
 
+console.log(process.env.FRONTEND_URL)
+
 // Middleware
-app.use(cors());
-app.use(express.json());
+
+
 
 app.get("/", (req, res) => res.send("Food Service API running 🚀"));
 
