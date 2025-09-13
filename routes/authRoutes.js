@@ -3,7 +3,6 @@ const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 const User = require("../models/User");
 const NodemailerHelper = require('nodemailer-otp');
-const OtpVerification = require("../models/OtpVerification");
 
 const router = express.Router();
 
@@ -13,9 +12,9 @@ const helper = new NodemailerHelper(process.env.EMAIL_USER, process.env.EMAIL_PA
 router.post("/register", async (req, res) => {
   try {
     console.log(req.body);
-    const { name, password, role, otpSession } = req.body;
+    const { name, email, password, role, otpSession } = req.body;
     const decoded = jwt.verify(otpSession, process.env.JWT_SECRET);
-    const email = decoded.email;
+    const phone = decoded.phone;
     console.log(decoded);
     if (!name || !email || !password) return res.status(400).json({ error: "Missing fields" });
 
@@ -58,61 +57,39 @@ router.post("/login", async (req, res) => {
 
 
 router.post("/request-otp", async (req, res) =>{
-  const { email } = req.body;
-  const otp = helper.generateOtp(6);
-  console.log(`Generated OTP: ${otp}`);
-  const newOtp = new OtpVerification({ email, otp });
-  await newOtp.save();
-  res.json({"message": "OTP Sent to email"})
-  helper.sendEmail(email,'Email verification',`This is your otp verification code `, otp)
-  .then((response ) => {
-    console.log(response );
-  })
-  .catch((err) => {
-    console.error(err);
-  });
-  res.json({"message": "OTP Sent to email"})
-  // const accountSid = process.env.TWILIO_ACCOUNT_SID;
-  // const authToken = process.env.TWILIO_AUTH_TOKEN;
-  // const client = require('twilio')(accountSid, authToken);
+  const { phone } = req.body;
+  const exists = await User.findOne({ phone });
+  if (exists) return res.status(400).json({ error: "Phone number already in use" });
+  const accountSid = process.env.TWILIO_ACCOUNT_SID;
+  const authToken = process.env.TWILIO_AUTH_TOKEN;
+  const client = require('twilio')(accountSid, authToken);
 
-  // client.verify.v2.services(process.env.TWILIO_VERIFIED_SID)
-  //       .verifications
-  //       .create({to: '+2347030171460', channel: 'sms'})
-  //       .then(verification => console.log(verification.sid));
-  // res.json({"message": "OTP Sent"})
+  client.verify.v2.services(process.env.TWILIO_VERIFIED_SID)
+        .verifications
+        .create({to: phone, channel: 'sms'})
+        .then(verification => console.log(verification.sid));
+  res.json({"message": "OTP Sent"})
 })
 
 router.post("/verify-otp", async (req, res) =>{
-  const { email, code } = req.body; // user submits phone & OTP code
-  const record = await OtpVerification.findOne({ email, otp: code });
-  if (!record) {
-    return res.status(400).json({ success: false, message: "Invalid OTP" });
+  const accountSid = process.env.TWILIO_ACCOUNT_SID;  
+  const authToken = process.env.TWILIO_AUTH_TOKEN;  
+  const client = require('twilio')(accountSid, authToken);
+
+  try {
+    const verificationCheck = await client.verify.v2.services(process.env.TWILIO_VERIFIED_SID)
+      .verificationChecks
+      .create({ to: "+2347030171460", code});
+
+    if (verificationCheck.status === "approved") {
+      const otpSession = jwt.sign( { phone: "+2347030171460" }, process.env.JWT_SECRET, { expiresIn: "10m" })
+      res.json({ success: true, otpSession});
+    } else {
+      res.status(400).json({ success: false, message: "Invalid OTP" });
+    }
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
-  await OtpVerification.deleteMany({ email }); // Invalidate all OTPs for this email after successful verification
-  const otpSession = jwt.sign( { email }, process.env.JWT_SECRET, { expiresIn: "10m" })
-  res.json({ success: true, otpSession});
-
-  // const accountSid = process.env.TWILIO_ACCOUNT_SID;  
-  // const authToken = process.env.TWILIO_AUTH_TOKEN;  
-  // const client = require('twilio')(accountSid, authToken);
-
-  // try {
-  //   const verificationCheck = await client.verify.v2.services(process.env.TWILIO_VERIFIED_SID)
-  //     .verificationChecks
-  //     .create({ to: "+2347030171460", code});
-
-  //   if (verificationCheck.status === "approved") {
-  //     // ✅ OTP is correct
-  //     const otpSession = jwt.sign( { phone: "+2347030171460" }, process.env.JWT_SECRET, { expiresIn: "2m" })
-  //     res.json({ success: true, otpSession});
-  //   } else {
-  //     // ❌ OTP is invalid or expired
-  //     res.status(400).json({ success: false, message: "Invalid OTP" });
-  //   }
-  // } catch (err) {
-  //   res.status(500).json({ error: err.message });
-  // }
 }) 
 
 
