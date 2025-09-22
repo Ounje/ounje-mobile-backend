@@ -13,18 +13,22 @@ const helper = new NodemailerHelper(process.env.EMAIL_USER, process.env.EMAIL_PA
 router.post("/register", async (req, res) => {
   try {
     console.log(req.body);
-    const { name, password, role, otpSession } = req.body;
+    // const { name, password, role, phone, location, email } = req.body;
+    const { name, password, role, phone, location, otpSession } = req.body;
     const decoded = jwt.verify(otpSession, process.env.JWT_SECRET);
     const email = decoded.email;
     console.log(decoded);
-    if (!name || !email || !password) return res.status(400).json({ error: "Missing fields" });
+    if (!name || !email) return res.status(400).json({ error: "Missing fields" });
 
     const exists = await User.findOne({ email });
     if (exists) return res.status(400).json({ error: "Email already in use" });
 
+    const phoneExists = await User.findOne({ phone });
+    if (phoneExists) return res.status(400).json({ error: "Phone number already in use" });
+
     const hashed = await bcrypt.hash(password, 10);
     // const user = new User({ name, email, password: hashed, role, phone });
-    const user = new User({ name, email, password: hashed, role });
+    const user = new User({ name, email, password: hashed, role, phone, location });
     await user.save();
 
     return res.json({ message: "Registered successfully", user: { id: user._id, name: user.name, email: user.email, role: user.role } });

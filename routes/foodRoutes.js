@@ -15,7 +15,7 @@ router.post("/", authMiddleware, roleGuard(["seller"]), async (req, res) => {
     res.status(400).json({ error: err.message });
   }
 });
-
+ 
 // Update food (seller only, must be owner)
 router.put("/:id", authMiddleware, roleGuard(["seller"]), async (req, res) => {
   try {
