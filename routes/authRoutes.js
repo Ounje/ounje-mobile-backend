@@ -63,7 +63,7 @@ router.post("/login", async (req, res) => {
 
 router.post("/request-otp", async (req, res) =>{
   const { email } = req.body;
-  const otp = helper.generateOtp(6);
+  const otp = helper.generateOtp(4);
   console.log(`Generated OTP: ${otp}`);
   const newOtp = new OtpVerification({ email, otp });
   await newOtp.save();
@@ -75,7 +75,6 @@ router.post("/request-otp", async (req, res) =>{
   .catch((err) => {
     console.error(err);
   });
-  res.json({"message": "OTP Sent to email"})
   // const accountSid = process.env.TWILIO_ACCOUNT_SID;
   // const authToken = process.env.TWILIO_AUTH_TOKEN;
   // const client = require('twilio')(accountSid, authToken);
