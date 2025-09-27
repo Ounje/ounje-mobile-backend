@@ -91,7 +91,12 @@ router.post("/verify-otp", async (req, res) =>{
     return res.status(400).json({ success: false, message: "Invalid OTP" });
   }
   await OtpVerification.deleteMany({ email }); // Invalidate all OTPs for this email after successful verification
-  const otpSession = jwt.sign( { email }, process.env.JWT_SECRET, { expiresIn: "1d" })
+  const loginUser = await User.findOne({ email });
+  if(loginUser){
+    const otpSession = jwt.sign( { id: loginUser._id, role: loginUser.role }, process.env.JWT_SECRET, { expiresIn: "1d" })
+    return res.json({ success: true, otpSession, user: { id: loginUser._id, name: loginUser.name, email: loginUser.email, role: loginUser.role } });
+  }
+  const otpSession = jwt.sign( { email }, process.env.JWT_SECRET, { expiresIn: "30m" })
   res.json({ success: true, otpSession});
 }) 
 
