@@ -14,7 +14,7 @@ router.post("/register", async (req, res) => {
   try {
     console.log(req.body);
     // const { name, password, role, phone, location, email } = req.body;
-    const { name, password, role, phone, location, otpSession } = req.body;
+    const { name, role, phone, location, otpSession } = req.body;
     const decoded = jwt.verify(otpSession, process.env.JWT_SECRET);
     const email = decoded.email;
     console.log(decoded);
@@ -26,9 +26,8 @@ router.post("/register", async (req, res) => {
     const phoneExists = await User.findOne({ phone });
     if (phoneExists) return res.status(400).json({ error: "Phone number already in use" });
 
-    const hashed = await bcrypt.hash(password, 10);
     // const user = new User({ name, email, password: hashed, role, phone });
-    const user = new User({ name, email, password: hashed, role, phone, location });
+    const user = new User({ name, email, role, phone, location });
     await user.save();
 
     return res.json({ message: "Registered successfully", user: { id: user._id, name: user.name, email: user.email, role: user.role } });
