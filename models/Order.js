@@ -8,9 +8,9 @@ const orderItemSchema = new mongoose.Schema({
 });
 
 const orderSchema = new mongoose.Schema({
-  customer: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
-  seller: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
-  rider: { type: mongoose.Schema.Types.ObjectId, ref: "User", default: null }, // assigned rider
+  customer: { type: mongoose.Schema.Types.ObjectId, ref: "Customer", required: true },
+  vendor: { type: mongoose.Schema.Types.ObjectId, ref: "  Vendor", required: true },
+  rider: { type: mongoose.Schema.Types.ObjectId, ref: "Rider", default: null }, // assigned rider
   items: [orderItemSchema],
   totalPrice: Number,
   deliveryAddress: String,

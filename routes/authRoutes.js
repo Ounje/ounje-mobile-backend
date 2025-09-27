@@ -85,8 +85,8 @@ router.post("/request-otp", async (req, res) =>{
 })
 
 router.post("/verify-otp", async (req, res) =>{
-  const { email, code } = req.body; // user submits phone & OTP code
-  const record = await OtpVerification.findOne({ email, otp: code });
+  const { email, otp } = req.body; // user submits phone & OTP code
+  const record = await OtpVerification.findOne({ email, otp });
   if (!record) {
     return res.status(400).json({ success: false, message: "Invalid OTP" });
   }
