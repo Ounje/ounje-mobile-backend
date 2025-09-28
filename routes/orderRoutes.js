@@ -1,6 +1,6 @@
 const express = require("express");
 const Order = require("../models/Order");
-const Food = require("../models/Food");
+const Dish = require("../models/Dish");
 const { authMiddleware, roleGuard } = require("../middleware/auth");
 
 const router = express.Router();
@@ -13,10 +13,10 @@ router.post("/", authMiddleware, roleGuard(["customer"]), async (req, res) => {
     const builtItems = [];
     let total = 0;
     for (const it of items) {
-      const food = await Food.findById(it.food);
-      if (!food) return res.status(400).json({ error: `Food not found: ${it.food}` });
-      builtItems.push({ food: food._id, name: food.name, price: food.price, quantity: it.quantity || 1 });
-      total += food.price * (it.quantity || 1);
+      const dish = await Dish.findById(it.dish);
+      if (!dish) return res.status(400).json({ error: `dish not found: ${it.dish}` });
+      builtItems.push({ dish: dish._id, name: dish.name, price: dish.price, quantity: it.quantity || 1 });
+      total += dish.price * (it.quantity || 1);
     }
 
     const order = new Order({

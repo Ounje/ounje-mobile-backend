@@ -1,29 +1,31 @@
 const express = require("express");
-const Food = require("../models/Food");
+const Dish = require("../models/Dish");
 const { authMiddleware, roleGuard } = require("../middleware/auth");
 
 const router = express.Router();
 
-// Create food (seller only)
+// Create dish (seller only)
 router.post("/", authMiddleware, roleGuard(["seller"]), async (req, res) => {
   try {
     const { name, description, price, image } = req.body;
-    const food = new Food({ name, description, price, image, seller: req.user._id });
-    await food.save();
-    res.json(food);
+    const dish = new Dish({ name, description, price, image, seller: req.user._id });
+    await dish.save();
+    res.json(dish);
   } catch (err) {
     res.status(400).json({ error: err.message });
   }
 });
  
-// Update food (seller only, must be owner)
+
+
+// Update dish (seller only, must be owner)
 router.put("/:id", authMiddleware, roleGuard(["seller"]), async (req, res) => {
   try {
-    const food = await Food.findById(req.params.id);
-    if (!food) return res.status(404).json({ error: "Food not found" });
+    const dish = await Dish.findById(req.params.id);
+    if (!dish) return res.status(404).json({ error: "dish not found" });
 
     // Ensure only the owner can update
-    if (!food.seller.equals(req.user._id)) {
+    if (!dish.seller.equals(req.user._id)) {
       return res.status(403).json({ error: "Not owner" });
     }
 
@@ -31,26 +33,26 @@ router.put("/:id", authMiddleware, roleGuard(["seller"]), async (req, res) => {
     const allowedFields = ["name", "description", "price", "image"];
     allowedFields.forEach(field => {
       if (req.body[field] !== undefined) {
-        food[field] = req.body[field];
+        dish[field] = req.body[field];
       }
     });
 
-    await food.save();
-    res.json(food);
+    await dish.save();
+    res.json(dish);
   } catch (err) {
     res.status(400).json({ error: err.message });
   }
 });
 
 
-// Delete food (seller only)
+// Delete dish (seller only)
 router.delete("/:id", authMiddleware, roleGuard(["seller"]), async (req, res) => {
   try {
-    const food = await Food.findById(req.params.id);
-    if (!food) return res.status(404).json({ error: "Food not found" });
-    if (!food.seller.equals(req.user._id)) return res.status(403).json({ error: "Not owner" });
+    const dish = await Dish.findById(req.params.id);
+    if (!dish) return res.status(404).json({ error: "dish not found" });
+    if (!dish.seller.equals(req.user._id)) return res.status(403).json({ error: "Not owner" });
 
-    await food.deleteOne();
+    await dish.deleteOne();
     res.json({ message: "Deleted" });
   } catch (err) {
     res.status(400).json({ error: err.message });
@@ -59,14 +61,14 @@ router.delete("/:id", authMiddleware, roleGuard(["seller"]), async (req, res) =>
 
 // Public: list and view
 router.get("/", async (req, res) => {
-  const foods = await Food.find({ isActive: true }).populate("seller", "name location");
-  res.json(foods);
+  const dishs = await Dish.find({ isActive: true }).populate("seller", "name location");
+  res.json(dishs);
 });
 
 router.get("/:id", async (req, res) => {
-  const food = await Food.findById(req.params.id).populate("seller", "name location");
-  if (!food) return res.status(404).json({ error: "Not found" });
-  res.json(food);
+  const dish = await Dish.findById(req.params.id).populate("seller", "name location");
+  if (!dish) return res.status(404).json({ error: "Not found" });
+  res.json(dish);
 });
 
 module.exports = router;

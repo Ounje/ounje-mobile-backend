@@ -1,7 +1,7 @@
 const mongoose = require("mongoose");
 
 const orderItemSchema = new mongoose.Schema({
-  food: { type: mongoose.Schema.Types.ObjectId, ref: "Food", required: true },
+  dish: { type: mongoose.Schema.Types.ObjectId, ref: "Dish", required: true },
   name: String,
   price: Number,
   quantity: { type: Number, default: 1 }

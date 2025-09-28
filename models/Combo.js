@@ -4,9 +4,13 @@ const comboSchema = new mongoose.Schema({
     description: String,
     vendor: { type: mongoose.Schema.Types.ObjectId, ref: "Vendor" , required: true },
     price: { type: Number, required: true },
-    image: String,
+    img: {
+    data: Buffer,          
+    contentType: String,  
+    },
     isActive: { type: Boolean, default: true },
-    rating: { type: Number, default: 0 },
+    totalRating: { type: Number, default: 0 },
+    averageRating: { type: Number, default: 0 },
 }, { timestamps: true });
 
 module.exports = mongoose.model("Combo", comboSchema);

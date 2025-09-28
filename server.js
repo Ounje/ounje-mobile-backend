@@ -3,9 +3,12 @@ const mongoose = require("mongoose");
 const cors = require("cors");
 require("dotenv").config();
 const authRoutes = require("./routes/authRoutes");
-const foodRoutes = require("./routes/foodRoutes");
+const foodRoutes = require("./routes/dishRoutes");
 const orderRoutes = require("./routes/orderRoutes");
 const paymentRoutes = require("./routes/paymentRoutes");
+const vendorRoutes = require("./routes/vendorRoutes");
+const testRoutes = require("./routes/testRoutes");
+const comboRoutes = require("./routes/comboRoutes");
 
 const app = express();
 
@@ -16,6 +19,9 @@ app.use("/api/auth", authRoutes);
 app.use("/api/food", foodRoutes);
 app.use("/api/orders", orderRoutes);
 app.use("/api/payments", paymentRoutes);
+app.use("/api/vendors", vendorRoutes);
+app.use("/api/test", testRoutes);
+app.use("/api/combos", comboRoutes);
 
 console.log(process.env.FRONTEND_URL)
 
