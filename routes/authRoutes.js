@@ -20,6 +20,9 @@ router.post("/register", async (req, res) => {
     const email = decoded.email;
     if (!name || !email) return res.status(400).json({ error: "Missing fields" });
 
+    const emailExists = await User.findOne({ email })
+    if(emailExists) return res.status(400).json({error: "Email already in use"});
+
     const phoneExists = await User.findOne({ phone });
     if (phoneExists) return res.status(400).json({ error: "Phone number already in use" });
 
