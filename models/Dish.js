@@ -6,7 +6,7 @@ const dishSchema = new mongoose.Schema({
   category: String,
   vendor: { type: mongoose.Schema.Types.ObjectId, ref: "Vendor" , required: true },
   price: { type: Number, required: true },
-  image: String,
+  img: String,
   ordersCount: { type: Number, default: 0 },
   isActive: { type: Boolean, default: true },
   rating: { type: Number, default: 0 },

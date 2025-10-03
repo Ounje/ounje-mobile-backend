@@ -6,6 +6,7 @@ const userSchema = new mongoose.Schema({
   email: { type: String, unique: true, required: true },
   location: String,      // free text or geo JSON later
   phone: Number,
+  img: String,
 }, { timestamps: true,
   ...options
  });

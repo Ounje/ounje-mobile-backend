@@ -9,9 +9,10 @@ const Rider = require("../models/Rider");
 const helper = new NodemailerHelper(process.env.EMAIL_USER, process.env.EMAIL_PASS);
 
 
+
 const register = async(req,res) =>{
     try {
-        const { name, role, location, phone, otpSession, operatingArea } = req.body;
+        const { name, role, location, phone, otpSession, operatingArea} = req.body;
         const decoded = jwt.verify(otpSession, process.env.JWT_SECRET);
         const email = decoded.email;
         if (!name || !email) return res.status(400).json({ error: "Missing fields" });
@@ -24,11 +25,11 @@ const register = async(req,res) =>{
     
         let user;
         if(role === "customer"){
-          user = new Customer({ name, email, phone, location });
+          user = new Customer({ name, email, phone, location,   });
         }else if(role === "vendor"){
-          user = new Vendor({ name, email, phone, location });
+          user = new Vendor({ name, email, phone, location, });
         }else if(role === "rider"){
-          user = new Rider({ name, email, phone, location, operatingArea });
+          user = new Rider({ name, email, phone, location, operatingArea,  });
         }
         await user.save();
     
@@ -84,15 +85,16 @@ const requestOtp = async(req,res) =>{
 
 const verifyOtp = async(req,res) =>{
     const { email, otp } = req.body;
+    console.log(email, otp)
     const record = await OtpVerification.findOne({ email, otp });
     if (!record) {
     return res.status(400).json({ success: false, message: "Invalid OTP" });
     }
-    await OtpVerification.deleteMany({ email }); // Invalidate all OTPs for this email after successful verification
+    await OtpVerification.deleteMany({ email }); 
     const loginUser = await User.findOne({ email });
     if(loginUser){
-    const otpSession = jwt.sign( { id: loginUser._id, role: loginUser.role }, process.env.JWT_SECRET, { expiresIn: "1d" })
-    return res.json({ success: true, otpSession, user: { id: loginUser._id, name: loginUser.name, email: loginUser.email, role: loginUser.role } });
+    const userSession = jwt.sign( { id: loginUser._id, role: loginUser.role }, process.env.JWT_SECRET, { expiresIn: "1d" })
+    return res.json({ success: true, userSession, user: { id: loginUser._id, name: loginUser.name, email: loginUser.email, role: loginUser.role } });
     }
     const otpSession = jwt.sign( { email }, process.env.JWT_SECRET, { expiresIn: "30m" })
     res.json({ success: true, otpSession});
