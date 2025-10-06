@@ -7,6 +7,6 @@ const router = express.Router();
 router.get('/popular', getPopularVendors)
 
 
-router.get("/:id", getVendor);
+router.get("/profile/:id", getVendor);
 
 module.exports = router;

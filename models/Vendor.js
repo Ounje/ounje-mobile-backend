@@ -2,9 +2,13 @@ const User = require("./User");
 const mongoose = require("mongoose");
 
 const VendorSchema = new mongoose.Schema({
+  img: String,
+  description: String,
   totalRating: { type: Number, default: 0 },
   averageRating: { type: Number, default: 0 },
   totalOrders: { type: Number, default: 0 },
+  minPrice: Number,
+  closeTime: String,
   isAvailable: { type: Boolean, default: true },
 });
 

@@ -11,7 +11,7 @@ cloudinary.config({
 const storage = new CloudinaryStorage({
   cloudinary: cloudinary,
   params: {
-    folder: "foodapp",  // folder name in Cloudinary
+    folder: "foodapp",
     allowed_formats: ["jpg", "png", "jpeg", "webp"],
   },
 });

@@ -1,4 +1,5 @@
 const mongoose = require("mongoose");
+const OptionCategorySchema = require("./Option");
 
 const dishSchema = new mongoose.Schema({
   name: { type: String, required: true },
@@ -10,6 +11,12 @@ const dishSchema = new mongoose.Schema({
   ordersCount: { type: Number, default: 0 },
   isActive: { type: Boolean, default: true },
   rating: { type: Number, default: 0 },
+  time: {type: String, required: true},
+  likes: { type: Number, default: 0},
+  deliveryTime: String,
+  options: [OptionCategorySchema],
 }, { timestamps: true });
+
+
 
 module.exports = mongoose.model("Dish", dishSchema);
