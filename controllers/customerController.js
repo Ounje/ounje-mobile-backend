@@ -1,7 +1,7 @@
 const Customer = require("../models/Customer");
 
 const getCustomerProfile = async (req, res) => {
-    const customerId  = req.params.id;
+    const customerId  = req.user.id;
     try {
         const customer = await Customer.findById(customerId);
         if (!customer) {

@@ -13,4 +13,13 @@ const createDish = async (req, res) => {
 }
 
 
+const getDishes = async (req, res) => {
+  try {
+    const dishes = await Dish.find({ isActive: true }).populate("vendor", "name location");  
+    res.json(dishs);
+    } catch (err) {
+    res.status(500).json({ message: err.message });
+    }
+}
+
 module.exports = { createDish };

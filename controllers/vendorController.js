@@ -18,7 +18,7 @@ const getPopularVendors = async (req, res) => {
 
 const getVendor = async(req, res) => {
   try{
-    const vendorId = req.params.id;
+    const vendorId = req.user.id;
     const vendor = await Vendor.findById(vendorId).populate('menu');
     if(!vendor) return res.status(404).json({message: "Vendor not found"});
     res.json(vendor);

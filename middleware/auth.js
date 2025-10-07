@@ -9,11 +9,14 @@ const authMiddleware = async (req, res, next) => {
     const token = header.split(" ")[1];
     if (!token) return res.status(401).json({ error: "No token provided" });
 
-    const payload = jwt.verify(token, process.env.JWT_SECRET);
-    const user = await User.findById(payload.id);
-    if (!user) return res.status(401).json({ error: "User not found" });
+    let payload;
+    try {
+      payload = jwt.verify(token, process.env.JWT_SECRET);
+    } catch (err) {
+      return res.status(401).json({ error: "Invalid or expired token", details: err.message });
+    }
 
-    req.user = user;
+    req.user = payload;
     next();
   } catch (err) {
     return res.status(401).json({ error: "Unauthorized", details: err.message });

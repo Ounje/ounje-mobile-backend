@@ -85,7 +85,6 @@ const requestOtp = async(req,res) =>{
 
 const verifyOtp = async(req,res) =>{
     const { email, otp } = req.body;
-    console.log(email, otp)
     const record = await OtpVerification.findOne({ email, otp });
     if (!record) {
     return res.status(400).json({ success: false, message: "Invalid OTP" });
