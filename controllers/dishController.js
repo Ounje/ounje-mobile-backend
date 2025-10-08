@@ -3,8 +3,10 @@ const Dish = require("../models/Dish");
 
 const createDish = async (req, res) => {
     try {
-    const { name, description, category, price, options } = req.body;
-    const dish = new Dish({ name, description, category, price, options, vendor: req.user.id, img: req.file ? req.file.path : null });
+    const { name, description, category, price, options, time, minPrice, deliveryTime, likes, rating } = req.body;
+    const formattedOptions = JSON.parse(options);
+    const dish = new Dish({ name, description, category, price, options: formattedOptions,
+    vendor: req.user.id, img: req.file ? req.file.path : null, time, minPrice, deliveryTime, likes, rating });
     await dish.save();
     res.json(dish, { message: "Dish created successfully" });
     } catch (err) {

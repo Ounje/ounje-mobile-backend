@@ -14,6 +14,7 @@ const dishSchema = new mongoose.Schema({
   time: {type: String, required: true},
   likes: { type: Number, default: 0},
   deliveryTime: String,
+  minPrice: { type: Number, required: true },
   options: [OptionCategorySchema],
 }, { timestamps: true });
 
