@@ -16,7 +16,7 @@ const storage = new CloudinaryStorage({
     transformation: [{ width: 800, quality: "auto" }],
   },
 });
-
+ 
 const upload = multer({ storage });
 
 module.exports = { cloudinary, upload };
