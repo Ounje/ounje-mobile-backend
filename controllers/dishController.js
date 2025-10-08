@@ -24,4 +24,4 @@ const getDishes = async (req, res) => {
     }
 }
 
-module.exports = { createDish };
+module.exports = { createDish, getDishes };

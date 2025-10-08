@@ -13,6 +13,7 @@ const storage = new CloudinaryStorage({
   params: {
     folder: "foodapp",
     allowed_formats: ["jpg", "png", "jpeg", "webp"],
+    transformation: [{ width: 800, quality: "auto" }],
   },
 });
 
