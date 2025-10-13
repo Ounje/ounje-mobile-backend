@@ -2,7 +2,7 @@ const express = require("express");
 const Dish = require("../models/Dish");
 const { authMiddleware, roleGuard } = require("../middleware/auth");
 const { upload } = require("../config/cloudinary");
-const { createDish } = require("../controllers/dishController");
+const { createDish, getDishes, getSpecificDish } = require("../controllers/dishController");
 
 const router = express.Router();
 
@@ -53,15 +53,8 @@ router.delete("/:id", authMiddleware, roleGuard(["seller"]), async (req, res) =>
 });
 
 // Public: list and view
-router.get("/", async (req, res) => {
-  // const dishs = await Dish.find({ isActive: true }).populate("seller", "name location");
-  // res.json(dishs);
-});
+router.get("/", getDishes);
 
-router.get("/:id", async (req, res) => {
-  // const dish = await Dish.findById(req.params.id).populate("seller", "name location");
-  // if (!dish) return res.status(404).json({ error: "Not found" });
-  // res.json(dish);
-});
+router.get("/:id", getSpecificDish);
 
 module.exports = router;

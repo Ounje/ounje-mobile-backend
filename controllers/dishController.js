@@ -23,4 +23,15 @@ const getDishes = async (req, res) => {
     }
 }
 
-module.exports = { createDish, getDishes };
+const getSpecificDish = async (req, res) => {
+  const { id } = req.params;
+  try {
+    const dish = await Dish.findById(id).populate("vendor", "name location");  
+    if (!dish) return res.status(404).json({ message: "Dish not found" });
+    res.json(dish);
+  } catch (err) {
+  res.status(500).json({ message: err.message });
+  }
+}
+
+module.exports = { createDish, getDishes, getSpecificDish };
