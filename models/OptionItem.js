@@ -8,9 +8,5 @@ const OptionItemSchema = new Schema({
   image: { type: String },
 });
 
-const OptionCategorySchema = new Schema({
-  category: { type: String, required: true },
-  items: [OptionItemSchema],
-});
 
-module.exports = OptionCategorySchema; 
+module.exports = mongoose.model("OptionItem", OptionItemSchema); 

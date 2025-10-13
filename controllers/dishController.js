@@ -4,8 +4,7 @@ const Dish = require("../models/Dish");
 const createDish = async (req, res) => {
     try {
     const { name, description, category, price, options, time, minPrice, deliveryTime, likes, rating } = req.body;
-    const formattedOptions = JSON.parse(options);
-    const dish = new Dish({ name, description, category, price, options: formattedOptions,
+    const dish = new Dish({ name, description, category, price, options,
     vendor: req.user.id, img: req.file ? req.file.path : null, time, minPrice, deliveryTime, likes, rating });
     await dish.save();
     res.json(dish, { message: "Dish created successfully" });
@@ -18,7 +17,7 @@ const createDish = async (req, res) => {
 const getDishes = async (req, res) => {
   try {
     const dishes = await Dish.find({ isActive: true }).populate("vendor", "name location");  
-    res.json(dishs);
+    res.json(dishes);
     } catch (err) {
     res.status(500).json({ message: err.message });
     }
