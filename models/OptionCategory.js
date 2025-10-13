@@ -1,5 +1,6 @@
 const mongoose = require("mongoose");
 const { Schema } = mongoose;
+require("./OptionItem");
 
 const OptionCategorySchema = new Schema({
   category: { type: String, required: true },

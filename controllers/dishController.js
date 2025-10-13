@@ -1,5 +1,7 @@
 const Dish = require("../models/Dish");
-
+require("../models/OptionCategory"); 
+require("../models/OptionItem");      
+require("../models/Vendor");  
 
 const createDish = async (req, res) => {
     try {
@@ -26,7 +28,18 @@ const getDishes = async (req, res) => {
 const getSpecificDish = async (req, res) => {
   const { id } = req.params;
   try {
-    const dish = await Dish.findById(id).populate("vendor", "name location");  
+    const dish = await Dish.findById(id).populate({
+        path: "vendor",
+        select: "name location ", 
+      })
+      .populate({
+        path: "options",
+        populate: {
+          path: "items",
+          model: "OptionItem",
+        },
+      })
+      .lean(); 
     if (!dish) return res.status(404).json({ message: "Dish not found" });
     res.json(dish);
   } catch (err) {
@@ -34,4 +47,41 @@ const getSpecificDish = async (req, res) => {
   }
 }
 
-module.exports = { createDish, getDishes, getSpecificDish };
+const deleteDish = async (req, res) => {
+  const { id } = req.params;
+  try {
+    const dish = await Dish.findById(id);
+    if (!dish) return res.status(404).json({ error: "dish not found" });
+    if (!dish.vendor.equals(req.user.id)) return res.status(403).json({ error: "Not owner" });
+
+    await dish.deleteOne();
+    res.json({ message: "Deleted" });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+}
+
+const updateDish = async (req, res) => {
+  const { id } = req.params;
+  try {
+    const dish = await Dish.findById(id);
+    if (!dish) return res.status(404).json({ error: "dish not found" });
+
+    if (!dish.vendor.equals(req.user.id)) {
+      return res.status(403).json({ error: "Not owner" });
+    }
+    const allowedFields = ["name", "description", "price", "category", "deliveryTime", "minPrice", "isActive"];
+    allowedFields.forEach(field => {
+      if (req.body[field] !== undefined) {
+        dish[field] = req.body[field];
+      }
+    });
+
+    await dish.save();
+    res.json(dish);
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+}
+
+module.exports = { createDish, getDishes, getSpecificDish, deleteDish, updateDish };

@@ -33,7 +33,7 @@ const register = async(req,res) =>{
         }
         await user.save();
     
-        const userSession = jwt.sign({id: user._id}, process.env.JWT_SECRET, {expiresIn: "1d"})
+        const userSession = jwt.sign({id: user._id, role: user.role}, process.env.JWT_SECRET, {expiresIn: "1d"})
     
         return res.json({ message: "Registered successfully", user: { id: user._id, name: user.name, email: user.email, role: user.role }, userSession });
     }catch (err) {

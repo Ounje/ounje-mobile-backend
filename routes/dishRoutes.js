@@ -2,7 +2,7 @@ const express = require("express");
 const Dish = require("../models/Dish");
 const { authMiddleware, roleGuard } = require("../middleware/auth");
 const { upload } = require("../config/cloudinary");
-const { createDish, getDishes, getSpecificDish } = require("../controllers/dishController");
+const { createDish, getDishes, getSpecificDish, deleteDish, updateDish } = require("../controllers/dishController");
 
 const router = express.Router();
 
@@ -11,48 +11,14 @@ router.post("/create-dish", authMiddleware, upload.single("file") , createDish);
  
 
 
-// Update dish (seller only, must be owner)
-router.put("/:id", authMiddleware, roleGuard(["seller"]), async (req, res) => {
-  // try {
-  //   const dish = await Dish.findById(req.params.id);
-  //   if (!dish) return res.status(404).json({ error: "dish not found" });
-
-  //   // Ensure only the owner can update
-  //   if (!dish.seller.equals(req.user._id)) {
-  //     return res.status(403).json({ error: "Not owner" });
-  //   }
-
-  //   // Whitelist allowed fields
-  //   const allowedFields = ["name", "description", "price", "image"];
-  //   allowedFields.forEach(field => {
-  //     if (req.body[field] !== undefined) {
-  //       dish[field] = req.body[field];
-  //     }
-  //   });
-
-  //   await dish.save();
-  //   res.json(dish);
-  // } catch (err) {
-  //   res.status(400).json({ error: err.message });
-  // }
-});
+// Update dish (seller only, must be owner). This does not update image or options for now
+router.put("/:id", authMiddleware, roleGuard(["seller"]), updateDish);
 
 
 // Delete dish (seller only)
-router.delete("/:id", authMiddleware, roleGuard(["seller"]), async (req, res) => {
-  // try {
-  //   const dish = await Dish.findById(req.params.id);
-  //   if (!dish) return res.status(404).json({ error: "dish not found" });
-  //   if (!dish.seller.equals(req.user._id)) return res.status(403).json({ error: "Not owner" });
+router.delete("/:id", authMiddleware, roleGuard(["vendor"]), deleteDish);
 
-  //   await dish.deleteOne();
-  //   res.json({ message: "Deleted" });
-  // } catch (err) {
-  //   res.status(400).json({ error: err.message });
-  // }
-});
-
-// Public: list and view
+// Public: list and view 
 router.get("/", getDishes);
 
 router.get("/:id", getSpecificDish);

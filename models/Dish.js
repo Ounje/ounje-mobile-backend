@@ -1,10 +1,11 @@
 const mongoose = require("mongoose");
+require("./OptionCategory");
 
 const dishSchema = new mongoose.Schema({
   name: { type: String, required: true },
   description: String,
   category: String,
-  vendor: { type: mongoose.Schema.Types.ObjectId, ref: "Vendor" , required: true },
+  vendor: { type: mongoose.Schema.Types.ObjectId, ref: "vendor" , required: true },
   price: { type: Number, required: true },
   img: String,
   ordersCount: { type: Number, default: 0 },
