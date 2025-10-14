@@ -16,6 +16,7 @@ router.put("/:id", authMiddleware, roleGuard(["seller"]), updateDish);
 
 
 // Delete dish (seller only)
+//authmidlleware authenticates the jwt, role guard checks if the user has the "vendor" role. The role is contained in the jwt.
 router.delete("/:id", authMiddleware, roleGuard(["vendor"]), deleteDish);
 
 // Public: list and view 

@@ -13,6 +13,8 @@ const getPopularVendors = async (req, res) => {
 };
 
 //Vendor side
+//This is for getting the vendor's own details along with their menu
+//you can only access this route if you're logged in as a vendor
 const getVendor = async(req, res) => {
   try{
     const vendorId = req.user.id;
@@ -25,11 +27,20 @@ const getVendor = async(req, res) => {
 }
 
 //Customer side
+//with this you'll get the vendor details along with their menu and options
 const userGetVendor = async(req, res) => {
   try{
     const vendorId = req.params.id;
     const vendor = await Vendor.findById(vendorId)
-    .populate('menu')
+    .populate({
+        path: "menu",
+        populate: {
+          path: "options", 
+          populate: {
+            path: "items",
+          },
+        },
+      })
     .select("name location img totalRating averageRating totalOrders isAvailable description");
     if(!vendor) return res.status(404).json({message: "Vendor not found"});
     res.json(vendor);
