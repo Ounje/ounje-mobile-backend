@@ -1,5 +1,5 @@
 const express = require("express");
-const { register, login, requestOtp, verifyOtp } = require("../controllers/authController");
+const { register, login, requestOtp, verifyOtp, logOut, refresh } = require("../controllers/authController");
 const router = express.Router();
 
 
@@ -14,6 +14,12 @@ router.post("/request-otp", requestOtp)
 
 // Verify OTP
 router.post("/verify-otp", verifyOtp) 
+
+//Refresh token should be included in the body
+router.post("/logout", logOut);
+
+//The accessToken should be included in the body
+router.post("/refresh", refresh);
 
 
 module.exports = router;

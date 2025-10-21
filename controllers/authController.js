@@ -6,6 +6,8 @@ const OtpVerification = require("../models/OtpVerification");
 const Customer = require("../models/Customer");
 const Vendor = require("../models/Vendor");
 const Rider = require("../models/Rider");
+const { generateAccessToken, generateRefreshToken } = require("../utilis/generateToken");
+const RefreshToken = require("../models/RefreshToken");
 const helper = new NodemailerHelper(process.env.EMAIL_USER, process.env.EMAIL_PASS);
 
 
@@ -32,10 +34,14 @@ const register = async(req,res) =>{
           user = new Rider({ name, email, phone, location, operatingArea,  });
         }
         await user.save();
-    
-        const userSession = jwt.sign({id: user._id, role: user.role}, process.env.JWT_SECRET, {expiresIn: "1d"})
-    
-        return res.json({ message: "Registered successfully", user: { id: user._id, name: user.name, email: user.email, role: user.role }, userSession });
+  
+        const accessToken = generateAccessToken({id: user._id, role: user.role})
+        const refreshToken = generateRefreshToken({id: user._id, role: user.role})
+
+        await RefreshToken.create({ token: refreshToken, user: user._id, ip: req.ip });
+        
+        
+        return res.json({ message: "Registered successfully", user: { id: user._id, name: user.name, email: user.email, role: user.role }, accessToken, refreshToken  });
     }catch (err) {
         return res.status(500).json({ error: err.message });  
     }
@@ -90,13 +96,49 @@ const verifyOtp = async(req,res) =>{
     return res.status(400).json({ success: false, message: "Invalid OTP" });
     }
     await OtpVerification.deleteMany({ email }); 
+
+
     const loginUser = await User.findOne({ email });
     if(loginUser){
-    const userSession = jwt.sign( { id: loginUser._id, role: loginUser.role }, process.env.JWT_SECRET, { expiresIn: "1d" })
-    return res.json({ success: true, userSession, user: { id: loginUser._id, name: loginUser.name, email: loginUser.email, role: loginUser.role } });
+      const accessToken = generateAccessToken({id: loginUser._id, role: loginUser.role})
+      const refreshToken = generateRefreshToken({id: loginUser._id, role: loginUser.role})
+
+      await RefreshToken.create({ token: refreshToken, user: loginUser._id, ip: req.ip });
+      
+    return res.json({ success: true, accessToken, refreshToken ,user: { id: loginUser._id, name: loginUser.name, email: loginUser.email, role: loginUser.role } });
     }
     const otpSession = jwt.sign( { email }, process.env.JWT_SECRET, { expiresIn: "30m" })
     res.json({ success: true, otpSession});
+}
+
+const logOut = async (req, res) => {
+  const token = req.body.refreshToken;
+  if (!token) return res.sendStatus(204);
+
+  try {
+    await RefreshToken.deleteOne({ token });
+    res.json({ message: "Logged out successfully" });
+  } catch {
+    res.status(500).json({ message: "Logout failed" });
+  }
+};
+
+const refresh = async (req, res) =>{
+  const token = req.body.refreshToken;
+  if (!token) return res.status(401).json({ message: "Refresh token required" });
+
+  const refreshExists = await RefreshToken.findOne({ token });
+  if (!refreshExists) return res.status(403).json({ message: "Invalid refresh token" });
+  try{
+    const decoded = jwt.verify(token, process.env.REFRESH_SECRET);
+    const user = await User.findById(decoded.id);
+    if (!user) return res.status(401).json({ message: "User not found" });
+
+    const newAccessToken = generateAccessToken({ id: user._id, role: user.role });
+    res.json({ accessToken: newAccessToken });
+  } catch (err) {
+    res.status(401).json({ message: err.message , name: err.name});
+  }
 }
 
 module.exports = {
@@ -104,4 +146,6 @@ module.exports = {
     login,
     requestOtp,
     verifyOtp,
+    logOut,
+    refresh,
 }
