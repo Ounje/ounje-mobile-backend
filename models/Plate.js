@@ -1,25 +1,17 @@
 const mongoose = require("mongoose");
-const { Schema } = mongoose;
-const OptionCategorySchema = require("./Option");
+require("./FoodCategory");
 
-const PlateDetailsSchema = new Schema({
-  category: { type: String },
-  closeTime: { type: String },
-  rating: { type: Number, default: 0 },
-  minPrice: { type: Number },
-  deliveryTime: { type: String },
-  options: [OptionCategorySchema],
-});
-
-const PlateSchema = new Schema({
-  id: { type: String, required: true },
+const plateSchema = new mongoose.Schema({
   name: { type: String, required: true },
-  items: { type: String },
-  time: { type: String },
-  likes: { type: Number, default: 0 },
+  customer: { type: mongoose.Schema.Types.ObjectId, ref: "customer" , required: true },
   price: { type: Number, required: true },
-  image: { type: String },
-  details: PlateDetailsSchema,
-});
+  img: String,
+  ordersCount: { type: Number, default: 0 },
+  rating: { type: Number, default: 0 },
+  time: {type: String, required: true},
+  likes: { type: Number, default: 0},
+  deliveryTime: String,
+  options: [{ type: mongoose.Schema.Types.ObjectId, ref: 'FoodCategory' }],
+}, { timestamps: true });
 
-module.exports = PlateSchema;
+module.exports =mongoose.model("Plate", plateSchema);

@@ -19,6 +19,13 @@ VendorSchema.virtual("menu", {
   localField: "_id",      
   foreignField: "vendor", 
 });
+
+VendorSchema.virtual("foodItems", {
+  ref: "FoodItem",        
+  localField: "_id",      
+  foreignField: "vendor", 
+});
+
 VendorSchema.set("toObject", { virtuals: true });
 VendorSchema.set("toJSON", { virtuals: true });
 

@@ -1,11 +1,14 @@
+// models/Option.js
 const mongoose = require("mongoose");
+const { Schema } = mongoose;
 
-const foodItemSchema = new mongoose.Schema({
-    name: { type: String, required: true },
-    description: String,
-    category: String,
-    vendor: { type: mongoose.Schema.Types.ObjectId, ref: "Vendor" , required: true },
-    price: { type: Number, required: true },
-    image: String,
-    isActive: { type: Boolean, default: true },
-}, { timestamps: true });
+const FoodItemSchema = new Schema({
+  name: { type: String, required: true },
+  price: { type: Number, required: true },
+  image: { type: String },
+  vendor: { type: Schema.Types.ObjectId, ref: "Vendor", required: true },
+  category: {type: String, required: true},
+});
+
+
+module.exports = mongoose.model("FoodItem", FoodItemSchema); 

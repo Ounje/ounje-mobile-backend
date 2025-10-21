@@ -1,6 +1,7 @@
 const Dish = require("../models/Dish");
-require("../models/OptionCategory"); 
-require("../models/OptionItem");      
+const FoodItem = require("../models/FoodItem");
+require("../models/FoodCategory"); 
+require("../models/FoodItem");      
 require("../models/Vendor");  
 
 const createDish = async (req, res) => {
@@ -31,13 +32,6 @@ const getSpecificDish = async (req, res) => {
     const dish = await Dish.findById(id).populate({
         path: "vendor",
         select: "name location ", 
-      })
-      .populate({
-        path: "options",
-        populate: {
-          path: "items",
-          model: "OptionItem",
-        },
       })
       .lean(); 
     if (!dish) return res.status(404).json({ message: "Dish not found" });
@@ -84,4 +78,40 @@ const updateDish = async (req, res) => {
   }
 }
 
-module.exports = { createDish, getDishes, getSpecificDish, deleteDish, updateDish };
+const allItems = async (req, res) => {
+  try {
+    const items = await FoodItem.find();
+    res.json(items);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+
+const getFoodItemsByCategory = async (req,res) => {
+  const category = req.params.category;
+  try {
+    const items = await FoodItem.find({
+      category: { $regex: new RegExp(`^${category}$`, "i") }
+    });
+    
+    if (!items.length) {
+      return res.status(404).json({ message: "No food items found in this category" });
+    }
+    res.json(items);
+  } catch (err) {
+    throw new Error(err.message);
+  } 
+};
+
+const getFoodItemById = async (req, res) => {
+  const { id } = req.params;
+  try {
+    const item = await FoodItem.findById(id);
+    if (!item) return res.status(404).json({ message: "Item not found" });
+    res.json(item);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+
+module.exports = { createDish, getDishes, getSpecificDish, deleteDish, updateDish, getFoodItemsByCategory, allItems , getFoodItemById};

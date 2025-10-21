@@ -1,9 +1,8 @@
 const mongoose = require("mongoose");
-require("./OptionCategory");
 
 const dishSchema = new mongoose.Schema({
   name: { type: String, required: true },
-  description: String,
+  description: [String],
   category: String,
   vendor: { type: mongoose.Schema.Types.ObjectId, ref: "vendor" , required: true },
   price: { type: Number, required: true },
@@ -15,7 +14,6 @@ const dishSchema = new mongoose.Schema({
   likes: { type: Number, default: 0},
   deliveryTime: String,
   minPrice: { type: Number, required: true },
-  options: [{ type: mongoose.Schema.Types.ObjectId, ref: 'OptionCategory' }],
 }, { timestamps: true });
 
 

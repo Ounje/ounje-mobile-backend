@@ -7,7 +7,6 @@ const dishRoutes = require("./routes/dishRoutes");
 const orderRoutes = require("./routes/orderRoutes");
 const paymentRoutes = require("./routes/paymentRoutes");
 const vendorRoutes = require("./routes/vendorRoutes");
-const comboRoutes = require("./routes/comboRoutes");
 const customerRoutes = require("./routes/customerRoutes");
 
 const app = express();
@@ -21,8 +20,8 @@ app.use("/api/dishes", dishRoutes);
 app.use("/api/orders", orderRoutes);
 app.use("/api/payments", paymentRoutes);
 app.use("/api/vendors", vendorRoutes);
-app.use("/api/combos", comboRoutes);
 app.use("/api/customers", customerRoutes);
+// app.use("/api/test", require("./routes/testRoutes"));
 
 
 console.log(process.env.FRONTEND_URL)

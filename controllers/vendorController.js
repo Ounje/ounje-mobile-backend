@@ -32,15 +32,8 @@ const userGetVendor = async(req, res) => {
   try{
     const vendorId = req.params.id;
     const vendor = await Vendor.findById(vendorId)
-    .populate({
-        path: "menu",
-        populate: {
-          path: "options", 
-          populate: {
-            path: "items",
-          },
-        },
-      })
+    .populate("menu")
+    .populate("foodItems")
     .select("name location img totalRating averageRating totalOrders isAvailable description");
     if(!vendor) return res.status(404).json({message: "Vendor not found"});
     res.json(vendor);
