@@ -5,7 +5,7 @@ const { Schema } = mongoose;
 const FoodItemSchema = new Schema({
   name: { type: String, required: true },
   price: { type: Number, required: true },
-  image: { type: String },
+  img: { type: String },
   vendor: { type: Schema.Types.ObjectId, ref: "Vendor", required: true },
   category: {type: String, required: true},
 });

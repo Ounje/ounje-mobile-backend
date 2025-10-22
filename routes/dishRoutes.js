@@ -24,7 +24,7 @@ router.get("/dish/:id", getSpecificDish);
 
 
 // Update dish (seller only, must be owner). This does not update image or options for now
-router.put("/dish/:id", authMiddleware, roleGuard(["seller"]), updateDish);
+router.put("/dish/:id", authMiddleware, roleGuard(["seller"]), updateDish); 
 
 
 // Delete dish (seller only)
