@@ -1,10 +1,10 @@
-// const express = require("express");
-// const router = express.Router();
+const express = require("express");
+const { buildPlate } = require("../controllers/plateContoller");
+const router = express.Router();
 
-// router.post("/build-plate", async (req, res) => {
-// })
-
-
+router.post("/build-plate",buildPlate)
 
 
-// module.exports = router;
+
+
+module.exports = router;
