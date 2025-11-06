@@ -8,15 +8,43 @@ cloudinary.config({
   api_secret: process.env.CLOUDINARY_API_SECRET,
 });
 
-const storage = new CloudinaryStorage({
+const foodItemsStorage = new CloudinaryStorage({
   cloudinary: cloudinary,
   params: {
-    folder: "foodapp",
+    folder: "food-items",
     allowed_formats: ["jpg", "png", "jpeg", "webp"],
     transformation: [{ width: 800, quality: "auto" }],
   },
 });
- 
-const upload = multer({ storage });
 
-module.exports = { cloudinary, upload };
+const dishesStorage = new CloudinaryStorage({
+  cloudinary: cloudinary,
+  params: {
+    folder: "dishes",
+    allowed_formats: ["jpg", "png", "jpeg", "webp"],
+    transformation: [{ width: 800, quality: "auto" }],
+  },
+});
+
+const usersStorage = new CloudinaryStorage({
+  cloudinary: cloudinary,
+  params: {
+    folder: "users",
+    allowed_formats: ["jpg", "png", "jpeg", "webp"],
+    transformation: [{ width: 500, height: 500, crop: "thumb", gravity: "face", quality: "auto" }],
+  },
+});
+
+const deleteImage = async (publicId) => {
+  try {
+    await cloudinary.uploader.destroy(publicId);
+  } catch (error) {
+    console.error("Error deleting image from Cloudinary:", error);
+  }
+};
+ 
+const userUpload = multer({storage: usersStorage });
+const dishUpload = multer({ storage: dishesStorage });
+const foodItemUpload = multer({ storage: foodItemsStorage });
+
+module.exports = { cloudinary, userUpload, dishUpload, foodItemUpload, deleteImage };

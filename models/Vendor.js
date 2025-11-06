@@ -10,6 +10,8 @@ const VendorSchema = new mongoose.Schema({
   minPrice: Number,
   closeTime: String,
   isAvailable: { type: Boolean, default: true },
+  minDeliveryFee: Number,
+  closingTime: String,
 });
 
 

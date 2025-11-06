@@ -27,9 +27,9 @@ const getDishes = async (req, res) => {
 }
 
 const getSpecificDish = async (req, res) => {
-  const { id } = req.params;
+  const { dishId } = req.params;
   try {
-    const dish = await Dish.findById(id).populate({
+    const dish = await Dish.findById(dishId).populate({
         path: "vendor",
         select: "name location ", 
       })
@@ -42,9 +42,9 @@ const getSpecificDish = async (req, res) => {
 }
 
 const deleteDish = async (req, res) => {
-  const { id } = req.params;
+  const { dishId } = req.params;
   try {
-    const dish = await Dish.findById(id);
+    const dish = await Dish.findById(dishId);
     if (!dish) return res.status(404).json({ error: "dish not found" });
     if (!dish.vendor.equals(req.user.id)) return res.status(403).json({ error: "Not owner" });
 
@@ -56,9 +56,9 @@ const deleteDish = async (req, res) => {
 }
 
 const updateDish = async (req, res) => {
-  const { id } = req.params;
+  const { dishId } = req.params;
   try {
-    const dish = await Dish.findById(id);
+    const dish = await Dish.findById(dishId);
     if (!dish) return res.status(404).json({ error: "dish not found" });
 
     if (!dish.vendor.equals(req.user.id)) {
@@ -104,9 +104,9 @@ const getFoodItemsByCategory = async (req,res) => {
 };
 
 const getFoodItemById = async (req, res) => {
-  const { id } = req.params;
+  const { foodItemId } = req.params;
   try {
-    const item = await FoodItem.findById(id);
+    const item = await FoodItem.findById(foodItemId);
     if (!item) return res.status(404).json({ message: "Item not found" });
     res.json(item);
   } catch (err) {
@@ -114,4 +114,31 @@ const getFoodItemById = async (req, res) => {
   }
 };
 
-module.exports = { createDish, getDishes, getSpecificDish, deleteDish, updateDish, getFoodItemsByCategory, allItems , getFoodItemById};
+const createFoodItem = async (req, res) => {
+  try {
+    const { name, category, price, description, sellingUnit } = req.body;
+    const foodItem = new FoodItem({ name, category, price, description, sellingUnit,
+    vendor: req.user.id, img: req.file ? req.file.path : null });
+    await foodItem.save();
+    res.json(foodItem, { message: "Food item created successfully" });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+};
+
+const deleteFoodItem = async (req, res) => {
+  const { foodItemId } = req.params;
+  try {
+    const foodItem = await FoodItem.findById(foodItemId);
+    if (!foodItem) return res.status(404).json({ error: "Food item not found" });
+    if (!foodItem.vendor.equals(req.user.id)) return res.status(403).json({ error: "Not owner" });
+    await foodItem.deleteOne();
+    res.json({ message: "Deleted" });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+};
+
+module.exports = { createDish, getDishes, getSpecificDish, deleteDish, updateDish, getFoodItemsByCategory, allItems , getFoodItemById,
+  createFoodItem, deleteFoodItem,
+};
