@@ -34,7 +34,7 @@ const userGetVendor = async(req, res) => {
     const vendor = await Vendor.findById(vendorId)
     .populate("menu")
     .populate("foodItems")
-    .select("name location img totalRating averageRating totalOrders isAvailable description");
+    .select("-email -role -img -__v -createdAt -updatedAt ");
     if(!vendor) return res.status(404).json({message: "Vendor not found"});
     res.json(vendor);
   }catch(err){
