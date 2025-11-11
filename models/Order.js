@@ -1,29 +1,69 @@
 const mongoose = require("mongoose");
+const Plate = require("./Plate");
 
 const orderItemSchema = new mongoose.Schema({
-  food: { type: mongoose.Schema.Types.ObjectId, ref: "Food", required: true },
+  dish: { type: mongoose.Schema.Types.ObjectId, ref: "Dish", required: true },
   name: String,
   price: Number,
   quantity: { type: Number, default: 1 }
 });
 
 const orderSchema = new mongoose.Schema({
-  customer: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
-  seller: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
-  rider: { type: mongoose.Schema.Types.ObjectId, ref: "User", default: null }, // assigned rider
-  items: [orderItemSchema],
-  totalPrice: Number,
-  deliveryAddress: String,
+  user: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "User",
+    required: true
+  },
+  vendor: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "Vendor",
+    required: true
+  },
+  items: [
+    {
+      itemType: {
+        type: String,
+        enum: ["FoodItem", "Dish", "Plate"],
+        required: true
+      },
+      item: {
+        type: mongoose.Schema.Types.ObjectId,
+        required: true,
+        refPath: "items.itemType" // <-- Dynamic reference
+      },
+      quantity: {
+        type: Number,
+        default: 1,
+        min: 1
+      },
+      price: {
+        type: Number,
+        required: true
+      },
+      notes: String // optional instructions
+    }
+  ],
+  totalPrice: {
+    type: Number,
+    required: true
+  },
   status: {
     type: String,
-    enum: ["pending", "confirmed", "assigned", "out_for_delivery", "delivered", "cancelled"],
+    enum: ["pending", "accepted", "in_progress", "completed", "cancelled"],
     default: "pending"
   },
-  riderLocation: {
-    lat: Number,
-    lng: Number,
-    updatedAt: Date
+  deliveryAddress: {
+    type: String
+  },
+  paymentStatus: {
+    type: String,
+    enum: ["unpaid", "paid", "refunded"],
+    default: "unpaid"
+  },
+  createdAt: {
+    type: Date,
+    default: Date.now
   }
-}, { timestamps: true });
+});
 
 module.exports = mongoose.model("Order", orderSchema);
