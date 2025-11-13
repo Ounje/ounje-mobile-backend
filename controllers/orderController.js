@@ -4,27 +4,55 @@ const Dish = require("../models/Dish");
 const FoodItem = require("../models/FoodItem");
 const Plate = require("../models/Plate");
 
+// ...
 // Create a new order
 exports.createOrder = async (req, res) => {
   try {
     const { items, vendorId, deliveryAddress } = req.body;
-    const userId = req.user._id; // from authMiddleware
+    const userId = req.user._id;
 
     if (!items || items.length === 0) {
       return res.status(400).json({ message: "No items in the order." });
     }
 
     let totalPrice = 0;
+    const orderItems = [];
+    const models = { FoodItem, Dish, Plate }; // Map itemType strings to Mongoose Models
 
-    // Calculate total price dynamically
     for (const item of items) {
-      totalPrice += item.price * (item.quantity || 1);
+      const { itemId, itemType, quantity = 1, notes } = item;
+
+      // 1. Basic Validation
+      if (!itemId || !itemType || !models[itemType]) {
+        return res.status(400).json({ message: `Invalid item structure for item: ${JSON.stringify(item)}` });
+      }
+
+      // 2. Fetch the actual product from the database
+      const ProductModel = models[itemType];
+      const product = await ProductModel.findById(itemId).select("price");
+
+      if (!product) {
+        return res.status(404).json({ message: `Product not found for ID: ${itemId}` });
+      }
+
+      const itemPrice = product.price;
+      const calculatedItemTotal = itemPrice * quantity;
+      totalPrice += calculatedItemTotal;
+
+      // 3. Construct the order item to match the Mongoose schema
+      orderItems.push({
+        itemType,
+        item: itemId, // This is the ObjectId reference
+        quantity,
+        price: itemPrice, // Store the price at the time of order
+        notes
+      });
     }
 
     const order = await Order.create({
       user: userId,
       vendor: vendorId,
-      items,
+      items: orderItems, // <-- Use the validated/mapped array
       totalPrice,
       deliveryAddress,
       status: "pending",
@@ -35,8 +63,8 @@ exports.createOrder = async (req, res) => {
       order,
     });
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ message: "Failed to create order", error });
+    console.error("Order creation error:", error); // <-- Use a clear message to track 500s
+    res.status(500).json({ message: "Failed to create order", error: error.message }); // <-- Return error.message for debug
   }
 };
 
