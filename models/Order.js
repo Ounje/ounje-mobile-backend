@@ -63,27 +63,4 @@ const orderSchema = new mongoose.Schema({
 });
 
 
-orderSchema.pre("save", async function (next) {
-  let total = 0;
-
-  for (let entry of this.items) {
-    const { itemType, item, quantity } = entry;
-    const Model = itemType === "FoodItem" 
-      ? FoodItem 
-      : itemType === "Dish"
-      ? Dish
-      : Plate;
-
-    const found = await Model.findById(item);
-    if (!found) return next(new Error(`${itemType} not found`));
-
-    entry.price = found.price; 
-    total += found.price * (entry.quantity || 1);
-  }
-
-  this.totalPrice = total;
-  next();
-});
-
-
 module.exports = mongoose.model("Order", orderSchema);
