@@ -1,10 +1,15 @@
 const express = require("express");
-const { buildPlate } = require("../controllers/plateContoller");
+const { buildPlate, getAllPlates, getSpecificPlate, deletePlate } = require("../controllers/plateContoller");
+const { roleGuard, authMiddleware } = require("../middleware/auth");
+const { plateUpload } = require("../config/cloudinary");
 const router = express.Router();
 
-router.post("/build-plate",buildPlate)
+router.post("/build-plate", authMiddleware, plateUpload.single("file") ,buildPlate)
 
+router.get("/get-plates", getAllPlates)
 
+router.get("/plate/:plateId", getSpecificPlate)
 
+router.delete("/plate/:plateId", authMiddleware ,roleGuard(["customer"]) ,deletePlate)
 
 module.exports = router;

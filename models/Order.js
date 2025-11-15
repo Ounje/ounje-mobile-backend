@@ -1,17 +1,13 @@
 const mongoose = require("mongoose");
 const Plate = require("./Plate");
+const FoodItem = require("./FoodItem");
+const Dish = require("./Dish");
 
-const orderItemSchema = new mongoose.Schema({
-  dish: { type: mongoose.Schema.Types.ObjectId, ref: "Dish", required: true },
-  name: String,
-  price: Number,
-  quantity: { type: Number, default: 1 }
-});
 
 const orderSchema = new mongoose.Schema({
-  user: {
+  customer: {
     type: mongoose.Schema.Types.ObjectId,
-    ref: "User",
+    ref: "customer",
     required: true
   },
   vendor: {
@@ -62,8 +58,32 @@ const orderSchema = new mongoose.Schema({
   },
   createdAt: {
     type: Date,
-    default: Date.now
+    default: Date.now()
   }
 });
+
+
+orderSchema.pre("save", async function (next) {
+  let total = 0;
+
+  for (let entry of this.items) {
+    const { itemType, item, quantity } = entry;
+    const Model = itemType === "FoodItem" 
+      ? FoodItem 
+      : itemType === "Dish"
+      ? Dish
+      : Plate;
+
+    const found = await Model.findById(item);
+    if (!found) return next(new Error(`${itemType} not found`));
+
+    entry.price = found.price; 
+    total += found.price * (entry.quantity || 1);
+  }
+
+  this.totalPrice = total;
+  next();
+});
+
 
 module.exports = mongoose.model("Order", orderSchema);

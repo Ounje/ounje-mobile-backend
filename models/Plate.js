@@ -10,7 +10,7 @@ const plateSchema = new mongoose.Schema({
   rating: { type: Number, default: 0 },
   timeToMake: {type: String, required: true},
   likes: { type: Number, default: 0},
-  options: [{ type: mongoose.Schema.Types.ObjectId, ref: 'FoodIem' }],
+  items: [{ type: mongoose.Schema.Types.ObjectId, ref: 'FoodItem' }],
 }, { timestamps: true });
 
 module.exports =mongoose.model("Plate", plateSchema);

@@ -35,6 +35,15 @@ const usersStorage = new CloudinaryStorage({
   },
 });
 
+const platesStorage = new CloudinaryStorage({
+  cloudinary: cloudinary,
+  params: {
+    folder: "plates",
+    allowed_formats: ["jpg", "png", "jpeg", "webp"],
+    transformation: [{ width: 800, quality: "auto" }],
+  },
+});
+
 const deleteImage = async (publicId) => {
   try {
     await cloudinary.uploader.destroy(publicId);
@@ -46,5 +55,6 @@ const deleteImage = async (publicId) => {
 const userUpload = multer({storage: usersStorage });
 const dishUpload = multer({ storage: dishesStorage });
 const foodItemUpload = multer({ storage: foodItemsStorage });
+const plateUpload = multer({ storage: platesStorage });
 
-module.exports = { cloudinary, userUpload, dishUpload, foodItemUpload, deleteImage };
+module.exports = { cloudinary, userUpload, dishUpload, foodItemUpload, plateUpload ,deleteImage };
