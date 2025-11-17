@@ -71,7 +71,7 @@ exports.createOrder = async (req, res) => {
 // Get all orders of the logged-in customer
 exports.getMyOrders = async (req, res) => {
   try {
-    const orders = await Order.find({ user: req.user._id })
+    const orders = await Order.find({ user: req.user.id })
       .populate("vendor", "name")
       .populate("items.item");
 
@@ -91,7 +91,7 @@ exports.getOrderById = async (req, res) => {
     if (!order) return res.status(404).json({ message: "Order not found" });
 
     // Ensure only the owner can access their order
-    if (order.user.toString() !== req.user._id.toString()) {
+    if (order.user.toString() !== req.user.id.toString()) {
       return res.status(403).json({ message: "Unauthorized" });
     }
 
@@ -110,7 +110,7 @@ exports.updateOrderStatus = async (req, res) => {
     if (!order) return res.status(404).json({ message: "Order not found" });
 
     // Only allow customer to cancel
-    if (status === "cancelled" && order.user.toString() !== req.user._id.toString()) {
+    if (status === "cancelled" && order.user.toString() !== req.user.id.toString()) {
       return res.status(403).json({ message: "Unauthorized" });
     }
 
