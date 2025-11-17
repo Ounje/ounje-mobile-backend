@@ -9,7 +9,8 @@ const Plate = require("../models/Plate");
 exports.createOrder = async (req, res) => {
   try {
     const { items, vendorId, deliveryAddress } = req.body;
-    const userId = req.user._id;
+    console.log("Received order data:", req.body); // <-- Debug log
+    const userId = req.user.id;
 
     if (!items || items.length === 0) {
       return res.status(400).json({ message: "No items in the order." });
@@ -34,7 +35,6 @@ exports.createOrder = async (req, res) => {
       if (!product) {
         return res.status(404).json({ message: `Product not found for ID: ${itemId}` });
       }
-
       const itemPrice = product.price;
       const calculatedItemTotal = itemPrice * quantity;
       totalPrice += calculatedItemTotal;
@@ -50,7 +50,7 @@ exports.createOrder = async (req, res) => {
     }
 
     const order = await Order.create({
-      user: userId,
+      customer: userId,
       vendor: vendorId,
       items: orderItems, // <-- Use the validated/mapped array
       totalPrice,
