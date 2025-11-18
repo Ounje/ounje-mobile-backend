@@ -2,15 +2,12 @@ const jwt = require("jsonwebtoken");
 
 
 const generateAccessToken = (payload) =>{
-    // Using JWT_SECRET to match the .env file
-    const accessToken = jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: "1d" }); // Changed to JWT_SECRET
+    const accessToken = jwt.sign(payload, process.env.ACCESS_SECRET, { expiresIn: "1d" });
     return accessToken;
 }
 
-
 const generateRefreshToken = (payload) =>{
-    // REFRESH_SECRET is correct here
-    const refreshToken = jwt.sign(payload, process.env.REFRESH_SECRET, { expiresIn: "7d" }); // Reduced expiration for safety
+    const refreshToken = jwt.sign(payload, process.env.REFRESH_SECRET, { expiresIn: "30d" });
     return refreshToken;
 }
 
