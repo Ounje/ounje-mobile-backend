@@ -10,7 +10,7 @@ const authMiddleware = async (req, res, next) => {
     if (!token) return res.status(401).json({ error: "No token provided" });
 
     let payload;
-      payload = jwt.verify(token, process.env.ACCESS_SECRET)
+      payload = jwt.verify(token, process.env.JWT_SECRET)
 
     req.user = payload;
     next();
