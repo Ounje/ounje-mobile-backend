@@ -23,7 +23,7 @@ app.use("/api/payments", paymentRoutes);
 app.use("/api/vendors", vendorRoutes);
 app.use("/api/customers", customerRoutes);
 app.use("/api/plates", plateRoutes);
-// app.use("/api/test", require("./routes/testRoutes"));
+app.use("/api/test", require("./routes/testRoutes"));
 
 
 console.log(process.env.FRONTEND_URL)
