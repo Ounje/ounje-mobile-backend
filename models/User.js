@@ -4,7 +4,10 @@ const options = {discriminatorKey: "role", collection: "users"}
 const userSchema = new mongoose.Schema({
   name: { type: String, required: true },
   email: { type: String, unique: true, required: true },
-  location: String,      // free text or geo JSON later
+  location: {
+    type: { type: String, enum: ["Point"], default: "Point" },
+    coordinates: { type: [Number], index: "2dsphere" }
+  },
   phone: Number,
   img: String,
 }, { timestamps: true,
