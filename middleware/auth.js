@@ -10,7 +10,7 @@ const authMiddleware = async (req, res, next) => {
     if (!token) return res.status(401).json({ error: "No token provided" });
 
     let payload;
-      payload = jwt.verify(token, process.env.JWT_SECRET)
+      payload = jwt.verify(token, process.env.ACCESS_SECRET)
 
     req.user = payload;
     next();
@@ -28,4 +28,12 @@ const roleGuard = (allowedRoles = []) => (req, res, next) => {
   next();
 };
 
-module.exports = { authMiddleware, roleGuard };
+const ipWhitelist = (allowedIps = []) => (req, res, next) => {
+  const requestIp = req.ip || req.connection.remoteAddress;
+  if (!allowedIps.includes(requestIp)) {
+    return res.status(403).json({ error: "Forbidden: IP not allowed" });
+  }
+  next();
+}
+
+module.exports = { authMiddleware, roleGuard, ipWhitelist };

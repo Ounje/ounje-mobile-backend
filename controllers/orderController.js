@@ -13,8 +13,8 @@ const db = require('../config/db'); // Use your actual database config/helper if
 exports.createOrder = async (req, res) => {
   try {
     const { items, vendorId, deliveryAddress } = req.body;
+    console.log("Received order data:", req.body); // <-- Debug log
     const userId = req.user.id;
-    console.log(userId);
 
     if (!items || items.length === 0) {
       return res.status(400).json({ message: "No items in the order." });
@@ -53,7 +53,7 @@ exports.createOrder = async (req, res) => {
       // 3. Construct the order item to match the Mongoose schema
       orderItems.push({
         itemType,
-        itemId: itemId, // This is the ObjectId reference
+        item: itemId, // This is the ObjectId reference
         quantity,
         price: itemPrice, // Store the price at the time of order
         notes

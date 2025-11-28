@@ -17,15 +17,15 @@ const orderSchema = new mongoose.Schema({
   },
   items: [
     {
-      itemId: {
-        type: mongoose.Schema.Types.ObjectId,
-        required: true,
-        refPath: "items.itemType" // <-- Dynamic reference
-      },
       itemType: {
         type: String,
         enum: ["FoodItem", "Dish", "Plate"],
         required: true
+      },
+      item: {
+        type: mongoose.Schema.Types.ObjectId,
+        required: true,
+        refPath: "items.itemType" // <-- Dynamic reference
       },
       quantity: {
         type: Number,

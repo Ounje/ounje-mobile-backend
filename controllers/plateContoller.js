@@ -2,11 +2,12 @@ const Plate = require("../models/Plate");
 
 const buildPlate = async (req, res) => {
     try {
-        const { name, price, timeToMake, items } = req.body;
+        const { name, price, timeToMake, items, vendor } = req.body;
         // Logic to build a plate using plateData
         const newPlate = await Plate.create({ 
             name, 
             customer: req.user.id, 
+            vendor,
             price,
             img: req.file ? req.file.path : undefined,
             timeToMake,

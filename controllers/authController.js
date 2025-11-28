@@ -10,6 +10,7 @@ const Vendor = require("../models/Vendor");
 const Rider = require("../models/Rider");
 const { generateAccessToken, generateRefreshToken } = require("../utils/generateToken");
 const RefreshToken = require("../models/RefreshToken");
+const { addressToCoords } = require("../utilis/mapHelpers");
 // const helper = new NodemailerHelper(process.env.EMAIL_USER, process.env.EMAIL_PASS);
 
 
@@ -44,14 +45,23 @@ const register = async(req,res) =>{
   
     const phoneExists = await User.findOne({ phone });
     if (phoneExists) return res.status(400).json({ error: "Phone number already in use" });
+
+    const geo = await addressToCoords(req.body.location);
+    if (!geo) return res.status(400).json({ error: "Invalid address provided" });
+    const coordinates = {
+      type: "Point",
+      coordinates: [geo.longitude, geo.latitude]
+    };
   
     let user;
     if(role === "customer"){
-     user = new Customer({ name, email, phone, location,  });
+     user = new Customer({ name, email, phone, location: coordinates,  });
     }else if(role === "vendor"){
-     user = new Vendor({ name, email, phone, location, });
+     user = new Vendor({ name, email, phone, location: coordinates, });
     }else if(role === "rider"){
-     user = new Rider({ name, email, phone, location, operatingArea, });
+     user = new Rider({ name, email, phone, location: coordinates, operatingArea, });
+    }else{
+      return res.status(400).json({ error: "Invalid role specified" });
     }
     await user.save();
  

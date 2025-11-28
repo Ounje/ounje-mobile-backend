@@ -1,9 +1,9 @@
 const mongoose = require("mongoose");
-require("./FoodCategory");
 
 const plateSchema = new mongoose.Schema({
   name: { type: String, required: true },
   customer: { type: mongoose.Schema.Types.ObjectId, ref: "customer" , required: true },
+  vendor: { type: mongoose.Schema.Types.ObjectId, ref: "vendor" , required: true },
   price: { type: Number, required: true },
   img: String,
   ordersCount: { type: Number, default: 0 },
