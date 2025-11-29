@@ -5,7 +5,7 @@ const FoodItem = require("../models/FoodItem");
 const Plate = require("../models/Plate");
 
 // --- Import Mapbox Dependencies (Make sure these files exist!) ---
-const { getCoordinatesFromAddress } = require('../utils/location.utils');
+const { getCoordinatesFromAddress } = require('../utilis/location.utilis');
 const { dispatchRider } = require('../services/dispatch.service'); 
 const db = require('../config/db'); // Use your actual database config/helper if needed
 
