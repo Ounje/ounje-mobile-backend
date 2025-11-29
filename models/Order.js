@@ -43,14 +43,14 @@ const orderSchema = new mongoose.Schema({
     type: Number,
     required: true
   },
-  foodTotal: {
-    type: Number,
-    required: true
-  },
-  deliveryFee: {
-    type: Number,
-    required: true
-  },
+  // foodTotal: {
+  //   type: Number,
+  //   required: true
+  // },
+  // deliveryFee: {
+  //   type: Number,
+  //   required: true
+  // },
   status: {
     type: String,
     enum: ["pending", "accepted", "in_progress", "completed", "cancelled"],

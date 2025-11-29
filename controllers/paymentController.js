@@ -3,6 +3,8 @@ const Payment = require("../models/Payment");
 const Customer = require("../models/Customer");
 const Order = require("../models/Order");
 const crypto = require('crypto');
+const VendorSettlement = require("../models/VendorSettlement");
+const RiderEarnings = require("../models/RiderEarnings");
 const paystack = axios.create({
   baseURL: "https://api.paystack.co",
   headers: {
@@ -144,12 +146,27 @@ const webhookHandler = async (req, res) => {
       await order.save();
     }
 
-    const vendorCommissionRate = 0.10;
-    const vendorGross = order.foodTotal;
-    const vendorCommission = vendorGross * vendorCommissionRate;
-
-    // Vendor receives:
+    const commission = 0.10
+    const vendorCommission = order.totalPrice * commission;
+    const vendorGross = order.totalPrice;
     const vendorNet = vendorGross - vendorCommission;
+
+    await VendorSettlement.create({
+      vendor: order.vendor,
+      order: order._id,
+      gross: vendorGross,
+      commission: vendorCommission,
+      netPayable: vendorNet,
+      status: "pending"
+    });
+
+    // Rider payout
+    await RiderEarnings.create({
+      rider: order.riderAssigned,
+      order: order._id,
+      amount: order.deliveryFee,
+      status: "pending"
+    });
 
     return res.status(200).send("Webhook processed");
   } catch (err) {
