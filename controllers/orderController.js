@@ -4,7 +4,11 @@ const Dish = require("../models/Dish");
 const FoodItem = require("../models/FoodItem");
 const Plate = require("../models/Plate");
 
-// ...
+// --- Import Mapbox Dependencies (Make sure these files exist!) ---
+const { getCoordinatesFromAddress } = require('../utilis/location.utilis');
+const { dispatchRider } = require('../services/dispatch.service'); 
+const db = require('../config/db'); // Use your actual database config/helper if needed
+
 // Create a new order
 exports.createOrder = async (req, res) => {
   try {
@@ -14,6 +18,13 @@ exports.createOrder = async (req, res) => {
 
     if (!items || items.length === 0) {
       return res.status(400).json({ message: "No items in the order." });
+    }
+
+    // --- MAPBOX STEP 1: GEOCoding (Address Validation) ---
+    const coords = await getCoordinatesFromAddress(deliveryAddress);
+
+    if (!coords) {
+        return res.status(400).json({ message: 'Invalid or unroutable delivery address. Please check and try again.' });
     }
 
     let totalPrice = 0;
@@ -49,14 +60,24 @@ exports.createOrder = async (req, res) => {
       });
     }
 
+    // 2. Save the order with GEOCodes
     const order = await Order.create({
       customer: userId,
       vendor: vendorId,
       items: orderItems, // <-- Use the validated/mapped array
       totalPrice,
       deliveryAddress,
+      // --- NEW: Store Mapbox Coordinates in the Order Document ---
+      deliveryLatitude: coords.latitude,
+      deliveryLongitude: coords.longitude,
+      // --- End NEW ---
       status: "pending",
     });
+
+    // --- MAPBOX STEP 2: Dispatch (Matrix API) ---
+    // We call the dispatch service here, which will find the best rider.
+    // We pass the new Mongoose order object.
+    await dispatchRider(order);
 
     res.status(201).json({
       message: "Order created successfully",
