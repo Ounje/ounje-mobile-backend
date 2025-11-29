@@ -9,6 +9,8 @@ const VendorSchema = new mongoose.Schema({
   totalOrders: { type: Number, default: 0 },
   minPrice: Number,
   closeTime: String,
+  balance: Number,          
+  ledger: [ { type: 'credit'|'debit', amount: Number, meta: {}, createdAt: Date } ],
   isAvailable: { type: Boolean, default: true },
   minDeliveryFee: Number,
   closingTime: String,

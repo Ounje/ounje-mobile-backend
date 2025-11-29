@@ -5,6 +5,7 @@ const paymentSchema = new mongoose.Schema({
   orderId: { type: mongoose.Schema.Types.ObjectId, ref: "Order", required: true },
   reference: { type: String, unique: true, required: true },
   amount: { type: Number, required: true },
+  authorizationUrl: { type: String, required: true },
   status: { type: String, enum: ["pending", "success", "failed"], default: "pending" },
   paidAt: Date,
 }, { timestamps: true });
