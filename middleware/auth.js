@@ -29,11 +29,18 @@ const roleGuard = (allowedRoles = []) => (req, res, next) => {
 };
 
 const ipWhitelist = (allowedIps = []) => (req, res, next) => {
-  const requestIp = req.ip || req.connection.remoteAddress;
-  if (!allowedIps.includes(requestIp)) {
-    return res.status(403).json({ error: "Forbidden: IP not allowed" });
+  console.log("Request IP:", req.ip);
+  let requestIp = req.ip || req.connection.remoteAddress;
+  if (requestIp.startsWith("::ffff:")) {
+    requestIp = requestIp.replace("::ffff:", "");
   }
+
+  if (!allowedIps.includes(requestIp)) {
+    return res.status(403).json({ error: "Forbidden: IP not allowed", requestIp });
+  }
+
   next();
-}
+};
+
 
 module.exports = { authMiddleware, roleGuard, ipWhitelist };

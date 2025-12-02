@@ -9,6 +9,6 @@ router.post("/initiate", authMiddleware, roleGuard(["customer"]), initialisePaym
 
 router.get("/verify", verifyPayment); 
 
-router.post("/webhook", ipWhitelist(["52.31.139.75", "52.49.173.169", "52.214.14.220"]), webhookHandler); 
+router.post("/webhook", webhookHandler); 
 
 module.exports = router;
