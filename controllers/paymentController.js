@@ -5,6 +5,7 @@ const Order = require("../models/Order");
 const crypto = require('crypto');
 const VendorSettlement = require("../models/VendorSettlement");
 const RiderEarnings = require("../models/RiderEarnings");
+const ledgerService = require("../services/ledger.service");
 const paystack = axios.create({
   baseURL: "https://api.paystack.co",
   headers: {
@@ -151,7 +152,27 @@ const webhookHandler = async (req, res) => {
     const vendorGross = order.totalPrice;
     const vendorNet = vendorGross - vendorCommission;
 
-    await VendorSettlement.create({
+      // Credit vendor to ledger
+      try {
+        await ledgerService.creditVendorFromOrder(order, commission);
+        console.log(`✓ Credited vendor ${order.vendor} with ${vendorNet}`);
+      } catch (err) {
+        console.error("Failed to credit vendor:", err.message);
+      }
+
+      // Credit rider to ledger (assumes deliveryFee exists on order)
+      const deliveryFee = order.deliveryFee || 0;
+      if (order.riderAssigned && deliveryFee > 0) {
+        try {
+          await ledgerService.creditRiderFromOrder(order, deliveryFee);
+          console.log(`✓ Credited rider ${order.riderAssigned} with ${deliveryFee}`);
+        } catch (err) {
+          console.error("Failed to credit rider:", err.message);
+        }
+      }
+
+      // Keep existing VendorSettlement & RiderEarnings records for legacy reporting
+      await VendorSettlement.create({
       vendor: order.vendor,
       order: order._id,
       gross: vendorGross,
@@ -160,13 +181,14 @@ const webhookHandler = async (req, res) => {
       status: "pending"
     });
 
-    // Rider payout
-    await RiderEarnings.create({
+      if (order.riderAssigned && deliveryFee > 0) {
+        await RiderEarnings.create({
       rider: order.riderAssigned,
       order: order._id,
-      amount: order.deliveryFee,
+          amount: deliveryFee,
       status: "pending"
-    });
+        });
+      }
 
     return res.status(200).send("Webhook processed");
   } catch (err) {

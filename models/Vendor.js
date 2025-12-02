@@ -1,6 +1,13 @@
 const User = require("./User");
 const mongoose = require("mongoose");
 
+const ledgerSchema = new mongoose.Schema({
+  type: { type: String, enum: ['credit', 'debit'], required: true },
+  amount: { type: Number, required: true },
+  meta: { type: Object, default: {} },
+  createdAt: { type: Date, default: Date.now }
+});
+
 const VendorSchema = new mongoose.Schema({
   img: String,
   description: String,
@@ -10,7 +17,7 @@ const VendorSchema = new mongoose.Schema({
   minPrice: Number,
   closeTime: String,
   balance: Number,          
-  ledger: [ { type: 'credit'|'debit', amount: Number, meta: {}, createdAt: Date } ],
+  ledger: [ ledgerSchema ],
   isAvailable: { type: Boolean, default: true },
   minDeliveryFee: Number,
   closingTime: String,
