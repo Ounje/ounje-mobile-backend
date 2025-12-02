@@ -21,6 +21,7 @@
     "dotenv": "^17.2.2",
     "express": "^5.1.0",
     "jsonwebtoken": "^9.0.2",
+    "mapbox": "^1.0.0-beta10",
     "mongodb": "^7.0.0",
     "mongoose": "^8.20.0",
     "multer": "^2.0.2",
