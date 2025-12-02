@@ -1,6 +1,6 @@
-// location.utils.js (CORRECTED)
+// utilis/location.utilis.js
 
-// Import the service object, not the wrapper function
+// FIX: Import the service object, not a wrapper function
 const { geocodingService } = require('../services/mapbox.service'); 
 
 /**
@@ -10,19 +10,19 @@ const { geocodingService } = require('../services/mapbox.service');
 */
 async function getCoordinatesFromAddress(address) {
  
-  // FIX: Add validation check (address must be a non-empty string)
+  // Validation to prevent "query must be a string" error
   if (!address || typeof address !== 'string' || address.trim().length === 0) {
       console.error("Mapbox Geocoding Error: Invalid or empty address input.");
       return null;
   }
   
  try {
-  // FIX: Call forwardGeocode on the imported service object, which returns the request object with .send()
+  // FIX: Call forwardGeocode on the imported service object
   const response = await geocodingService.forwardGeocode({
    query: address,
    limit: 1, 
-   // countries: ['NG', 'GH'], 
-  }).send(); // The .send() is now correctly attached
+   // Add optional parameters here, e.g., countries: ['NG']
+  }).send(); 
 
   if (response.body.features && response.body.features.length) {
    // Mapbox returns coordinates as [longitude, latitude]
@@ -33,7 +33,7 @@ async function getCoordinatesFromAddress(address) {
 
  } catch (error) {
   console.error('Mapbox Geocoding Error:', error.message);
-  return null; // Don't crash the server, return null for failure
+  return null; // Return null for failure
  }
 }
 
