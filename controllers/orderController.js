@@ -6,7 +6,7 @@ const Plate = require("../models/Plate");
 
 // --- Import Mapbox Dependencies (Make sure these files exist!) ---
 const { getCoordinatesFromAddress } = require('../utilis/location.utilis');
-const { dispatchRider } = require('../services/dispatch.service'); 
+const { dispatchDriver } = require('../services/dispatch.service'); 
 const db = require('../config/db'); // Use your actual database config/helper if needed
 
 // Create a new order
@@ -77,7 +77,7 @@ exports.createOrder = async (req, res) => {
     // --- MAPBOX STEP 2: Dispatch (Matrix API) ---
     // We call the dispatch service here, which will find the best rider.
     // We pass the new Mongoose order object.
-    await dispatchRider(order);
+    await dispatchDriver(order);
 
     res.status(201).json({
       message: "Order created successfully",
