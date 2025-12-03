@@ -10,7 +10,7 @@ const Vendor = require("../models/Vendor");
 const getBalance = async (req, res) => {
   try {
     const userId = req.user.id;
-    const userType = req.user.type; // 'rider' or 'vendor' from middleware
+    const userType = req.user.role; // 'rider' or 'vendor' from middleware
 
     if (!["rider", "vendor"].includes(userType)) {
       return res.status(403).json({ error: "Only riders and vendors can view balances" });
@@ -31,7 +31,7 @@ const getBalance = async (req, res) => {
 const getTransactionHistory = async (req, res) => {
   try {
     const userId = req.user.id;
-    const userType = req.user.type;
+    const userType = req.user.role;
     const { limit = 20, skip = 0 } = req.query;
 
     if (!["rider", "vendor"].includes(userType)) {
@@ -55,12 +55,12 @@ const getTransactionHistory = async (req, res) => {
 /**
  * Request a payout (reserve balance)
  * POST /api/payouts/request
- * Body: { amount, bankDetails: { accountNumber, bankCode, accountName } }
+ * Body: { amount, bankDetails: { accountNumber, bankCode, accountName } } 
  */
 const requestPayout = async (req, res) => {
   try {
     const userId = req.user.id;
-    const userType = req.user.type;
+    const userType = req.user.role;
     const { amount, bankDetails } = req.body;
 
     if (!["rider", "vendor"].includes(userType)) {
@@ -123,7 +123,7 @@ const requestPayout = async (req, res) => {
 const getPendingPayouts = async (req, res) => {
   try {
     const userId = req.user.id;
-    const userType = req.user.type;
+    const userType = req.user.role;
 
     if (!["rider", "vendor"].includes(userType)) {
       return res.status(403).json({ error: "Only riders and vendors can view payouts" });
@@ -278,7 +278,7 @@ const processPayout = async (req, res) => {
 const getStatement = async (req, res) => {
   try {
     const userId = req.user.id;
-    const userType = req.user.type;
+    const userType = req.user.role;
     const { startDate, endDate } = req.query;
 
     if (!["rider", "vendor"].includes(userType)) {

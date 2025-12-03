@@ -9,6 +9,7 @@ const paymentRoutes = require("./routes/paymentRoutes");
 const vendorRoutes = require("./routes/vendorRoutes");
 const customerRoutes = require("./routes/customerRoutes");
 const plateRoutes = require("./routes/plateRoutes");
+const payoutRoutes = require("./routes/payoutRoutes");
 
 const app = express();
 
@@ -23,6 +24,7 @@ app.use("/api/payments", paymentRoutes);
 app.use("/api/vendors", vendorRoutes);
 app.use("/api/customers", customerRoutes);
 app.use("/api/plates", plateRoutes);
+app.use("/api/payouts", payoutRoutes);
 // app.use("/api/test", require("./routes/testRoutes"));
 
 

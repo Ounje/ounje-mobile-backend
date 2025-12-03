@@ -46,20 +46,20 @@ const register = async(req,res) =>{
     const phoneExists = await User.findOne({ phone });
     if (phoneExists) return res.status(400).json({ error: "Phone number already in use" });
 
-    const geo = await addressToCoords(req.body.location);
-    if (!geo) return res.status(400).json({ error: "Invalid address provided" });
-    const coordinates = {
-      type: "Point",
-      coordinates: [geo.longitude, geo.latitude]
-    };
+    // const geo = await addressToCoords(req.body.location);
+    // if (!geo) return res.status(400).json({ error: "Invalid address provided" });
+    // const coordinates = {
+    //   type: "Point",
+    //   coordinates: [geo.longitude, geo.latitude]
+    // };
   
     let user;
     if(role === "customer"){
-     user = new Customer({ name, email, phone, location: coordinates,  });
+     user = new Customer({ name, email, phone, location,  });
     }else if(role === "vendor"){
-     user = new Vendor({ name, email, phone, location: coordinates, });
+     user = new Vendor({ name, email, phone, location, });
     }else if(role === "rider"){
-     user = new Rider({ name, email, phone, location: coordinates, operatingArea, });
+     user = new Rider({ name, email, phone, location, operatingArea, });
     }else{
       return res.status(400).json({ error: "Invalid role specified" });
     }
