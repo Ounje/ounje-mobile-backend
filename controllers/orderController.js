@@ -5,15 +5,16 @@ const FoodItem = require("../models/FoodItem");
 const Plate = require("../models/Plate");
 
 // --- Import Mapbox Dependencies (Make sure these files exist!) ---
-const { getCoordinatesFromAddress } = require('../utilis/location.utilis');
-const { dispatchDriver } = require('../services/dispatch.service'); 
-const db = require('../config/db'); // Use your actual database config/helper if needed
+const { getCoordinatesFromAddress } = require("../utilis/location.utilis");
+const { dispatchDriver } = require("../services/dispatch.service");
+const db = require("../config/db"); // Use your actual database config/helper if needed
 
 // Create a new order
 exports.createOrder = async (req, res) => {
   try {
     const { items, vendorId, deliveryAddress } = req.body;
-    console.log("Received order data:", req.body); // <-- Debug log
+    console.log("Received order data:", req.body);
+    // Assuming req.user.id is populated by middleware
     const userId = req.user.id;
 
     if (!items || items.length === 0) {
@@ -24,7 +25,12 @@ exports.createOrder = async (req, res) => {
     const coords = await getCoordinatesFromAddress(deliveryAddress);
 
     if (!coords) {
-        return res.status(400).json({ message: 'Invalid or unroutable delivery address. Please check and try again.' });
+      return res
+        .status(400)
+        .json({
+          message:
+            "Invalid or unroutable delivery address. Please check and try again.",
+        });
     }
 
     let totalPrice = 0;
@@ -36,7 +42,11 @@ exports.createOrder = async (req, res) => {
 
       // 1. Basic Validation
       if (!itemId || !itemType || !models[itemType]) {
-        return res.status(400).json({ message: `Invalid item structure for item: ${JSON.stringify(item)}` });
+        return res
+          .status(400)
+          .json({
+            message: `Invalid item structure for item: ${JSON.stringify(item)}`,
+          });
       }
 
       // 2. Fetch the actual product from the database
@@ -44,7 +54,9 @@ exports.createOrder = async (req, res) => {
       const product = await ProductModel.findById(itemId).select("price");
 
       if (!product) {
-        return res.status(404).json({ message: `Product not found for ID: ${itemId}` });
+        return res
+          .status(404)
+          .json({ message: `Product not found for ID: ${itemId}` });
       }
       const itemPrice = product.price;
       const calculatedItemTotal = itemPrice * quantity;
@@ -56,7 +68,7 @@ exports.createOrder = async (req, res) => {
         item: itemId, // This is the ObjectId reference
         quantity,
         price: itemPrice, // Store the price at the time of order
-        notes
+        notes,
       });
     }
 
@@ -67,29 +79,50 @@ exports.createOrder = async (req, res) => {
       items: orderItems, // <-- Use the validated/mapped array
       totalPrice,
       deliveryAddress,
-      // --- NEW: Store Mapbox Coordinates in the Order Document ---
+      // --- EXISTING: Store Mapbox Coordinates in the Order Document ---
       deliveryLatitude: coords.latitude,
       deliveryLongitude: coords.longitude,
-      // --- End NEW ---
-      status: "pending",
+      // --- End EXISTING ---
+      status: "pending", // Initial status before dispatch
     });
 
     // --- MAPBOX STEP 2: Dispatch (Matrix API) ---
     // We call the dispatch service here, which will find the best rider.
-    // We pass the new Mongoose order object.
-    await dispatchDriver(order);
+    const assignedRider = await dispatchDriver(order);
 
-    res.status(201).json({
-      message: "Order created successfully",
-      order,
-    });
+    // --- NEW: Handle Dispatch Result for Response ---
+    if (assignedRider) {
+      // Dispatch was successful (dispatchDriver should have updated status to 'Rider Assigned')
+      res.status(201).json({
+        message: "Order created and Rider assigned successfully",
+        order: {
+          ...order.toObject(),
+          riderId: assignedRider._id, // Add the rider ID to the response
+          status: "Rider Assigned",
+        },
+      });
+    } else {
+      // Dispatch failed (no riders available). Keep status as 'pending' or update to 'awaiting_rider'
+      await Order.findByIdAndUpdate(order._id, { status: "awaiting_rider" });
+
+      res.status(202).json({
+        message: "Order created. No riders currently available. Searching...",
+        order: {
+          ...order.toObject(),
+          status: "awaiting_rider",
+        },
+      });
+    }
   } catch (error) {
-    console.error("Order creation error:", error); // <-- Use a clear message to track 500s
-    res.status(500).json({ message: "Failed to create order", error: error.message }); // <-- Return error.message for debug
+    console.error("Order creation error:", error);
+    res
+      .status(500)
+      .json({ message: "Failed to create order", error: error.message });
   }
 };
 
-// Get all orders of the logged-in customer
+// ... other functions (getMyOrders, getOrderById, updateOrderStatus) remain the same ...
+// ... (The rest of the file is omitted for brevity but should remain)
 exports.getMyOrders = async (req, res) => {
   try {
     const orders = await Order.find({ user: req.user.id })
@@ -102,7 +135,6 @@ exports.getMyOrders = async (req, res) => {
   }
 };
 
-// Get a single order by ID
 exports.getOrderById = async (req, res) => {
   try {
     const order = await Order.findById(req.params.id)
@@ -122,7 +154,6 @@ exports.getOrderById = async (req, res) => {
   }
 };
 
-// Update order status (e.g., cancel or mark completed)
 exports.updateOrderStatus = async (req, res) => {
   try {
     const { status } = req.body;
@@ -131,7 +162,10 @@ exports.updateOrderStatus = async (req, res) => {
     if (!order) return res.status(404).json({ message: "Order not found" });
 
     // Only allow customer to cancel
-    if (status === "cancelled" && order.user.toString() !== req.user.id.toString()) {
+    if (
+      status === "cancelled" &&
+      order.user.toString() !== req.user.id.toString()
+    ) {
       return res.status(403).json({ message: "Unauthorized" });
     }
 
