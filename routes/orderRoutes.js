@@ -2,6 +2,7 @@ const express = require("express");
 const { authMiddleware, roleGuard } = require("../middleware/auth");
 const Dish = require("../models/Dish");
 const Order = require("../models/Order");
+const Rider = require("../models/Rider");
 
 const {
   createOrder,
@@ -74,9 +75,18 @@ router.put("/:id/status", authMiddleware, roleGuard(["seller"]), async (req, res
 // View available orders (confirmed, unassigned)
 router.get("/available", authMiddleware, roleGuard(["rider"]), async (req, res) => {
   try {
-    const orders = await Order.find({ status: "confirmed", rider: null })
-      .populate("vendor", "name location")
-      .populate("user", "name location");
+    // Get the rider's operating areas (Max 2 zones)
+    const rider = await Rider.findById(req.user._id);
+    
+    // ONLY find orders that match the rider's zones
+    const orders = await Order.find({ 
+      status: "pending", // or "confirmed"
+      rider: null,
+      zone: { $in: rider.operatingArea } // Filter by the Rider's 2 zones
+    })
+    .populate("vendor", "name deliveryAddress")
+    .populate("customer", "name deliveryAddress");
+
     res.json(orders);
   } catch (err) {
     res.status(500).json({ error: err.message });

@@ -1,8 +1,72 @@
-function calculateDeliveryFee(distanceKm) {
-  const base = 500;         
-  const perKm = 120;         
-  return Math.round(base + distanceKm * perKm);
-}
-//these are dummy rates. Not added our rates yet
+require('dotenv').config();
+const { Client } = require("@googlemaps/google-maps-services-js");
+const axios = require("axios");
 
-module.exports = { calculateDeliveryFee };
+const googleClient = new Client({});
+
+// Tiers from the OunjeFood Algorithm [cite: 12]
+const TIERS = [
+    { max: 1.5, base: 450, start: 0 },
+    { max: 3.5, base: 600, start: 1.5 },
+    { max: 6.0, base: 750, start: 3.5 },
+    { max: 10.0, base: 900, start: 6.0 },
+    { max: 15.0, base: 1200, start: 10.0 },
+    { max: Infinity, base: 1500, start: 15.0 } // Dynamic long-distance range
+];
+
+const PER_KM_RATE = 120; // [cite: 18]
+const MIN_DISTANCE_FEE = 200; // [cite: 27]
+
+// utilis/delivery.js
+
+const identifyZone = (address) => {
+    const zones = ["Ikeja", "Yaba", "Surulere", "Lekki", "Victoria Island", "Ajah"];
+    
+    // Convert address to lowercase to make searching easier
+    const lowercaseAddress = address.toLowerCase();
+
+    // Find which zone name exists inside the address string
+    const foundZone = zones.find(zone => lowercaseAddress.includes(zone.toLowerCase()));
+
+    return foundZone || "Other"; // Default to 'Other' if no match is found
+};
+
+async function calculateOunjeFee(vendorAddr, customerAddr, surge = 1.0) {
+    console.log(`Attempting calculation: From ${vendorAddr} To ${customerAddr}`);
+    try {
+        const response = await googleClient.distancematrix({
+            params: {
+                origins: [vendorAddr],
+                destinations: [customerAddr],
+                key: process.env.GOOGLE_MAPS_API_KEY,
+            },
+        });
+
+        // Get distance in KM [cite: 17, 20]
+        const distanceKm = response.data.rows[0].elements[0].distance.value / 1000;
+
+        // 1. Find the correct Tier [cite: 11, 12]
+        const tier = TIERS.find(t => distanceKm <= t.max) || TIERS[TIERS.length - 1];
+
+        // 2. Calculate Extra Distance Fee [cite: 17]
+        let extraDistanceFee = (distanceKm - tier.start) * PER_KM_RATE;
+        
+        // 3. Apply Minimum Distance Fee for very short trips [cite: 25, 27]
+        if (distanceKm < 0.5 && extraDistanceFee < MIN_DISTANCE_FEE) {
+            extraDistanceFee = MIN_DISTANCE_FEE;
+        }
+
+        // 4. Calculate Total and apply Surge [cite: 36, 45]
+        const totalFee = (tier.base + extraDistanceFee) * surge;
+
+        // Round to nearest 10 as per Example B [cite: 24, 56]
+        return Math.ceil(totalFee / 10) * 10;
+
+    } catch (error) {
+        console.error("Pricing Error:", error);
+        return null;
+    }
+}
+
+// Updated exports to include this
+module.exports = { calculateOunjeFee, identifyZone };

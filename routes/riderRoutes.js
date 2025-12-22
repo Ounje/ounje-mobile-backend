@@ -2,7 +2,6 @@
 
 const express = require("express");
 const router = express.Router(); // FIX 1: Must initialize the router
-const { updateLiveTracking } = require('../services/tracking.service');
 const db = require('../config/db'); // FIX 2: Assuming 'db' helper is accessible/imported here
 
 // FIX 3: Endpoint corrected to '/location' since the server.js prefix is '/api/riders'

@@ -47,10 +47,18 @@ const orderSchema = new mongoose.Schema({
   //   type: Number,
   //   required: true
   // },
-  // deliveryFee: {
-  //   type: Number,
-  //   required: true
-  // },
+  deliveryFee: { 
+    type: Number, 
+    required: true 
+  },
+  zone: { 
+    type: String 
+  }, // e.g., "Ikeja"
+  deliveryLatitude: Number,
+  deliveryLongitude: Number,
+  rider: { 
+    type: mongoose.Schema.Types.ObjectId, 
+    ref: "rider" }, // Corrected ref,
   status: {
     type: String,
     enum: ["pending", "accepted", "in_progress", "completed", "cancelled"],
