@@ -101,7 +101,7 @@ const register = async (req, res) => {
         await user.save();
         // ... rest of token creation and response logic is correct ...
     } catch (err) {
-        // ... error handling
+        return res.status(500).json({ error: err.message });
     }
 };
 
