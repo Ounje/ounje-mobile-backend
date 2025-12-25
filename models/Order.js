@@ -56,17 +56,23 @@ const orderSchema = new mongoose.Schema({
   }, // e.g., "Ikeja"
   deliveryLatitude: Number,
   deliveryLongitude: Number,
-  rider: { 
-    type: mongoose.Schema.Types.ObjectId, 
-    ref: "rider" }, // Corrected ref,
+  rider: { type: mongoose.Schema.Types.ObjectId, ref: "rider" },
   status: {
     type: String,
-    enum: ["pending", "accepted", "in_progress", "completed", "cancelled"],
+    enum: ["pending", "confirmed", "assigned", "out_for_delivery", "delivered", "in_progress", "completed", "cancelled"],
     default: "pending"
   },
   deliveryAddress: {
     type: String
   },
+
+  // Delivery OTP & confirmation (in-app flow)
+  deliveryOtpCode: String,         // plaintext short-lived code (visible to customer in-app)
+  deliveryOtpHash: String,         // sha256 hash of OTP (optional extra safety)
+  deliveryOtpSentAt: Date,
+  deliveryOtpExpiresAt: Date,
+  deliveryConfirmedAt: Date,
+  deliveryConfirmedBy: { type: mongoose.Schema.Types.ObjectId, ref: "rider" },
   paymentStatus: {
     type: String,
     enum: ["unpaid", "paid", "refunded"],

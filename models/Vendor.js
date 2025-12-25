@@ -21,6 +21,14 @@ const VendorSchema = new mongoose.Schema({
   isAvailable: { type: Boolean, default: true },
   minDeliveryFee: Number,
   closingTime: String,
+
+  // Bank and payout recipient info
+  bankDetails: {
+    accountNumber: String,
+    bankCode: String,
+    accountName: String,
+  },
+  paystackRecipientCode: String,
 });
 
 

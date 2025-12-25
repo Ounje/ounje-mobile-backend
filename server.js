@@ -45,7 +45,9 @@ console.log(process.env.FRONTEND_URL)
 
 
 io.on('connection', (socket) => {
-  
+  // Make io reachable from controllers via `global.io` for simple emit (used for OTP push)
+  global.io = io;
+
   // 1. Listen for the 'update-location' signal from the Rider's App
   socket.on('update-location', async (data) => {
     try {

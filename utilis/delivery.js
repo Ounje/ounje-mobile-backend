@@ -68,5 +68,28 @@ async function calculateOunjeFee(vendorAddr, customerAddr, surge = 1.0) {
     }
 }
 
+const getCoordsFromAddress = async (address) => {
+    try {
+        const response = await googleClient.geocode({
+            params: {
+                address: address,
+                key: process.env.GOOGLE_MAPS_API_KEY,
+            },
+        });
+
+        if (response.data.results.length > 0) {
+            const location = response.data.results[0].geometry.location;
+            return {
+                lat: location.lat,
+                lng: location.lng
+            };
+        }
+        return null;
+    } catch (error) {
+        console.error("Geocoding Error:", error);
+        return null;
+    }
+};
+
 // Updated exports to include this
-module.exports = { calculateOunjeFee, identifyZone };
+module.exports = { calculateOunjeFee, identifyZone, getCoordsFromAddress };

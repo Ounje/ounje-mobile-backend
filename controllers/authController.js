@@ -15,6 +15,7 @@ const {
 const RefreshToken = require("../models/RefreshToken");
 // const helper = new NodemailerHelper(process.env.EMAIL_USER, process.env.EMAIL_PASS);
 const { requestSmsOtp, verifySmsOtp } = require("../utilis/kudiSmsHelper");
+const { getCoordsFromAddress } = require("../utilis/delivery");
 
 // --- NEW NODEMAILER & OTP HELPERS ---
 
@@ -70,7 +71,7 @@ const register = async (req, res) => {
         }
         
         // 4. Geocoding and Coordinates (Uses req.body.location, which is fine)
-        const geo = await addressToCoords(req.body.location);
+        const geo = await getCoordsFromAddress(req.body.location);
         if (!geo) return res.status(400).json({ error: "Invalid address provided" });
         const coordinates = {
             type: "Point",

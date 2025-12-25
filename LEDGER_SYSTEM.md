@@ -108,6 +108,33 @@ processPayout()
 │  └─ Money has been sent to bank
 ```
 
+### Instant Payouts on Delivery (Auto)
+
+You can enable "instant" payouts so that when a rider verifies delivery using an OTP provided to the customer, the system automatically attempts to transfer the vendor and rider earnings to their bank accounts (no admin action required).
+
+Flow:
+1. Rider marks order `out_for_delivery` → backend generates a secure in-app OTP and delivers it to the customer's app (via socket.io or `/api/orders/:id/delivery-otp`).
+2. Customer gives OTP to the rider; rider submits the OTP when marking the order `delivered`.
+3. Backend verifies the OTP, marks order `completed`, reserves ledger balances, creates `Payout` records and initiates Paystack transfers.
+4. On transfer success: ledger `completePayout()` is called and the payout is marked `completed`.
+5. On failure: the reserved funds are reversed back to available and the payout is marked `failed` (admin can review).
+
+Endpoints:
+- POST `/api/orders/:id/assign` (rider claims order)
+- PUT `/api/orders/:id/rider-update` with `{ status: "out_for_delivery" }` → sends OTP to customer
+- PUT `/api/orders/:id/rider-update` with `{ status: "delivered", otp: "123456" }` → verifies OTP and triggers auto payouts
+
+Notes:
+- Vendors and riders must have `bankDetails` saved on their profiles (accountNumber + bankCode + accountName) or payouts will remain `pending` for manual processing.
+- All transfers use Paystack `transfer` and `transferrecipient` APIs; transfer codes and failures are recorded on `Payout`.
+
+Quick manual test
+1. Create order and pay (Paystack test card). Ensure webhook processes and ledger credits the vendor/rider.
+2. Assign order to a rider and call PUT `/api/orders/:id/rider-update` with `{ status: "out_for_delivery" }` — check that customer receives an OTP (via KudiSMS) and the `Order` doc has `deliveryOtpReference`.
+3. At delivery, rider submits `{ status: "delivered", otp: "<code>" }` — order should move to `completed` and `Payout` records created in DB.
+4. If bank details are present, the service will attempt Paystack transfers and the payout will be marked `completed` on success; otherwise the payout stays `pending` for admin processing.
+
+
 ## API Endpoints
 
 ### For Riders/Vendors

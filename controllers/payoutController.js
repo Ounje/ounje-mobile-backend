@@ -204,6 +204,8 @@ const processPayout = async (req, res) => {
     const { payoutId } = req.params;
     const { transactionRef, status = "completed" } = req.body;
 
+
+
     // Admin check
     if (req.user.role !== "admin") {
       return res.status(403).json({ error: "Only admins can process payouts" });
@@ -302,6 +304,7 @@ const getStatement = async (req, res) => {
     res.status(500).json({ error: error.message });
   }
 };
+
 
 module.exports = {
   getBalance,

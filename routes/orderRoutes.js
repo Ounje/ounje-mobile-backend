@@ -9,6 +9,8 @@ const {
   getMyOrders,
   getOrderById,
   updateOrderStatus,
+  sendDeliveryOtp,
+  verifyDeliveryOtp,
 } = require("../controllers/orderController");
 
 const router = express.Router();
@@ -115,7 +117,7 @@ router.post("/:id/assign", authMiddleware, roleGuard(["rider"]), async (req, res
 // Update order status and optionally rider location
 router.put("/:id/rider-update", authMiddleware, roleGuard(["rider"]), async (req, res) => {
   try {
-    const { status, riderLocation } = req.body;
+    const { status, riderLocation, otp } = req.body;
     const order = await Order.findById(req.params.id);
     if (!order) return res.status(404).json({ error: "Order not found" });
     if (!order.rider || !order.rider.equals(req.user._id)) return res.status(403).json({ error: "Not assigned to you" });
@@ -124,10 +126,41 @@ router.put("/:id/rider-update", authMiddleware, roleGuard(["rider"]), async (req
     if (status && !["out_for_delivery", "delivered"].includes(status))
       return res.status(400).json({ error: "Invalid rider status" });
 
+    // When rider picks up (out_for_delivery) -> send OTP to customer
+    if (status === "out_for_delivery") {
+      order.status = status;
+      if (riderLocation?.lat && riderLocation?.lng) {
+        order.riderLocation = { lat: riderLocation.lat, lng: riderLocation.lng, updatedAt: new Date() };
+      }
+      await order.save();
+
+      try {
+        await sendDeliveryOtp(order);
+      } catch (e) {
+        console.error("Failed to send delivery OTP:", e.message);
+      }
+
+      return res.json({ message: "OTP sent to customer and order updated", order });
+    }
+
+    // When delivered -> verify OTP (required) then complete order and trigger payouts
+    if (status === "delivered") {
+      if (!otp) return res.status(400).json({ error: "OTP required to confirm delivery" });
+
+      const verified = await verifyDeliveryOtp(order, otp, req.user._id);
+      if (!verified.success) {
+        return res.status(400).json({ error: "Invalid OTP" });
+      }
+
+      // Refresh order after verification
+      const updated = await Order.findById(req.params.id);
+      return res.json({ message: "Order marked delivered and payouts triggered", order: updated });
+    }
+
+    // Fallback: generic update
     if (status) order.status = status;
     if (riderLocation?.lat && riderLocation?.lng) {
       order.riderLocation = { lat: riderLocation.lat, lng: riderLocation.lng, updatedAt: new Date() };
-
     }
 
     await order.save();
@@ -149,6 +182,28 @@ router.get("/rider", authMiddleware, roleGuard(["rider"]), async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 
+});
+
+// Customer: Get active delivery OTP for an order (in-app only)
+router.get("/:id/delivery-otp", authMiddleware, roleGuard(["customer"]), async (req, res) => {
+  try {
+    const order = await Order.findById(req.params.id);
+    if (!order) return res.status(404).json({ error: "Order not found" });
+    if (order.customer.toString() !== req.user._id.toString()) return res.status(403).json({ error: "Not your order" });
+
+    if (!order.deliveryOtpCode || !order.deliveryOtpExpiresAt) {
+      return res.status(404).json({ error: "No active OTP for this order" });
+    }
+
+    if (new Date() > new Date(order.deliveryOtpExpiresAt)) {
+      return res.status(410).json({ error: "OTP expired" });
+    }
+
+    // Return OTP in plaintext to customer's app (short-lived)
+    return res.json({ otp: order.deliveryOtpCode, expiresAt: order.deliveryOtpExpiresAt });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 module.exports = router;

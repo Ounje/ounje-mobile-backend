@@ -138,6 +138,8 @@ Rider endpoints (require auth + `rider` role):
 
 - PUT `/api/orders/:id/rider-update`
   - Update rider status / location. Body: { status, riderLocation: { lat, lng } }
+  - To notify pickup and send delivery OTP: `{ "status": "out_for_delivery" }`
+  - To confirm delivery & trigger auto payouts: `{ "status": "delivered", "otp": "123456" }`
 
 - GET `/api/orders/rider`
   - Get the rider's own orders.

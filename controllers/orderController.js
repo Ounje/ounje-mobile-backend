@@ -4,6 +4,18 @@ const Dish = require("../models/Dish");
 const FoodItem = require("../models/FoodItem");
 const Plate = require("../models/Plate");
 const { calculateOunjeFee, identifyZone } = require('../utilis/delivery');
+const crypto = require('crypto');
+const payoutService = require("../services/payout.service");
+const Customer = require("../models/Customer");
+
+// Helper: generate secure numeric OTP of given length
+const generateNumericOtp = (length = 6) => {
+  let otp = '';
+  for (let i = 0; i < length; i++) otp += crypto.randomInt(0, 10).toString();
+  return otp;
+};
+
+const hashOtp = (otp) => crypto.createHash('sha256').update(otp).digest('hex');
 
 
 // Create a new order
@@ -130,4 +142,78 @@ exports.updateOrderStatus = async (req, res) => {
   } catch (error) {
     res.status(500).json({ message: "Failed to update order", error });
   }
+};
+
+/**
+ * Send delivery OTP to the customer (in-app). Generates a secure code, stores it briefly,
+ * emits it via socket.io to the customer and returns success.
+ * Accepts an Order document (already loaded) and returns { success }
+ */
+exports.sendDeliveryOtp = async (order) => {
+  if (!order) throw new Error("Order required");
+  const customer = await Customer.findById(order.customer);
+  if (!customer) throw new Error("Customer not found");
+
+  const otp = generateNumericOtp(parseInt(process.env.DELIVERY_OTP_LENGTH || 6));
+  const otpHash = hashOtp(otp);
+  const duration = parseInt(process.env.DELIVERY_OTP_DURATION || 5); // minutes
+
+  order.deliveryOtpCode = otp; // short-lived plaintext for app delivery
+  order.deliveryOtpHash = otpHash;
+  order.deliveryOtpSentAt = new Date();
+  order.deliveryOtpExpiresAt = new Date(Date.now() + duration * 60 * 1000);
+  await order.save();
+
+  // Emit via socket.io so customer app can receive immediately if connected
+  try {
+    if (global.io) {
+      global.io.emit('delivery-otp', {
+        orderId: order._id,
+        customerId: order.customer,
+        otp,
+        expiresAt: order.deliveryOtpExpiresAt,
+      });
+    }
+  } catch (err) {
+    console.error("Failed to emit delivery OTP via socket.io:", err.message);
+  }
+
+  return { success: true };
+};
+
+/**
+ * Verify OTP entered by rider and complete order + trigger payouts
+ * Returns { success: true } on success
+ */
+exports.verifyDeliveryOtp = async (order, otp, riderId) => {
+  if (!order) throw new Error("Order required");
+  if (!otp) return { success: false, error: "OTP required" };
+  if (!order.deliveryOtpHash || !order.deliveryOtpExpiresAt) return { success: false, error: "No OTP session found for this order" };
+
+  // Expiry check
+  if (new Date() > new Date(order.deliveryOtpExpiresAt)) return { success: false, error: "OTP expired" };
+
+  const providedHash = hashOtp(otp);
+  if (providedHash !== order.deliveryOtpHash) return { success: false, error: "Invalid OTP" };
+
+  order.status = "completed";
+  order.deliveryConfirmedAt = new Date();
+  order.deliveryConfirmedBy = riderId;
+
+  // Clear OTP fields (one-time use)
+  order.deliveryOtpCode = null;
+  order.deliveryOtpHash = null;
+  order.deliveryOtpExpiresAt = null;
+  order.deliveryOtpSentAt = null;
+
+  await order.save();
+
+  // Trigger automatic payouts asynchronously; don't block on it fully
+  try {
+    await payoutService.processAutoPayoutsForOrder(order._id);
+  } catch (err) {
+    console.error("Auto payout failed for order", order._id, err.message);
+  }
+
+  return { success: true };
 };
