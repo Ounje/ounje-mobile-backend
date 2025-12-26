@@ -78,11 +78,7 @@ const getCoordsFromAddress = async (address) => {
         });
 
         if (response.data.results.length > 0) {
-            const location = response.data.results[0].geometry.location;
-            return {
-                lat: location.lat,
-                lng: location.lng
-            };
+            return response.data.results[0].geometry.location; // Returns { lat, lng }
         }
         return null;
     } catch (error) {

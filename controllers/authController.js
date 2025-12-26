@@ -38,70 +38,68 @@ const generateOtp = (length = 4) => {
 // controllers/authController.js
 const register = async (req, res) => {
     try {
+        // 'location' in req.body is the address string from the frontend
         const { name, role, location, phone, otpSession, operatingArea } = req.body;
         const decoded = jwt.verify(otpSession, process.env.JWT_SECRET);
         
-        // --- NEW LOGIC: DETERMINE REGISTRATION TYPE ---
         const finalEmail = decoded.email;
         const sessionPhone = decoded.phone; 
-        
-        // Use phone from the request body IF the session was phone-based, otherwise use null
         const finalPhone = sessionPhone ? phone : null; 
 
-        // 1. Basic Validation
         if (!name || (!finalEmail && !finalPhone)) { 
-            // Ensures you have at least a name AND EITHER a verified email OR a verified phone
             return res.status(400).json({ error: "Missing required fields (name, email/phone)" });
         }
         
-        // 2. Cross-check phone from session with phone from body (for phone registration)
         if (sessionPhone && (!finalPhone || sessionPhone !== finalPhone)) {
-            return res.status(400).json({ error: "Phone number mismatch or missing in request body." });
+            return res.status(400).json({ error: "Phone number mismatch." });
         }
 
-        // 3. User Existence Checks (Use the final determined values)
-        if (finalEmail) {
-            const emailExists = await User.findOne({ email: finalEmail });
-            if (emailExists) return res.status(400).json({ error: "Email already in use" });
-        }
-
-        if (finalPhone) { 
-            const phoneExists = await User.findOne({ phone: finalPhone });
-            if (phoneExists) return res.status(400).json({ error: "Phone number already in use" });
-        }
-        
-        // 4. Geocoding and Coordinates (Uses req.body.location, which is fine)
-        const geo = await getCoordsFromAddress(req.body.location);
+        // --- FIXED GEOLOCATION LOGIC ---
+        // 'location' here is the text address string (e.g., "123 Street, Ikeja")
+        const geo = await getCoordsFromAddress(location);
         if (!geo) return res.status(400).json({ error: "Invalid address provided" });
+
         const coordinates = {
             type: "Point",
-            coordinates: [geo.longitude, geo.latitude],
+            coordinates: [geo.lng, geo.lat], // Google uses lng/lat, MongoDB uses [lng, lat]
         };
 
-        // 5. User Creation (MUST use finalEmail and finalPhone)
+        // --- USER CREATION WITH BOTH STRING AND POINT ---
+        let userProps = { 
+            name, 
+            email: finalEmail, 
+            phone: finalPhone, 
+            address: location, // SAVES THE STRING FOR PRICING
+            location: coordinates // SAVES THE POINT FOR MAPS
+        };
+
         let user;
         if (role === "customer") {
-            // Pass finalEmail (which might be null if phone-only registration) 
-            // and finalPhone (which might be null if email-only registration)
-            user = new Customer({ name, email: finalEmail, phone: finalPhone, location: coordinates });
+            user = new Customer(userProps);
         } else if (role === "vendor") {
-        // ... apply the same update to Vendor and Rider creation blocks
-            user = new Vendor({ name, email: finalEmail, phone: finalPhone, location: coordinates });
+            user = new Vendor(userProps);
         } else if (role === "rider") {
-            user = new Rider({
-                name,
-                email: finalEmail,
-                phone: finalPhone,
-                location: coordinates,
-                operatingArea,
-            });
+            user = new Rider({ ...userProps, operatingArea });
         } else {
             return res.status(400).json({ error: "Invalid role specified" });
         }
         
         await user.save();
-        // ... rest of token creation and response logic is correct ...
+
+        // Generate tokens (Assuming these helpers exist in your generateToken.js)
+        const accessToken = generateAccessToken({ id: user._id, role: user.role });
+        const refreshToken = generateRefreshToken({ id: user._id, role: user.role });
+        await RefreshToken.create({ token: refreshToken, user: user._id, ip: req.ip });
+
+        res.status(201).json({
+            success: true,
+            accessToken,
+            refreshToken,
+            user: { id: user._id, name: user.name, email: user.email, role: user.role }
+        });
+
     } catch (err) {
+        console.error("Register Error:", err);
         return res.status(500).json({ error: err.message });
     }
 };
