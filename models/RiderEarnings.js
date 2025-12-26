@@ -1,25 +1,4 @@
-const mongoose = require('mongoose');
+// RiderEarnings model removed (deprecated).
+// Rider earnings are managed through ledger entries and `Payout` records.
 
-const riderEarningsSchema = new mongoose.Schema({   
-    rider: {
-        type: mongoose.Schema.Types.ObjectId,
-        ref: "Rider",
-        required: true
-    },
-    order: {
-        type: mongoose.Schema.Types.ObjectId,
-        ref: "Order",
-        required: true
-    },
-    amount: {
-        type: Number,
-        required: true
-    },
-    status: {
-        type: String,
-        enum: ["pending", "paid"],
-        default: "pending"
-    }
-}, { timestamps: true });
-
-module.exports = mongoose.model("RiderEarnings", riderEarningsSchema);
+module.exports = {}; 

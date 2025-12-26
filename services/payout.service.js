@@ -36,8 +36,12 @@ const processSinglePayout = async ({ userId, userType, amount, bankDetails, name
     return { success: false, reason: 'insufficient_funds', payout: failed };
   }
 
-  // Create payout record in processing state
-  const payout = await Payout.create({ user: userId, userType, amount, bankDetails, status: 'processing', ledgerEntry: reserved.entry._id });
+  // Create payout record in processing state (persist BEFORE transfer for idempotency)
+  let payout = await Payout.create({ user: userId, userType, amount, bankDetails, status: 'processing', ledgerEntry: reserved.entry._id });
+
+  // Set a stable idempotency key tied to payout._id (used as Idempotency-Key header)
+  payout.idempotencyKey = `payout_${payout._id}`;
+  await payout.save();
 
   try {
     // Ensure paystack recipient exists
@@ -54,12 +58,17 @@ const processSinglePayout = async ({ userId, userType, amount, bankDetails, name
       await user.save();
     }
 
-    // Initiate transfer (amount in kobo)
-    const transfer = await paystack.transfer.initiate({ amount: Math.round(amount * 100), recipient: recipientCode, reason: `Order payout` });
+    // If payout already completed earlier, return existing record
+    if (payout.transactionRef && payout.status === 'completed') {
+      return { success: true, payout };
+    }
+
+    // Initiate transfer (amount in kobo), passing Idempotency-Key header to avoid duplicate transfers
+    const transfer = await paystack.transfer.initiate({ amount: Math.round(amount * 100), recipient: recipientCode, reason: `Order payout`, idempotencyKey: payout.idempotencyKey });
 
     const transferCode = transfer?.data?.transfer_code || transfer?.data?.transferCode || transfer?.transfer_code || transfer?.data?.reference;
 
-    // Complete ledger payout
+    // Complete ledger payout (debit pending)
     await ledgerService.completePayout(userId, userType, amount);
 
     payout.status = 'completed';

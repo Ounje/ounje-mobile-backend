@@ -354,7 +354,7 @@ const creditVendorFromOrder = async (order, commission = 0.1) => {
  */
 const creditRiderFromOrder = async (order, deliveryFee) => {
   await creditAccount(
-    order.riderAssigned,
+    order.rider,
     "RIDER",
     deliveryFee,
     "ORDER_EARNING",

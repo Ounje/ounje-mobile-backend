@@ -3,7 +3,8 @@ const axios = require("axios");
 const paystack = axios.create({
   baseURL: "https://api.paystack.co",
   headers: {
-    Authorization: `Bearer ${process.env.PAYSTACK_SECRET_KEY}`,
+    // Use TEST key consistently (replace with production key for prod env)
+    Authorization: `Bearer ${process.env.PAYSTACK_TEST_SECRET_KEY}`,
     "Content-Type": "application/json",
   },
 });
@@ -49,14 +50,19 @@ exports.recipients= {
     ),
 }
 
+// Transfers: accept optional idempotencyKey and set it as Idempotency-Key header
 exports.transfer= {
-    initiate: async ({ amount, recipient, reason }) =>
+    initiate: async ({ amount, recipient, reason, idempotencyKey }) =>
       safeRequest(
-        paystack.post("/transfer", {
-          amount, // must be in kobo
-          recipient,
-          reason,
-        })
+        paystack.post(
+          "/transfer",
+          {
+            amount, // must be in kobo
+            recipient,
+            reason,
+          },
+          idempotencyKey ? { headers: { 'Idempotency-Key': idempotencyKey } } : {}
+        )
       ),
 
     finalize: async ({ transferCode, otp }) =>

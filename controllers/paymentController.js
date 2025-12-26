@@ -3,8 +3,9 @@ const Payment = require("../models/Payment");
 const Customer = require("../models/Customer");
 const Order = require("../models/Order");
 const crypto = require('crypto');
-const VendorSettlement = require("../models/VendorSettlement");
-const RiderEarnings = require("../models/RiderEarnings");
+// VendorSettlement and RiderEarnings removed — using auto payouts and ledger for settlement
+// const VendorSettlement = require("../models/VendorSettlement");
+// const RiderEarnings = require("../models/RiderEarnings");
 const ledgerService = require("../services/ledger.service");
 const paystack = axios.create({
   baseURL: "https://api.paystack.co",
@@ -38,7 +39,6 @@ const initialisePayment = async (req, res) =>{
         {
             email,
             amount,
-            callback_url: `${process.env.BASE_URL}/api/payments/verify`,
             metadata: { orderId: orderId, customerId: customerId },
         }, 
         {
@@ -162,33 +162,18 @@ const webhookHandler = async (req, res) => {
 
       // Credit rider to ledger (assumes deliveryFee exists on order)
       const deliveryFee = order.deliveryFee || 0;
-      if (order.riderAssigned && deliveryFee > 0) {
+      if (order.rider && deliveryFee > 0) {
         try {
           await ledgerService.creditRiderFromOrder(order, deliveryFee);
-          console.log(`✓ Credited rider ${order.riderAssigned} with ${deliveryFee}`);
+          console.log(`✓ Credited rider ${order.rider} with ${deliveryFee}`);
         } catch (err) {
           console.error("Failed to credit rider:", err.message);
         }
       }
 
-      // Keep existing VendorSettlement & RiderEarnings records for legacy reporting
-      await VendorSettlement.create({
-      vendor: order.vendor,
-      order: order._id,
-      gross: vendorGross,
-      commission: vendorCommission,
-      netPayable: vendorNet,
-      status: "pending"
-    });
-
-      if (order.riderAssigned && deliveryFee > 0) {
-        await RiderEarnings.create({
-      rider: order.riderAssigned,
-      order: order._id,
-          amount: deliveryFee,
-      status: "pending"
-        });
-      }
+      // VendorSettlement and RiderEarnings removed; using auto payouts and ledger entries instead
+      // Legacy models were previously used for reporting but are deprecated
+      
 
     return res.status(200).send("Webhook processed");
   } catch (err) {

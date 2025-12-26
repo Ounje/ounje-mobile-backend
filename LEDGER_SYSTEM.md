@@ -49,7 +49,7 @@ webhookHandler()
 │  └─ ledgerService.creditRiderFromOrder(order, deliveryFee)
 │     └─ Creates CREDIT entry for deliveryFee
 │     └─ Updates availableBalance
-└─ Keep legacy records in VendorSettlement, RiderEarnings
+└─ Legacy `VendorSettlement` and `RiderEarnings` models are deprecated; payouts are handled via the ledger and `Payout` records (auto payout flow)
 ```
 
 **Example:**
@@ -415,9 +415,9 @@ await ledgerService.debitAccount(
 );
 
 // Debit rider
-if (order.riderAssigned) {
+if (order.rider) {
   await ledgerService.debitAccount(
-    order.riderAssigned,
+    order.rider,
     "RIDER",
     order.deliveryFee,
     "REFUND",

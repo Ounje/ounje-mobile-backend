@@ -33,6 +33,7 @@ const payoutSchema = new mongoose.Schema(
       ref: "LedgerEntry",
     },
     transactionRef: String,
+    idempotencyKey: { type: String },
     failureReason: String,
     processedAt: Date,
   },
