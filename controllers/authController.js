@@ -101,6 +101,10 @@ const register = async (req, res) => {
         
         await user.save();
         // ... rest of token creation and response logic is correct ...
+        const accessToken = generateAccessToken({ id: user._id, role: user.role });
+        const refreshToken = generateRefreshToken({ id: user._id, role: user.role });
+        await RefreshToken.create({ token: refreshToken, user: user._id, ip: req.ip });
+        res.json(accessToken, refreshToken, { id: user._id, name: user.name, email: user.email, role: user.role });
     } catch (err) {
         return res.status(500).json({ error: err.message });
     }

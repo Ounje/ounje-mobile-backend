@@ -39,7 +39,7 @@ router.put("/:id", authMiddleware, roleGuard(["customer"]), updateOrderStatus);
 // View orders for seller
 router.get("/seller", authMiddleware, roleGuard(["seller"]), async (req, res) => {
   try {
-    const orders = await Order.find({ vendor: req.user._id })
+    const orders = await Order.find({ vendor: req.user.id })
       .populate("user", "name phone")
       .populate("items.item");
     res.json(orders);
@@ -55,7 +55,7 @@ router.put("/:id/status", authMiddleware, roleGuard(["seller"]), async (req, res
     const { status } = req.body; // accepted: confirmed or cancelled
     const order = await Order.findById(req.params.id);
     if (!order) return res.status(404).json({ error: "Order not found" });
-    if (!order.vendor.equals(req.user._id)) return res.status(403).json({ error: "Not vendor of this order" });
+    if (!order.vendor.equals(req.user.id)) return res.status(403).json({ error: "Not vendor of this order" });
 
     if (!["confirmed", "cancelled"].includes(status))
       return res.status(400).json({ error: "Invalid status" });
@@ -78,7 +78,7 @@ router.put("/:id/status", authMiddleware, roleGuard(["seller"]), async (req, res
 router.get("/available", authMiddleware, roleGuard(["rider"]), async (req, res) => {
   try {
     // Get the rider's operating areas (Max 2 zones)
-    const rider = await Rider.findById(req.user._id);
+    const rider = await Rider.findById(req.user.id);
     
     // ONLY find orders that match the rider's zones
     const orders = await Order.find({ 
@@ -147,7 +147,7 @@ router.put("/:id/rider-update", authMiddleware, roleGuard(["rider"]), async (req
     if (status === "delivered") {
       if (!otp) return res.status(400).json({ error: "OTP required to confirm delivery" });
 
-      const verified = await verifyDeliveryOtp(order, otp, req.user._id);
+      const verified = await verifyDeliveryOtp(order, otp, req.user.id);
       if (!verified.success) {
         return res.status(400).json({ error: "Invalid OTP" });
       }
@@ -174,7 +174,7 @@ router.put("/:id/rider-update", authMiddleware, roleGuard(["rider"]), async (req
 // View rider's own orders
 router.get("/rider", authMiddleware, roleGuard(["rider"]), async (req, res) => {
   try {
-    const orders = await Order.find({ rider: req.user._id })
+    const orders = await Order.find({ rider: req.user.id })
       .populate("user", "name phone")
       .populate("vendor", "name location");
     res.json(orders);
@@ -189,7 +189,7 @@ router.get("/:id/delivery-otp", authMiddleware, roleGuard(["customer"]), async (
   try {
     const order = await Order.findById(req.params.id);
     if (!order) return res.status(404).json({ error: "Order not found" });
-    if (order.customer.toString() !== req.user._id.toString()) return res.status(403).json({ error: "Not your order" });
+    if (order.customer.toString() !== req.user.id.toString()) return res.status(403).json({ error: "Not your order" });
 
     if (!order.deliveryOtpCode || !order.deliveryOtpExpiresAt) {
       return res.status(404).json({ error: "No active OTP for this order" });
