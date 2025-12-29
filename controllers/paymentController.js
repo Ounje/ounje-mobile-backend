@@ -7,6 +7,8 @@ const crypto = require('crypto');
 // const VendorSettlement = require("../models/VendorSettlement");
 // const RiderEarnings = require("../models/RiderEarnings");
 const ledgerService = require("../services/ledger.service");
+const payoutService = require("../services/payout.service");
+const Vendor = require("../models/Vendor");
 const paystack = axios.create({
   baseURL: "https://api.paystack.co",
   headers: {
@@ -158,6 +160,15 @@ const webhookHandler = async (req, res) => {
         console.log(`✓ Credited vendor ${order.vendor} with ${vendorNet}`);
       } catch (err) {
         console.error("Failed to credit vendor:", err.message);
+      }
+
+      // Attempt immediate vendor payout (new behaviour)
+      try {
+        const vendor = await Vendor.findById(order.vendor);
+        const vendorPayoutResult = await payoutService.processSinglePayout({ userId: order.vendor, userType: 'VENDOR', bankDetails: vendor.bankDetails ,amount: vendorNet, orderId: order._id });
+        console.log("Immediate vendor payout result:", vendorPayoutResult);
+      } catch (err) {
+        console.error("Immediate vendor payout failed:", err.message);
       }
 
       // Credit rider to ledger (assumes deliveryFee exists on order)

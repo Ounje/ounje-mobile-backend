@@ -2,6 +2,7 @@ const ledgerService = require("../services/ledger.service");
 const Payout = require("../models/Payout"); // Create this model
 const Rider = require("../models/Rider");
 const Vendor = require("../models/Vendor");
+const payoutService = require("../services/payout.service");
 
 /**
  * Get current balance for rider/vendor
@@ -274,6 +275,22 @@ const processPayout = async (req, res) => {
 };
 
 /**
+ * Admin: Retry a pending/failed payout by id
+ * POST /api/payouts/:payoutId/retry
+ */
+const retryPayout = async (req, res) => {
+  try {
+    if (req.user.role !== "admin") return res.status(403).json({ error: "Only admins can retry payouts" });
+    const { payoutId } = req.params;
+    const result = await payoutService.processPendingPayout(payoutId);
+    if (result && result.success) return res.json({ message: "Payout retried successfully", result });
+    return res.status(400).json({ message: "Payout retry failed", result });
+  } catch (error) {
+    console.error('Retry payout error:', error.message);
+    res.status(500).json({ error: error.message });
+  }
+};
+/**
  * Get account statement (for reconciliation)
  * GET /api/payouts/statement?startDate=2025-01-01&endDate=2025-12-31
  */
@@ -313,5 +330,6 @@ module.exports = {
   getPendingPayouts,
   cancelPayout,
   processPayout,
+  retryPayout,
   getStatement,
 };

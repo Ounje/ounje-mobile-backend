@@ -41,7 +41,7 @@ app.use("/api/plates", plateRoutes);
 app.use('/api/riders', riderRoutes);
 app.use("/api/payouts", payoutRoutes);
 app.use('/api/delivery', deliveryRoutes)
-app.use("/api/test", require("./tests/test01"));
+// app.use("/api/test", require("./tests/test01"));
 
 
 console.log(process.env.FRONTEND_URL)

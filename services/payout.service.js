@@ -6,6 +6,7 @@ const Rider = require('../models/Rider');
 const Order = require('../models/Order');
 const paystack = require('../utilis/paystack');
 const ledgerService = require('./ledger.service');
+const { LedgerEntry } = require('../models/LedgerEntry');
 
 // Ensure critical models are registered. This guards against "Schema hasn't been registered" errors
 if (!mongoose.models.Vendor) {
@@ -31,13 +32,23 @@ if (!mongoose.models.rider) {
  * - On success: complete payout (debit pending)
  * - On failure: reverse reserve
  */
-const processSinglePayout = async ({ userId, userType, amount, bankDetails, name }) => {
-  console.log(`Processing payout for ${userType} ${userId} amount: ${amount}`);
+const processSinglePayout = async ({ userId, userType, amount, bankDetails, name, orderId }) => {
+  console.log(`Processing payout for ${userType} ${userId} amount: ${amount} order:${orderId || 'n/a'}`);
+  // If an orderId is provided, avoid duplicate payouts for same order + user
+  if (orderId) {
+    const existing = await Payout.findOne({ order: orderId, userType, user: userId, status: { $in: ['processing','completed'] } });
+    if (existing) {
+      console.log('Existing payout found for order, skipping:', existing._id);
+      return { success: true, skipped: true, payout: existing };
+    }
+  }
+
   if (!bankDetails || !bankDetails.accountNumber || !bankDetails.bankCode) {
     // Create a pending payout record to be processed by admin later
     const pending = await Payout.create({
       user: userId,
       userType: userType,
+      order: orderId,
       amount,
       bankDetails: bankDetails || {},
       status: 'pending'
@@ -51,12 +62,12 @@ const processSinglePayout = async ({ userId, userType, amount, bankDetails, name
     reserved = await ledgerService.reserveBalance(userId, userType, amount);
   } catch (err) {
     console.error('Insufficient funds to reserve for payout:', err.message);
-    const failed = await Payout.create({ user: userId, userType, amount, bankDetails, status: 'failed', failureReason: 'insufficient_funds' });
+    const failed = await Payout.create({ user: userId, userType, order: orderId, amount, bankDetails, status: 'failed', failureReason: 'insufficient_funds' });
     return { success: false, reason: 'insufficient_funds', payout: failed };
   }
 
   // Create payout record in processing state (persist BEFORE transfer for idempotency)
-  let payout = await Payout.create({ user: userId, userType, amount, bankDetails, status: 'processing', ledgerEntry: reserved.entry._id });
+  let payout = await Payout.create({ user: userId, userType, order: orderId, amount, bankDetails, status: 'processing', ledgerEntry: reserved.entry._id });
 
   // Set a stable idempotency key tied to payout._id (used as Idempotency-Key header)
   payout.idempotencyKey = `payout_${payout._id}`;
@@ -144,11 +155,16 @@ const processAutoPayoutsForOrder = async (orderId) => {
 
   if (order.vendor) {
     const vendor = await Vendor.findById(order.vendor);
-    console.log("fetched vendor for payout")
     const bank = vendor?.bankDetails;
-    console.log("fetched bank details for payout")
-    results.vendor = await processSinglePayout({ userId: vendor._id, userType: 'VENDOR', amount: vendorNet, bankDetails: bank, name: vendor.name });
-    console.log("processed vendor payout")
+    // Skip vendor payout if already processed for this order
+    const existingVendorPayout = await Payout.findOne({ order: order._id, userType: 'VENDOR', user: vendor._id, status: { $in: ['processing','completed'] } });
+    if (existingVendorPayout) {
+      results.vendor = { skipped: true, payout: existingVendorPayout };
+      console.log("Vendor payout skipped; existing payout found:", existingVendorPayout._id);
+    } else {
+      results.vendor = await processSinglePayout({ userId: vendor._id, userType: 'VENDOR', amount: vendorNet, bankDetails: bank, name: vendor.name, orderId: order._id });
+      console.log("processed vendor payout");
+    }
   }
 
   // Rider payout (delivery fee)
@@ -156,10 +172,129 @@ const processAutoPayoutsForOrder = async (orderId) => {
   if (order.rider && deliveryFee > 0) {
     const rider = await Rider.findById(order.rider);
     const bank = rider?.bankDetails;
+
+    // Ensure rider has been credited for this order (credit at delivery time if missing)
+    try {
+      const riderAccount = await ledgerService.ensureAccount(rider._id, 'RIDER');
+      const existingCredit = await LedgerEntry.findOne({ orderId: order._id, accountId: riderAccount._id, entryType: 'CREDIT', reason: 'ORDER_EARNING' });
+      if (!existingCredit) {
+        console.log('Crediting rider for order at delivery:', order._id, deliveryFee);
+        await ledgerService.creditRiderFromOrder(order, deliveryFee);
+      } else {
+        console.log('Rider already credited for order:', order._id);
+      }
+    } catch (err) {
+      console.error('Failed to ensure rider credit before payout:', err.message);
+      // Continue — processSinglePayout will handle insufficient funds and create a failed/pending payout as appropriate
+    }
+
     results.rider = await processSinglePayout({ userId: rider._id, userType: 'RIDER', amount: deliveryFee, bankDetails: bank, name: rider.name });
   }
 
   return results;
 };
 
-module.exports = { processAutoPayoutsForOrder, processSinglePayout };
+/**
+ * Attempt to process an existing pending/failed payout by id.
+ * This will reserve balance if needed, mark the payout processing, and attempt transfer.
+ */
+const processPendingPayout = async (payoutId) => {
+  const payout = await Payout.findById(payoutId);
+  if (!payout) throw new Error('Payout not found');
+
+  // Only attempt for pending or failed payouts
+  if (!['pending', 'failed'].includes(payout.status)) {
+    return { success: false, reason: 'invalid_status', payout };
+  }
+
+  // Resolve bank details from payout record or user profile
+  const model = payout.userType === 'VENDOR' ? Vendor : Rider;
+  const user = await model.findById(payout.user);
+  const bank = payout.bankDetails && payout.bankDetails.accountNumber ? payout.bankDetails : user?.bankDetails;
+
+  if (!bank || !bank.accountNumber || !bank.bankCode) {
+    return { success: false, reason: 'no_bank', payout };
+  }
+
+  // If there's no ledger reservation yet, try to reserve now
+  let reserved = null;
+  if (!payout.ledgerEntry) {
+    try {
+      reserved = await ledgerService.reserveBalance(payout.user, payout.userType, payout.amount);
+      // Attach ledger entry
+      payout.ledgerEntry = reserved.entry._id;
+    } catch (err) {
+      // Insufficient funds
+      payout.status = 'failed';
+      payout.failureReason = 'insufficient_funds';
+      await payout.save();
+      return { success: false, reason: 'insufficient_funds', payout };
+    }
+  }
+
+  // Mark processing
+  payout.status = 'processing';
+  payout.idempotencyKey = payout.idempotencyKey || `payout_${payout._id}`;
+  await payout.save();
+
+  try {
+    // Ensure paystack recipient exists
+    let recipientCode = user?.paystackRecipientCode;
+    if (!recipientCode) {
+      const recipient = await paystack.recipients.create({ name: user?.name || user?.accountName || 'Recipient', account_number: bank.accountNumber, bank_code: bank.bankCode });
+      recipientCode = recipient?.data?.recipient_code || recipient?.data?.recipientCode || recipient?.data?.recipientId || recipient?.recipient_code;
+      if (!recipientCode) throw new Error('Failed to get recipient code from Paystack');
+      user.paystackRecipientCode = recipientCode;
+      await user.save();
+    }
+
+    // Initiate transfer
+    const transfer = await paystack.transfer.initiate({ amount: Math.round(payout.amount * 100), recipient: recipientCode, reason: `Retry payout`, idempotencyKey: payout.idempotencyKey });
+    const transferCode = transfer?.data?.transfer_code || transfer?.data?.transferCode || transfer?.transfer_code || transfer?.data?.reference;
+
+    // Complete ledger payout (debit pending)
+    await ledgerService.completePayout(payout.user, payout.userType, payout.amount);
+
+    payout.status = 'completed';
+    payout.transactionRef = transferCode;
+    payout.processedAt = new Date();
+    await payout.save();
+
+    return { success: true, payout };
+  } catch (err) {
+    console.error('Retry payout failed:', err.message);
+    // Reverse reserved funds if we reserved them here
+    try {
+      if (reserved) {
+        await ledgerService.reverseReserve(payout.user, payout.userType, payout.amount, `Auto retry failed: ${err.message}`);
+      }
+    } catch (rerr) {
+      console.error('Failed to reverse reserve after retry failure:', rerr.message);
+    }
+
+    payout.status = 'failed';
+    payout.failureReason = err.message;
+    await payout.save();
+
+    return { success: false, reason: 'transfer_failed', error: err.message, payout };
+  }
+};
+
+/**
+ * Process all pending payouts for a given user (called when bank details are updated)
+ */
+const processPendingPayoutsForUser = async (userId, userType) => {
+  const payouts = await Payout.find({ user: userId, userType, status: { $in: ['pending', 'failed'] } }).sort({ createdAt: 1 });
+  const results = [];
+  for (const p of payouts) {
+    try {
+      const r = await processPendingPayout(p._id);
+      results.push(r);
+    } catch (err) {
+      results.push({ success: false, error: err.message, payout: p });
+    }
+  }
+  return results;
+};
+
+module.exports = { processAutoPayoutsForOrder, processSinglePayout, processPendingPayout, processPendingPayoutsForUser };

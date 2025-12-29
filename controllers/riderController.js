@@ -1,3 +1,5 @@
+const payoutService = require('../services/payout.service');
+
 const registerRider = async (req, res) => {
   const { name, selectedZones } = req.body; // e.g., ["Ikeja", "Yaba"]
 
@@ -14,3 +16,27 @@ const registerRider = async (req, res) => {
   
   res.status(201).json({ message: "Rider registered successfully!" + selectedZones.join(", ") });
 };
+
+const updateBankDetails = async (req, res) => {
+  try {
+    const riderId = req.user.id;
+    const { accountNumber, bankCode, accountName } = req.body;
+
+    if (!accountNumber || !bankCode || !accountName) {
+      return res.status(400).json({ error: 'accountNumber, bankCode, accountName required' });
+    }
+
+    const RiderModel = require('../models/Rider');
+    const rider = await RiderModel.findByIdAndUpdate(riderId, { bankDetails: { accountNumber, bankCode, accountName } }, { new: true });
+
+    // Trigger retry of pending payouts
+    const retryResults = await payoutService.processPendingPayoutsForUser(rider._id, 'RIDER');
+
+    res.json({ rider, retryResults });
+  } catch (err) {
+    console.error('Update bank details failed:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+};
+
+module.exports = { registerRider, updateBankDetails };

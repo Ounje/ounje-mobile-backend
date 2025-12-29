@@ -48,4 +48,10 @@ router.put("/:payoutId/cancel", authMiddleware, payoutController.cancelPayout);
  */
 router.put("/:payoutId/process", authMiddleware, payoutController.processPayout);
 
+/**
+ * Retry a payout (admin only)
+ * POST /api/payouts/:payoutId/retry
+ */
+router.post("/:payoutId/retry", authMiddleware, payoutController.retryPayout);
+
 module.exports = router;

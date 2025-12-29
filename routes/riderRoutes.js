@@ -3,6 +3,8 @@
 const express = require("express");
 const router = express.Router(); // FIX 1: Must initialize the router
 const db = require('../config/db'); // FIX 2: Assuming 'db' helper is accessible/imported here
+const { authMiddleware, roleGuard } = require("../middleware/auth");
+const { updateBankDetails } = require("../controllers/riderController");
 
 // FIX 3: Endpoint corrected to '/location' since the server.js prefix is '/api/riders'
 // FIX 4: Changed internal logic references from 'driverId' to 'riderId'
@@ -28,5 +30,8 @@ router.post('/location', async (req, res) => {
         res.status(500).send({ message: "Failed to update location.", error: error.message });
     }
 });
+
+// Rider updates their bank details and triggers pending payouts retry
+router.put('/profile/bank-details', authMiddleware, roleGuard(['rider']), updateBankDetails);
 
 module.exports = router;

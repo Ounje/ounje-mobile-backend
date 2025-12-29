@@ -1,5 +1,6 @@
 const Vendor = require("../models/Vendor");
 const Dish = require("../models/Dish");
+const payoutService = require("../services/payout.service");
 
 // Get popular vendors
 const getPopularVendors = async (req, res) => {
@@ -42,8 +43,30 @@ const userGetVendor = async(req, res) => {
   }
 }
 
+const updateBankDetails = async (req, res) => {
+  try {
+    const vendorId = req.user.id;
+    const { accountNumber, bankCode, accountName } = req.body;
+
+    if (!accountNumber || !bankCode || !accountName) {
+      return res.status(400).json({ error: 'accountNumber, bankCode, accountName required' });
+    }
+
+    const vendor = await Vendor.findByIdAndUpdate(vendorId, { bankDetails: { accountNumber, bankCode, accountName } }, { new: true });
+
+    // Trigger retry of pending payouts
+    const retryResults = await payoutService.processPendingPayoutsForUser(vendor._id, 'VENDOR');
+
+    res.json({ vendor, retryResults });
+  } catch (err) {
+    console.error('Update bank details failed:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+};
+
 module.exports = {
   getPopularVendors,
   getVendor,
   userGetVendor,
+  updateBankDetails,
 };

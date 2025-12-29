@@ -13,15 +13,20 @@ const payoutSchema = new mongoose.Schema(
       enum: ["VENDOR", "RIDER"],
       required: true,
     },
+    order: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Order",
+      index: true,
+    },
     amount: {
       type: Number,
       required: true,
       min: 0,
     },
     bankDetails: {
-      accountNumber: { type: String, required: true },
-      bankCode: { type: String, required: true },
-      accountName: { type: String, required: true },
+      accountNumber: { type: String },
+      bankCode: { type: String },
+      accountName: { type: String },
     },
     status: {
       type: String,

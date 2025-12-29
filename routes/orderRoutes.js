@@ -38,7 +38,7 @@ router.put("/:id", authMiddleware, roleGuard(["customer"]), updateOrderStatus);
 ====================== */
 
 // View orders for seller
-router.get("/seller", authMiddleware, roleGuard(["seller"]), async (req, res) => {
+router.get("/seller", authMiddleware, roleGuard(["vendor"]), async (req, res) => {
   try {
     const orders = await Order.find({ vendor: req.user.id })
       .populate("user", "name phone")
@@ -51,7 +51,7 @@ router.get("/seller", authMiddleware, roleGuard(["seller"]), async (req, res) =>
 
 
 // Update order status (confirm/cancel) (seller)
-router.put("/:id/status", authMiddleware, roleGuard(["seller"]), async (req, res) => {
+router.put("/:id/status", authMiddleware, roleGuard(["vendor"]), async (req, res) => {
   try {
     const { status } = req.body; // accepted: confirmed or cancelled
     const order = await Order.findById(req.params.id);
@@ -105,7 +105,7 @@ router.post("/:id/assign", authMiddleware, roleGuard(["rider"]), async (req, res
     if (order.status !== "confirmed") return res.status(400).json({ error: "Order must be confirmed first" });
 
 
-    order.rider = req.user._id;
+    order.rider = req.user.id;
     order.status = "assigned";
     await order.save();
     res.json(order);
@@ -121,7 +121,7 @@ router.put("/:id/rider-update", authMiddleware, roleGuard(["rider"]), async (req
     const { status, riderLocation, otp } = req.body;
     const order = await Order.findById(req.params.id);
     if (!order) return res.status(404).json({ error: "Order not found" });
-    // if (!order.rider || !order.rider.equals(req.user._id)) return res.status(403).json({ error: "Not assigned to you" });
+    if (!order.rider || !order.rider.equals(req.user.id)) return res.status(403).json({ error: "Not assigned to you" });
 
 
     if (status && !["out_for_delivery", "delivered"].includes(status))

@@ -45,11 +45,15 @@ webhookHandler()
 │  └─ ledgerService.creditVendorFromOrder(order, commission=0.10)
 │     └─ Creates CREDIT entry for (totalPrice - commission)
 │     └─ Updates availableBalance
+├─ Attempt immediate vendor payout:
+│  └─ Create a `Payout` record linked to the `Order` and initiate transfer if `vendor.bankDetails` exist
+│  └─ On transfer success: ledger `completePayout()` is called and payout marked `completed`
+│  └─ On failure or missing bank details: payout stays `pending` or is marked `failed` (admin can review)
 ├─ Credit Rider:
 │  └─ ledgerService.creditRiderFromOrder(order, deliveryFee)
 │     └─ Creates CREDIT entry for deliveryFee
 │     └─ Updates availableBalance
-└─ Legacy `VendorSettlement` and `RiderEarnings` models are deprecated; payouts are handled via the ledger and `Payout` records (auto payout flow)
+└─ Legacy `VendorSettlement` and `RiderEarnings` models are deprecated; payouts are handled via the ledger and `Payout` records. Rider payouts occur at delivery confirmation (OTP).
 ```
 
 **Example:**
@@ -110,19 +114,19 @@ processPayout()
 
 ### Instant Payouts on Delivery (Auto)
 
-You can enable "instant" payouts so that when a rider verifies delivery using an OTP provided to the customer, the system automatically attempts to transfer the vendor and rider earnings to their bank accounts (no admin action required).
+You can enable "instant" payouts so that when a rider verifies delivery using an OTP provided to the customer, the system automatically attempts to transfer the *rider's* earnings (delivery fee) to their bank account (no admin action required). Vendor payouts are now attempted immediately after customer payment and will not be duplicated at delivery time.
 
 Flow:
 1. Rider marks order `out_for_delivery` → backend generates a secure in-app OTP and delivers it to the customer's app (via socket.io or `/api/orders/:id/delivery-otp`).
 2. Customer gives OTP to the rider; rider submits the OTP when marking the order `delivered`.
-3. Backend verifies the OTP, marks order `completed`, reserves ledger balances, creates `Payout` records and initiates Paystack transfers.
-4. On transfer success: ledger `completePayout()` is called and the payout is marked `completed`.
+3. Backend verifies the OTP, marks order `completed`, reserves ledger balances for the rider, creates a rider `Payout` record and initiates the rider's Paystack transfer.
+4. On transfer success: ledger `completePayout()` is called and the rider payout is marked `completed`.
 5. On failure: the reserved funds are reversed back to available and the payout is marked `failed` (admin can review).
 
 Endpoints:
 - POST `/api/orders/:id/assign` (rider claims order)
 - PUT `/api/orders/:id/rider-update` with `{ status: "out_for_delivery" }` → sends OTP to customer
-- PUT `/api/orders/:id/rider-update` with `{ status: "delivered", otp: "123456" }` → verifies OTP and triggers auto payouts
+- PUT `/api/orders/:id/rider-update` with `{ status: "delivered", otp: "123456" }` → verifies OTP and triggers rider auto payout (vendor is paid on payment)
 
 Notes:
 - Vendors and riders must have `bankDetails` saved on their profiles (accountNumber + bankCode + accountName) or payouts will remain `pending` for manual processing.
