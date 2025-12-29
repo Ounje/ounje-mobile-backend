@@ -1,9 +1,27 @@
+const mongoose = require('mongoose');
 const Payout = require('../models/Payout');
+const User = require('../models/User');
 const Vendor = require('../models/Vendor');
 const Rider = require('../models/Rider');
 const Order = require('../models/Order');
 const paystack = require('../utilis/paystack');
 const ledgerService = require('./ledger.service');
+
+// Ensure critical models are registered. This guards against "Schema hasn't been registered" errors
+if (!mongoose.models.Vendor) {
+  try {
+    require('../models/Vendor');
+  } catch (e) {
+    console.warn('Warning: failed to require Vendor model during startup:', e.message);
+  }
+}
+if (!mongoose.models.rider) {
+  try {
+    require('../models/Rider');
+  } catch (e) {
+    console.warn('Warning: failed to require Rider model during startup:', e.message);
+  }
+}
 
 /**
  * Process a single payout to a user (vendor or rider)
@@ -14,6 +32,7 @@ const ledgerService = require('./ledger.service');
  * - On failure: reverse reserve
  */
 const processSinglePayout = async ({ userId, userType, amount, bankDetails, name }) => {
+  console.log(`Processing payout for ${userType} ${userId} amount: ${amount}`);
   if (!bankDetails || !bankDetails.accountNumber || !bankDetails.bankCode) {
     // Create a pending payout record to be processed by admin later
     const pending = await Payout.create({
@@ -98,7 +117,21 @@ const processSinglePayout = async ({ userId, userType, amount, bankDetails, name
  * Process automatic payouts for an order: both vendor and rider (if applicable)
  */
 const processAutoPayoutsForOrder = async (orderId) => {
-  const order = await Order.findById(orderId).populate('vendor').populate('rider').populate('customer');
+  let order;
+  try {
+    // Use explicit model names in populate to avoid lookup errors when model registration order varies
+    order = await Order.findById(orderId)
+      .populate({ path: 'vendor', model: 'vendor' })
+      .populate({ path: 'rider', model: 'rider' })
+      .populate('customer');
+    console.log("Fetched order for payout processing:", orderId);
+  } catch (err) {
+    // Helpful debug info when model lookup fails
+    console.error('Failed to fetch order with populate:', err.message);
+    console.error('Registered Mongoose models:', mongoose.modelNames());
+    throw err;
+  }
+
   if (!order) throw new Error('Order not found');
 
   const results = { vendor: null, rider: null };
@@ -107,11 +140,15 @@ const processAutoPayoutsForOrder = async (orderId) => {
   const commission = 0.10;
   const vendorGross = order.totalPrice;
   const vendorNet = vendorGross - vendorGross * commission;
+  console.log("calculated commission")
 
   if (order.vendor) {
     const vendor = await Vendor.findById(order.vendor);
+    console.log("fetched vendor for payout")
     const bank = vendor?.bankDetails;
+    console.log("fetched bank details for payout")
     results.vendor = await processSinglePayout({ userId: vendor._id, userType: 'VENDOR', amount: vendorNet, bankDetails: bank, name: vendor.name });
+    console.log("processed vendor payout")
   }
 
   // Rider payout (delivery fee)

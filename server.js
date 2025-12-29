@@ -3,6 +3,9 @@ const mongoose = require("mongoose");
 const cors = require("cors");
 const http = require("http"); // Standard Node.js module
 require("dotenv").config();
+// Load all models early so Mongoose model registration is guaranteed
+require('./models');
+
 const authRoutes = require("./routes/authRoutes");
 const dishRoutes = require("./routes/dishRoutes");
 const orderRoutes = require("./routes/orderRoutes");
@@ -38,7 +41,7 @@ app.use("/api/plates", plateRoutes);
 app.use('/api/riders', riderRoutes);
 app.use("/api/payouts", payoutRoutes);
 app.use('/api/delivery', deliveryRoutes)
-// app.use("/api/test", require("./routes/testRoutes"));
+app.use("/api/test", require("./tests/test01"));
 
 
 console.log(process.env.FRONTEND_URL)

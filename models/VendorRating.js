@@ -10,6 +10,6 @@ const vendorRatingSchema = new mongoose.Schema({
 vendorRatingSchema.index({ vendor: 1, customer: 1 }, { unique: true });
 
 
-const Rating = mongoose.model("VendorRating", ratingSchema);
+const Rating = mongoose.model("VendorRating", vendorRatingSchema);
 
 module.exports = Rating;

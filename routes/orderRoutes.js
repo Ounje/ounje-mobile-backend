@@ -3,6 +3,7 @@ const { authMiddleware, roleGuard } = require("../middleware/auth");
 const Dish = require("../models/Dish");
 const Order = require("../models/Order");
 const Rider = require("../models/Rider");
+const Vendor= require("../models/Vendor");
 
 const {
   createOrder,
@@ -120,7 +121,7 @@ router.put("/:id/rider-update", authMiddleware, roleGuard(["rider"]), async (req
     const { status, riderLocation, otp } = req.body;
     const order = await Order.findById(req.params.id);
     if (!order) return res.status(404).json({ error: "Order not found" });
-    if (!order.rider || !order.rider.equals(req.user._id)) return res.status(403).json({ error: "Not assigned to you" });
+    // if (!order.rider || !order.rider.equals(req.user._id)) return res.status(403).json({ error: "Not assigned to you" });
 
 
     if (status && !["out_for_delivery", "delivered"].includes(status))

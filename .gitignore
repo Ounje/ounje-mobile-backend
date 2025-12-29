@@ -32,4 +32,7 @@ coverage/
 *.tgz
 
 #test routes
-routes/testRoutes.js
+tests/
+
+#scripts
+scripts/

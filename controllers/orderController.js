@@ -159,6 +159,7 @@ exports.sendDeliveryOtp = async (order) => {
   const duration = parseInt(process.env.DELIVERY_OTP_DURATION || 5); // minutes
 
   order.deliveryOtpCode = otp; // short-lived plaintext for app delivery
+  console.log("Generated OTP for order", order._id, "OTP:", otp);
   order.deliveryOtpHash = otpHash;
   order.deliveryOtpSentAt = new Date();
   order.deliveryOtpExpiresAt = new Date(Date.now() + duration * 60 * 1000);
@@ -210,6 +211,7 @@ exports.verifyDeliveryOtp = async (order, otp, riderId) => {
 
   // Trigger automatic payouts asynchronously; don't block on it fully
   try {
+    console.log("Triggering auto payouts for order", order._id);
     await payoutService.processAutoPayoutsForOrder(order._id);
   } catch (err) {
     console.error("Auto payout failed for order", order._id, err.message);
