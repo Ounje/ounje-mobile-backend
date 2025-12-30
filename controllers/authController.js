@@ -184,6 +184,7 @@ const requestOtp = async (req, res) => {
   if (exists) return res.status(400).json({ error: "Email already in use" });
 
   const otp = generateOtp(4); // <-- UPDATED
+  console.log(`Generated OTP: ${otp}`);
   const newOtp = new OtpVerification({ email, otp });
   await newOtp.save();
 
