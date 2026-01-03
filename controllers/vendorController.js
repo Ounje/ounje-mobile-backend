@@ -64,9 +64,44 @@ const updateBankDetails = async (req, res) => {
   }
 };
 
+// NEW: Get Nearby Vendors (Fixed User -> Vendor)
+const getNearbyVendors = async (req, res) => {
+  try {
+    const { lat, lng } = req.query; 
+
+    if (!lat || !lng) {
+      return res.status(400).json({ message: "Latitude and Longitude are required" });
+    }
+
+    const vendors = await Vendor.find({
+      // Removed role: 'vendor' because you are already querying the Vendor model
+      location: {
+        $near: {
+          $geometry: { 
+            type: "Point", 
+            coordinates: [parseFloat(lng), parseFloat(lat)] 
+          },
+          $maxDistance: 3000 // 3km
+        }
+      }
+    });
+
+    res.status(200).json({
+      status: 'success',
+      results: vendors.length,
+      data: vendors
+    });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+
+
 module.exports = {
   getPopularVendors,
   getVendor,
   userGetVendor,
   updateBankDetails,
+  getNearbyVendors 
 };
+

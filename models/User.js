@@ -7,7 +7,7 @@ const userSchema = new mongoose.Schema({
   address: { type: String, required: true }, // For Google Pricing Algorithm
   location: {
     type: { type: String, enum: ["Point"], default: "Point" },
-    coordinates: { type: [Number], index: "2dsphere" }
+    coordinates: { type: [Number] }
   },
   phone: Number,
   img: String,
@@ -15,5 +15,6 @@ const userSchema = new mongoose.Schema({
   ...options
  });
 
+userSchema.index({ location: "2dsphere" }); 
 
 module.exports = mongoose.model("User", userSchema);
