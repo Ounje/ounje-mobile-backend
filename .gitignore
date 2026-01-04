@@ -36,3 +36,6 @@ tests/
 
 #scripts
 scripts/
+
+config/serviceAccountKey.json
+

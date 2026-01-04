@@ -62,6 +62,7 @@ const orderSchema = new mongoose.Schema({
     enum: ["pending", "confirmed", "assigned", "out_for_delivery", "delivered", "in_progress", "completed", "cancelled"],
     default: "pending"
   },
+  subStatus: { type: String, default: "" }, // for more granular tracking if needed
   deliveryAddress: {
     type: String
   },

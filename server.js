@@ -50,6 +50,13 @@ console.log(process.env.FRONTEND_URL)
 io.on('connection', (socket) => {
   // Make io reachable from controllers via `global.io` for simple emit (used for OTP push)
   global.io = io;
+  console.log('A user connected:', socket.id);
+
+  // The Frontend will call this as soon as the app opens
+  socket.on('join', (userId) => {
+    socket.join(userId); 
+    console.log(`User ${userId} joined their private room`);
+  });
 
   // 1. Listen for the 'update-location' signal from the Rider's App
   socket.on('update-location', async (data) => {
@@ -75,6 +82,10 @@ io.on('connection', (socket) => {
     } catch (error) {
       console.error("Database update failed:", error);
     }
+  });
+
+  socket.on('disconnect', () => {
+    console.log('User disconnected');
   });
 });
 

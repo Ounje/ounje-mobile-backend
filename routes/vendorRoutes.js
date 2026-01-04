@@ -1,6 +1,6 @@
 const express = require('express');
 const { getPopularVendors, getVendor, userGetVendor, updateBankDetails, getNearbyVendors } = require('../controllers/vendorController');
-const { authMiddleware } = require('../middleware/auth');
+const { authMiddleware, roleGuard } = require('../middleware/auth');
 
 const router = express.Router();
 

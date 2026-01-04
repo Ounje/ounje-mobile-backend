@@ -7,6 +7,8 @@ const { calculateOunjeFee, identifyZone } = require('../utilis/delivery');
 const crypto = require('crypto');
 const payoutService = require("../services/payout.service");
 const Customer = require("../models/Customer");
+const { sendPushNotification } = require("../services/notification.service");
+const Rider = require("../models/Rider");
 
 // Helper: generate secure numeric OTP of given length
 const generateNumericOtp = (length = 6) => {
@@ -16,7 +18,6 @@ const generateNumericOtp = (length = 6) => {
 };
 
 const hashOtp = (otp) => crypto.createHash('sha256').update(otp).digest('hex');
-
 
 // Create a new order
 exports.createOrder = async (req, res) => {
@@ -122,25 +123,46 @@ exports.getOrderById = async (req, res) => {
 
 exports.updateOrderStatus = async (req, res) => {
   try {
-    const { status } = req.body;
-    const order = await Order.findById(req.params.id);
+    // Note: I'm using req.params.id to match your route /:id
+    const { id } = req.params; 
+    const { status, subStatus } = req.body;
 
+    const order = await Order.findById(id).populate("customer");;
     if (!order) return res.status(404).json({ message: "Order not found" });
 
-    // Only allow customer to cancel
-    if (
-      status === "cancelled" &&
-      order.user.toString() !== req.user.id.toString()
-    ) {
-      return res.status(403).json({ message: "Unauthorized" });
-    }
-
+    // Update Database
     order.status = status;
+    order.subStatus = subStatus || "";
     await order.save();
 
-    res.status(200).json({ message: "Order updated", order });
+    // Send Real-Time Update to the specific Customer
+    if (global.io) {
+      // order.customer is the ID of the user who made the order
+      global.io.to(order.customer.toString()).emit('orderUpdate', {
+        orderId: order._id,
+        status: order.status,
+        subStatus: order.subStatus
+      });
+      console.log(`Real-time update sent to Customer ${order.customer}: ${status}`);
+    }
+    
+    // Firebase (Push Notification if app is closed/in pocket)
+    if (order.customer && order.customer.fcmToken) {
+      const title = `Order Update: ${status}`;
+      const body = subStatus || `Your order is now ${status}`;
+      
+      await sendPushNotification(order.customer.fcmToken, title, body);
+    }
+
+    if (status === "Rider Enroute" && subStatus === "Looking for Rider") {
+      const vendor = await Vendor.findById(order.vendor);
+      // Start searching for riders!
+      await findNearbyRiders(vendor.location, order._id);
+    }
+
+    res.status(200).json({ success: true, order });
   } catch (error) {
-    res.status(500).json({ message: "Failed to update order", error });
+    res.status(500).json({ message: "Failed to update order", error: error.message });
   }
 };
 
@@ -218,4 +240,35 @@ exports.verifyDeliveryOtp = async (order, otp, riderId) => {
   }
 
   return { success: true };
+};
+
+const findNearbyRiders = async (vendorLocation, orderId) => {
+  try {
+    // 1. Find all available riders within 3km (3000 meters)
+    const nearbyRiders = await Rider.find({
+      isOnline: true,
+      isAvailable: true,
+      lastKnownLocation: {
+        $near: {
+          $geometry: vendorLocation, // The Vendor's [lng, lat]
+          $maxDistance: 3000 
+        }
+      }
+    });
+
+    // 2. Broadcast to these specific riders via Socket.io
+    if (global.io && nearbyRiders.length > 0) {
+      nearbyRiders.forEach(rider => {
+        global.io.to(rider._id.toString()).emit('newOrderAvailable', {
+          orderId: orderId,
+          message: "New delivery request nearby!"
+        });
+      });
+      console.log(`Pings sent to ${nearbyRiders.length} riders.`);
+    }
+    
+    return nearbyRiders;
+  } catch (error) {
+    console.error("Error finding riders:", error);
+  }
 };

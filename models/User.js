@@ -11,6 +11,10 @@ const userSchema = new mongoose.Schema({
   },
   phone: Number,
   img: String,
+  fcmToken: { 
+    type: String, 
+    default: null 
+  },
 }, { timestamps: true,
   ...options
  });
