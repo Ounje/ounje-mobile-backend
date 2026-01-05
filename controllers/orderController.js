@@ -106,7 +106,8 @@ exports.getOrderById = async (req, res) => {
   try {
     const order = await Order.findById(req.params.id)
       .populate("vendor", "name")
-      .populate("items.item");
+      .populate("items.item")
+      .populate("customer");
 
     if (!order) return res.status(404).json({ message: "Order not found" });
 
