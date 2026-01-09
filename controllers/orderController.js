@@ -230,12 +230,16 @@ exports.verifyDeliveryOtp = async (order, otp, riderId) => {
   order.deliveryOtpExpiresAt = null;
   order.deliveryOtpSentAt = null;
 
+  // RELEASE THE MONEY TO RIDER WALLET
+  await ledgerService.releaseRiderFee(order.rider, order._id);
   await order.save();
 
   // Trigger automatic payouts asynchronously; don't block on it fully
   try {
     console.log("Triggering auto payouts for order", order._id);
-    await payoutService.processAutoPayoutsForOrder(order._id);
+    if (order.rider) {
+    await ledgerService.releaseRiderFee(order.rider, order._id);
+    }
   } catch (err) {
     console.error("Auto payout failed for order", order._id, err.message);
   }

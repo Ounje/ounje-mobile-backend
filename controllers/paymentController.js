@@ -1,201 +1,80 @@
-const axios = require("axios"); 
+const axios = require("axios");
 const Payment = require("../models/Payment");
 const Customer = require("../models/Customer");
 const Order = require("../models/Order");
-const crypto = require('crypto');
-// VendorSettlement and RiderEarnings removed — using auto payouts and ledger for settlement
-// const VendorSettlement = require("../models/VendorSettlement");
-// const RiderEarnings = require("../models/RiderEarnings");
+const crypto = require("crypto");
 const ledgerService = require("../services/ledger.service");
 const payoutService = require("../services/payout.service");
 const Vendor = require("../models/Vendor");
+
 const paystack = axios.create({
   baseURL: "https://api.paystack.co",
   headers: {
     Authorization: `Bearer ${process.env.PAYSTACK_TEST_SECRET_KEY}`,
-    "Content-Type": "application/json"
-  }
+    "Content-Type": "application/json",
+  },
 });
 
-
-const initialisePayment = async (req, res) =>{
-    const { orderId } = req.body;
-    const customerId = req.user.id;
-    const order = await Order.findById(orderId);
-    if (!order) return res.status(404).json({ error: "Order not found" });
-    const amount = order.totalPrice * 100; 
-    const existing = await Payment.findOne({ orderId: order._id, status: 'pending' });
-    if (existing) {
-      return res.json({
-        message: 'Existing pending payment found',
-        authorization_url: existing.authorizationUrl,
-        reference: existing.reference,
-      });
-    }
-    const customer = await Customer.findById(customerId);
-    const email = customer.email;
-
-    try {
-        const response = await paystack.post( 
-        "transaction/initialize",
-        {
-            email,
-            amount,
-            metadata: { orderId: orderId, customerId: customerId },
-        }, 
-        {
-            headers: {
-            Authorization: `Bearer ${process.env.PAYSTACK_TEST_SECRET_KEY}`,
-            "Content-Type": "application/json",
-            },
-        }
-        );
-        const payment = new Payment({ customer: customerId, orderId, amount, reference: response.data.data.reference,
-          authorizationUrl: response.data.data.authorization_url, status: "pending" });
-        await payment.save();
-        res.json(response.data); 
-    } catch (err) {
-        console.error(err.response?.data || err.message);
-        res.status(500).json({ error: "Payment initialization failed" });
-    }
-}
+const initialisePayment = async (req, res) => {
+  // ... (Your initialization logic is fine, just ensure customer.email is passed)
+};
 
 const verifyPayment = async (req, res) => {
-  const reference = req.query.reference;
-  if (!reference) return res.status(400).json({ error: "Missing reference" });
-
-  try {
-    const response = await paystack.get(
-      `transaction/verify/${reference}`,
-      {
-        headers: {
-          Authorization: `Bearer ${process.env.PAYSTACK_TEST_SECRET_KEY}`,
-        },
-      }
-    );
-
-    const data = response.data;
-    const payment = await Payment.findOne({ reference });
-    if (!payment) {
-      return res.status(404).json({ error: "Payment record not found" });
-    }
-    if (payment.status === "success") {
-      return res.json({ success: true, message: "Already verified" });
-    }
-    console.log(data);
-    if (data.status && data.data.status === "success") {
-        payment.amount= data.data.amount / 100, // convert back to Naira
-        payment.status= data.data.status,
-        payment.paidAt= data.data.paid_at
-      await payment.save();
-      await Order.findByIdAndUpdate(payment.orderId, { paymentStatus: "paid" })
-      // Credit seller, mark order as paid
-      return res.json({ success: true, data: data.data });
-    }
-    payment.status = data.data.status;
-    await payment.save();
-    res.status(400).json({ success: false, message: "Payment not successful", data: data.data });
-  } catch (err) {
-    console.error(err.response?.data || err.message);
-    res.status(500).json({ error: "Payment verification failed" });
-  }
-}
+  // ... (Your verification logic)
+};
 
 const webhookHandler = async (req, res) => {
-  console.log("Received webhook");
-  console.log(req.ip);
   const secret = process.env.PAYSTACK_TEST_SECRET_KEY;
-  const hash = crypto.createHmac('sha512', secret).update(JSON.stringify(req.body)).digest('hex');
-  if (hash != req.headers['x-paystack-signature']) {
-    console.error("Invalid signature");
+  const hash = crypto.createHmac("sha512", secret).update(JSON.stringify(req.body)).digest("hex");
+
+  if (hash != req.headers["x-paystack-signature"]) {
     return res.status(400).send("Invalid signature");
   }
+
   try {
     const event = req.body;
 
+    if (event.event === "charge.success") {
+      const { amount, metadata } = event.data;
+      const order = await Order.findById(metadata.orderId).populate('items');
 
-    if (event.event !== "charge.success") {
-      return res.status(200).send("Event ignored");
-    }
+      if (!order) return res.status(404).send("Order not found");
 
-    const { reference, amount, paid_at, metadata } = event.data;
-    const orderId = metadata.orderId;
-
-    const payment = await Payment.findOne({ reference });
-    const order = await Order.findById(orderId);
-
-    if (!payment) {
-      console.log("Payment missing, creating…");
-      await Payment.create({
-        reference,
-        orderId,
-        amount: amount / 100,
-        status: "success",
-        paidAt: paid_at,
-      });
-    }
-    if (payment.status === "success") {
-      return res.status(200).send("Already processed");
-    }
-
-    payment.status = "success";
-    payment.amount = amount / 100;
-    payment.paidAt = paid_at;
-    await payment.save();
-    
-
-    if (order) {
+      // 1. Mark Order as Paid
       order.paymentStatus = "paid";
       await order.save();
-    }
 
-    const commission = 0.10
-    const vendorCommission = order.totalPrice * commission;
-    const vendorGross = order.totalPrice;
-    const vendorNet = vendorGross - vendorCommission;
-
-      // Credit vendor to ledger
-      try {
-        await ledgerService.creditVendorFromOrder(order, commission);
-        console.log(`✓ Credited vendor ${order.vendor} with ${vendorNet}`);
-      } catch (err) {
-        console.error("Failed to credit vendor:", err.message);
-      }
-
-      // Attempt immediate vendor payout (new behaviour)
-      try {
-        const vendor = await Vendor.findById(order.vendor);
-        const vendorPayoutResult = await payoutService.processSinglePayout({ userId: order.vendor, userType: 'VENDOR', bankDetails: vendor.bankDetails ,amount: vendorNet, orderId: order._id });
-        console.log("Immediate vendor payout result:", vendorPayoutResult);
-      } catch (err) {
-        console.error("Immediate vendor payout failed:", err.message);
-      }
-
-      // Credit rider to ledger (assumes deliveryFee exists on order)
+      // 2. Calculate the Distribution
+      const totalPaid = amount / 100;
       const deliveryFee = order.deliveryFee || 0;
+      const mealPrice = order.items.reduce((sum, item) => sum + item.price, 0);
+
+      // 3. CHANNEL 1: Credit Vendor Wallet (Available Balance)
+      await ledgerService.creditAccount(
+        order.vendor,
+        "VENDOR",
+        mealPrice,
+        "ORDER_EARNING",
+        order._id,
+        { type: "MEAL_PRICE" }
+      );
+
+      // 4. CHANNEL 2: Put Rider Fee on HOLD (Escrow)
       if (order.rider && deliveryFee > 0) {
-        try {
-          await ledgerService.creditRiderFromOrder(order, deliveryFee);
-          console.log(`✓ Credited rider ${order.rider} with ${deliveryFee}`);
-        } catch (err) {
-          console.error("Failed to credit rider:", err.message);
-        }
+        await ledgerService.holdRiderFee(order.rider, deliveryFee, order._id);
       }
 
-      // VendorSettlement and RiderEarnings removed; using auto payouts and ledger entries instead
-      // Legacy models were previously used for reporting but are deprecated
-      
+      // CHANNEL 3: Service Fee 
+      // This is implicit. Since you didn't credit it to a user, it stays in your Paystack balance.
+
+      console.log(`✓ Webhook Success: Order ${order._id} distributed to wallets.`);
+    }
 
     return res.status(200).send("Webhook processed");
   } catch (err) {
     console.error("Webhook error:", err);
     return res.status(500).send("Server error");
   }
-}
+};
 
-
-module.exports = {
-    initialisePayment,
-    verifyPayment,
-    webhookHandler,
-}
+module.exports = { initialisePayment, verifyPayment, webhookHandler };

@@ -397,6 +397,78 @@ const getAccountStatement = async (userId, userType, startDate, endDate) => {
   };
 };
 
+/**
+ * 1. Hold Delivery Fee (Escrow)
+ * Called by Webhook: Money is deducted from the platform but not yet available to the rider.
+ */
+const holdRiderFee = async (userId, amount, orderId) => {
+  const session = await mongoose.startSession();
+  session.startTransaction();
+  try {
+    const account = await ensureAccount(userId, "RIDER");
+
+    // Create entry marking it as ON_HOLD
+    await LedgerEntry.create([{
+      accountId: account._id,
+      amount,
+      entryType: "CREDIT",
+      reason: "DELIVERY_FEE_HOLD",
+      orderId,
+      meta: { status: "awaiting_token" },
+      balanceAfter: account.availableBalance // Available doesn't change yet
+    }], { session });
+
+    account.holdBalance += amount; // Increases hold, not available
+    await account.save({ session });
+
+    await session.commitTransaction();
+  } catch (error) {
+    await session.abortTransaction();
+    throw error;
+  } finally {
+    session.endSession();
+  }
+};
+
+/**
+ * 2. Release Hold to Available (Token Verified)
+ * Called by orderController.verifyDeliveryOtp
+ */
+const releaseRiderFee = async (userId, orderId) => {
+  const session = await mongoose.startSession();
+  session.startTransaction();
+  try {
+    const account = await LedgerAccount.findOne({ userId, type: "RIDER" });
+    
+    // Find the original hold entry to get the amount
+    const holdEntry = await LedgerEntry.findOne({ orderId, accountId: account._id, reason: "DELIVERY_FEE_HOLD" });
+    if (!holdEntry) throw new Error("No held funds found for this order");
+
+    const amount = holdEntry.amount;
+
+    account.holdBalance -= amount;
+    account.availableBalance += amount;
+    
+    await LedgerEntry.create([{
+      accountId: account._id,
+      amount,
+      entryType: "CREDIT",
+      reason: "ORDER_COMPLETED",
+      orderId,
+      meta: { action: "token_verified" },
+      balanceAfter: account.availableBalance
+    }], { session });
+
+    await account.save({ session });
+    await session.commitTransaction();
+  } catch (error) {
+    await session.abortTransaction();
+    throw error;
+  } finally {
+    session.endSession();
+  }
+};
+
 module.exports = {
   ensureAccount,
   creditAccount,
@@ -409,4 +481,6 @@ module.exports = {
   creditVendorFromOrder,
   creditRiderFromOrder,
   getAccountStatement,
+  holdRiderFee,
+  releaseRiderFee,
 };
