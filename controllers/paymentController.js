@@ -9,7 +9,7 @@ const payoutService = require("../services/payout.service");
 const paystack = axios.create({
   baseURL: "https://api.paystack.co",
   headers: {
-    Authorization: `Bearer ${process.env.PAYSTACK_TEST_SECRET_KEY}`,
+    Authorization: Bearer ${process.env.PAYSTACK_SECRET_KEY},
     "Content-Type": "application/json",
   },
 });
@@ -37,11 +37,11 @@ const initialisePayment = async (req, res) => {
     const response = await paystack.post("/transaction/initialize", {
       email: customer.email,
       amount: amountInKobo,
-      metadata: { 
-        orderId: order._id.toString(), 
-        customerId: customer._id.toString() 
+      metadata: {
+        orderId: order._id.toString(),
+        customerId: customer._id.toString(),
       },
-      callback_url: `${process.env.FRONTEND_URL}/payment/verify`, // Where user goes after paying
+      callback_url: ${process.env.FRONTEND_URL}/payment/verify, // Where user goes after paying
     });
 
     // Create a Payment record in your DB as 'pending'
@@ -49,6 +49,7 @@ const initialisePayment = async (req, res) => {
       reference: response.data.data.reference,
       orderId: order._id,
       amount: order.totalPrice,
+      customer: customer._id,
       status: "pending",
     });
 
@@ -68,11 +69,12 @@ const verifyPayment = async (req, res) => {
   if (!reference) return res.status(400).json({ error: "Missing reference" });
 
   try {
-    const response = await paystack.get(`/transaction/verify/${reference}`);
+    const response = await paystack.get(/transaction/verify/${reference});
     const data = response.data.data;
 
     const payment = await Payment.findOne({ reference });
-    if (!payment) return res.status(404).json({ error: "Payment record not found" });
+    if (!payment)
+      return res.status(404).json({ error: "Payment record not found" });
 
     if (data.status === "success") {
       payment.status = "success";
@@ -82,10 +84,16 @@ const verifyPayment = async (req, res) => {
       // Update Order Status
       await Order.findByIdAndUpdate(payment.orderId, { paymentStatus: "paid" });
 
-      return res.json({ success: true, message: "Payment verified successfully", data });
+      return res.json({
+        success: true,
+        message: "Payment verified successfully",
+        data,
+      });
     }
 
-    return res.status(400).json({ success: false, message: "Payment was not successful" });
+    return res
+      .status(400)
+      .json({ success: false, message: "Payment was not successful" });
   } catch (err) {
     console.error("Verification Error:", err.response?.data || err.message);
     res.status(500).json({ error: "Payment verification failed" });
@@ -98,7 +106,10 @@ const verifyPayment = async (req, res) => {
  */
 const webhookHandler = async (req, res) => {
   const secret = process.env.PAYSTACK_TEST_SECRET_KEY;
-  const hash = crypto.createHmac("sha512", secret).update(JSON.stringify(req.body)).digest("hex");
+  const hash = crypto
+    .createHmac("sha512", secret)
+    .update(JSON.stringify(req.body))
+    .digest("hex");
 
   if (hash != req.headers["x-paystack-signature"]) {
     return res.status(400).send("Invalid signature");
@@ -109,10 +120,11 @@ const webhookHandler = async (req, res) => {
 
     if (event.event === "charge.success") {
       const { amount, metadata } = event.data;
-      const order = await Order.findById(metadata.orderId).populate('items');
+      const order = await Order.findById(metadata.orderId).populate("items");
 
       if (!order) return res.status(404).send("Order not found");
-      if (order.paymentStatus === "paid") return res.status(200).send("Already processed");
+      if (order.paymentStatus === "paid")
+        return res.status(200).send("Already processed");
 
       order.paymentStatus = "paid";
       await order.save();
@@ -136,7 +148,9 @@ const webhookHandler = async (req, res) => {
         await ledgerService.holdRiderFee(order.rider, deliveryFee, order._id);
       }
 
-      console.log(`✓ Webhook Success: Order ${order._id} distributed to wallets.`);
+      console.log(
+        ✓ Webhook Success: Order ${order._id} distributed to wallets.
+      );
     }
 
     return res.status(200).send("Webhook processed");
