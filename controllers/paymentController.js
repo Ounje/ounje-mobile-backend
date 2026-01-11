@@ -5,7 +5,6 @@ const Order = require("../models/Order");
 const crypto = require("crypto");
 const ledgerService = require("../services/ledger.service");
 const payoutService = require("../services/payout.service");
-const Vendor = require("../models/Vendor");
 
 const paystack = axios.create({
   baseURL: "https://api.paystack.co",
@@ -15,14 +14,88 @@ const paystack = axios.create({
   },
 });
 
+/**
+ * 1. Initialize Payment
+ * Frontend calls this to get the "authorization_url" to show the Paystack checkout
+ */
 const initialisePayment = async (req, res) => {
-  // ... (Your initialization logic is fine, just ensure customer.email is passed)
+  try {
+    const { orderId } = req.body;
+    const customerId = req.user.id; // Assumes your auth middleware provides req.user
+
+    const order = await Order.findById(orderId);
+    if (!order) return res.status(400).json({ error: "Order not found" });
+
+    const customer = await Customer.findById(customerId);
+    if (!customer || !customer.email) {
+      return res.status(400).json({ error: "Customer email is required" });
+    }
+
+    // Paystack expects amount in KOBO (multiply by 100)
+    const amountInKobo = Math.round(order.totalPrice * 100);
+
+    const response = await paystack.post("/transaction/initialize", {
+      email: customer.email,
+      amount: amountInKobo,
+      metadata: { 
+        orderId: order._id.toString(), 
+        customerId: customer._id.toString() 
+      },
+      callback_url: `${process.env.FRONTEND_URL}/payment/verify`, // Where user goes after paying
+    });
+
+    // Create a Payment record in your DB as 'pending'
+    await Payment.create({
+      reference: response.data.data.reference,
+      orderId: order._id,
+      amount: order.totalPrice,
+      status: "pending",
+    });
+
+    return res.status(200).json(response.data);
+  } catch (err) {
+    console.error("Paystack Init Error:", err.response?.data || err.message);
+    res.status(500).json({ error: "Could not initialize payment" });
+  }
 };
 
+/**
+ * 2. Verify Payment
+ * Frontend calls this after the user is redirected back to the site
+ */
 const verifyPayment = async (req, res) => {
-  // ... (Your verification logic)
+  const { reference } = req.query;
+  if (!reference) return res.status(400).json({ error: "Missing reference" });
+
+  try {
+    const response = await paystack.get(`/transaction/verify/${reference}`);
+    const data = response.data.data;
+
+    const payment = await Payment.findOne({ reference });
+    if (!payment) return res.status(404).json({ error: "Payment record not found" });
+
+    if (data.status === "success") {
+      payment.status = "success";
+      payment.paidAt = data.paid_at;
+      await payment.save();
+
+      // Update Order Status
+      await Order.findByIdAndUpdate(payment.orderId, { paymentStatus: "paid" });
+
+      return res.json({ success: true, message: "Payment verified successfully", data });
+    }
+
+    return res.status(400).json({ success: false, message: "Payment was not successful" });
+  } catch (err) {
+    console.error("Verification Error:", err.response?.data || err.message);
+    res.status(500).json({ error: "Payment verification failed" });
+  }
 };
 
+/**
+ * 3. Webhook Handler
+ * Paystack calls this directly (Server-to-Server) to finalize the Ledger balances
+ */
 const webhookHandler = async (req, res) => {
   const secret = process.env.PAYSTACK_TEST_SECRET_KEY;
   const hash = crypto.createHmac("sha512", secret).update(JSON.stringify(req.body)).digest("hex");
@@ -39,17 +112,16 @@ const webhookHandler = async (req, res) => {
       const order = await Order.findById(metadata.orderId).populate('items');
 
       if (!order) return res.status(404).send("Order not found");
+      if (order.paymentStatus === "paid") return res.status(200).send("Already processed");
 
-      // 1. Mark Order as Paid
       order.paymentStatus = "paid";
       await order.save();
 
-      // 2. Calculate the Distribution
       const totalPaid = amount / 100;
       const deliveryFee = order.deliveryFee || 0;
       const mealPrice = order.items.reduce((sum, item) => sum + item.price, 0);
 
-      // 3. CHANNEL 1: Credit Vendor Wallet (Available Balance)
+      // CHANNEL 1: Credit Vendor Wallet
       await ledgerService.creditAccount(
         order.vendor,
         "VENDOR",
@@ -59,13 +131,10 @@ const webhookHandler = async (req, res) => {
         { type: "MEAL_PRICE" }
       );
 
-      // 4. CHANNEL 2: Put Rider Fee on HOLD (Escrow)
+      // CHANNEL 2: Put Rider Fee on HOLD (Escrow)
       if (order.rider && deliveryFee > 0) {
         await ledgerService.holdRiderFee(order.rider, deliveryFee, order._id);
       }
-
-      // CHANNEL 3: Service Fee 
-      // This is implicit. Since you didn't credit it to a user, it stays in your Paystack balance.
 
       console.log(`✓ Webhook Success: Order ${order._id} distributed to wallets.`);
     }
@@ -77,4 +146,8 @@ const webhookHandler = async (req, res) => {
   }
 };
 
-module.exports = { initialisePayment, verifyPayment, webhookHandler };
+module.exports = {
+  initialisePayment,
+  verifyPayment,
+  webhookHandler,
+};
