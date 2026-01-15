@@ -1,31 +1,35 @@
+// routes/authRoutes.js
 const express = require("express");
-const { register, login, requestOtp, verifyOtp, logOut, refresh, requestPhoneOtp, verifyPhoneOtp } = require("../controllers/authController");
 const router = express.Router();
+const {
+	register,
+	login,
+	requestOtp,
+	verifyOtp,
+	requestPhoneOtp,
+	verifyPhoneOtp,
+	logOut,
+	refresh,
+} = require("../controllers/authController");
 
+const {
+	otpRequestLimiter,
+	otpVerifyLimiter,
+	loginLimiter,
+	registerLimiter,
+} = require("../utilis/rateLimiter");
 
-// Register (customer/seller/rider)
-router.post("/register", register);
+router.post("/request-otp", otpRequestLimiter, requestOtp);
+router.post("/request-phone-otp", otpRequestLimiter, requestPhoneOtp);
 
-// Login
-router.post("/login", login);
+router.post("/verify-otp", otpVerifyLimiter, verifyOtp);
+router.post("/verify-phone-otp", otpVerifyLimiter, verifyPhoneOtp);
 
-// Request OTP
-router.post("/request-otp", requestOtp)
+router.post("/login", loginLimiter, login);
 
-// Verify OTP
-router.post("/verify-otp", verifyOtp) 
+router.post("/register", registerLimiter, register);
 
-// Request OTP via Phone (KudiSMS)
-router.post("/request-phone-otp", requestPhoneOtp);
-
-// Verify OTP via Phone (KudiSMS)
-router.post("/verify-phone-otp", verifyPhoneOtp);
-
-//Refresh token should be included in the body
 router.post("/logout", logOut);
-
-//The accessToken should be included in the body
 router.post("/refresh", refresh);
-
 
 module.exports = router;

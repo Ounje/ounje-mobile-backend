@@ -1,373 +1,385 @@
-// controllers/authController.js
-const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 const nodemailer = require("nodemailer");
 const User = require("../models/User");
-// const NodemailerHelper = require('nodemailer-otp');
 const OtpVerification = require("../models/OtpVerification");
 const Customer = require("../models/Customer");
 const Vendor = require("../models/Vendor");
 const Rider = require("../models/Rider");
 const {
-  generateAccessToken,
-  generateRefreshToken,
+	generateAccessToken,
+	generateRefreshToken,
 } = require("../utilis/generateToken");
 const RefreshToken = require("../models/RefreshToken");
-// const helper = new NodemailerHelper(process.env.EMAIL_USER, process.env.EMAIL_PASS);
 const { requestSmsOtp, verifySmsOtp } = require("../utilis/kudiSmsHelper");
 const { getCoordsFromAddress } = require("../utilis/delivery");
+const { v4: uuidv4 } = require("uuid");
 
 // --- NEW NODEMAILER & OTP HELPERS ---
 
 // 1. Nodemailer Transporter
 const transporter = nodemailer.createTransport({
-  // Using Gmail is common, but you must use an App Password for EMAIL_PASS
-  service: "gmail",
-  auth: {
-    user: process.env.EMAIL_USER,
-    pass: process.env.EMAIL_PASS,
-  },
+	// Using Gmail is common, but you must use an App Password for EMAIL_PASS
+	service: "gmail",
+	auth: {
+		user: process.env.EMAIL_USER,
+		pass: process.env.EMAIL_PASS,
+	},
 });
 
 // 2. Local OTP Generator
-const generateOtp = (length = 4) => {
-  return Math.floor(1000 + Math.random() * 9000).toString();
-};
-// -------------------------------------
+const generateOtp = (length = 4) =>
+	Math.floor(1000 + Math.random() * 9000).toString();
 
 // controllers/authController.js
 const register = async (req, res) => {
-    try {
-        // 'location' in req.body is the address string from the frontend
-        const { name, role, location, phone, otpSession, operatingArea } = req.body;
-        const decoded = jwt.verify(otpSession, process.env.JWT_SECRET);
-        
-        const finalEmail = decoded.email;
-        const sessionPhone = decoded.phone; 
-        const finalPhone = sessionPhone ? phone : null; 
+	try {
+		// 'location' in req.body is the address string from the frontend
+		const { name, role, location, phone, email, otpSession, operatingArea } =
+			req.body;
 
-        if (!name || (!finalEmail && !finalPhone)) { 
-            return res.status(400).json({ error: "Missing required fields (name, email/phone)" });
-        }
-        
-        if (sessionPhone && (!finalPhone || sessionPhone !== finalPhone)) {
-            return res.status(400).json({ error: "Phone number mismatch." });
-        }
+		if (!otpSession)
+			return res.status(400).json({ error: "OTP session token is required" });
 
-        // --- FIXED GEOLOCATION LOGIC ---
-        // 'location' here is the text address string (e.g., "123 Street, Ikeja")
-        const geo = await getCoordsFromAddress(location);
-        if (!geo) return res.status(400).json({ error: "Invalid address provided" });
+		const decoded = jwt.verify(otpSession, process.env.JWT_SECRET);
 
-        const coordinates = {
-            type: "Point",
-            coordinates: [geo.lng, geo.lat], // Google uses lng/lat, MongoDB uses [lng, lat]
-        };
+		// Use email/phone from otpSession OR from request body
+		const finalEmail = decoded.email || email;
+		const finalPhone = decoded.phone || phone;
 
-        // --- USER CREATION WITH BOTH STRING AND POINT ---
-        let userProps = { 
-            name, 
-            email: finalEmail, 
-            phone: finalPhone, 
-            address: location, // SAVES THE STRING FOR PRICING
-            location: coordinates // SAVES THE POINT FOR MAPS
-        };
+		// Validate required fields
+		if (!name || (!finalEmail && !finalPhone))
+			return res
+				.status(400)
+				.json({ error: "Missing required fields (name, email/phone)" });
+		// --- FIXED GEOLOCATION LOGIC ---
+		// 'location' here is the text address string (e.g., "123 Street, Ikeja")
+		const geo = await getCoordsFromAddress(location);
+		if (!geo)
+			return res.status(400).json({ error: "Invalid address provided" });
 
-        let user;
-        if (role === "customer") {
-            user = new Customer(userProps);
-        } else if (role === "vendor") {
-            user = new Vendor(userProps);
-        } else if (role === "rider") {
-            user = new Rider({ ...userProps, operatingArea });
-        } else {
-            return res.status(400).json({ error: "Invalid role specified" });
-        }
-        
-        await user.save();
+		const coordinates = {
+			type: "Point",
+			coordinates: [geo.lng, geo.lat], // Google uses lng/lat, MongoDB uses [lng, lat]
+		};
+		// --- USER CREATION WITH BOTH STRING AND POINT ---
+		const userProps = {
+			name,
+			email: finalEmail,
+			phone: finalPhone,
+			address: location, // SAVES THE STRING FOR PRICING
+			location: coordinates, // SAVES THE POINT FOR MAPS
+		};
 
-        // Generate tokens (Assuming these helpers exist in your generateToken.js)
-        const accessToken = generateAccessToken({ id: user._id, role: user.role });
-        const refreshToken = generateRefreshToken({ id: user._id, role: user.role });
-        await RefreshToken.create({ token: refreshToken, user: user._id, ip: req.ip });
+		let user;
+		if (role === "customer") user = new Customer(userProps);
+		else if (role === "vendor") user = new Vendor(userProps);
+		else if (role === "rider")
+			user = new Rider({ ...userProps, operatingArea });
+		else return res.status(400).json({ error: "Invalid role specified" });
 
-        res.status(201).json({
-            success: true,
-            accessToken,
-            refreshToken,
-            user: { id: user._id, name: user.name, email: user.email, role: user.role }
-        });
+		await user.save();
 
-    } catch (err) {
-        console.error("Register Error:", err);
-        return res.status(500).json({ error: err.message });
-    }
+		const accessToken = generateAccessToken({ id: user._id, role: user.role });
+		const refreshToken = generateRefreshToken({
+			id: user._id,
+			role: user.role,
+		});
+
+		await RefreshToken.create({
+			token: refreshToken,
+			user: user._id,
+			ip: req.ip,
+		});
+
+		res.status(201).json({
+			success: true,
+			accessToken,
+			refreshToken,
+			user: {
+				id: user._id,
+				name: user.name,
+				email: user.email,
+				phone: user.phone,
+				role: user.role,
+			},
+		});
+	} catch (err) {
+		console.error("Register Error:", err);
+		res.status(500).json({ error: err.message });
+	}
 };
 
+// --- LOGIN ---
 const login = async (req, res) => {
-    try {
-        const { identifier } = req.body; // <-- RENAMED 'email' to 'identifier'
-        if (!identifier) return res.status(400).json({ error: "Missing email or phone number" });
+	try {
+		const { identifier } = req.body; // <-- RENAMED 'email' to 'identifier'
+		if (!identifier)
+			return res.status(400).json({ error: "Missing email or phone number" });
 
-        let user;
-        // Simple check to determine if the input is likely an email or a phone number
-        if (identifier.includes('@')) {
-            // Assume input is an email
-            user = await User.findOne({ email: identifier });
-        } else {
-            // Assume input is a phone number
-            user = await User.findOne({ phone: identifier });
-        }
+		// Simple check to determine if the input is likely an email or a phone number
+		let user = identifier.includes("@")
+			? await User.findOne({ email: identifier })
+			: await User.findOne({ phone: identifier });
 
-        if (!user) return res.status(400).json({ error: "Invalid credentials" });
-        
-        // --- OTP Generation and Sending Logic ---
-        
-        // Check if the user has an email to send the OTP to (Email is preferred/required for Nodemailer)
-        if (user.email && identifier.includes('@')) {
-            const otp = generateOtp(4);
-            console.log(`Generated OTP: ${otp}`);
-            // Note: We are using the user's registered email here, not the identifier input
-            const newOtp = new OtpVerification({ email: user.email, otp }); 
-            await newOtp.save();
-        
-            const mailOptions = {
-                from: process.env.EMAIL_USER,
-                to: user.email,
-                subject: 'Login Verification OTP',
-                html: `<p>Your login verification code for Ounje is:</p><h2 style="color: #007bff; text-align: center;">${otp}</h2>`,
-            };
-        
-            try {
-                await transporter.sendMail(mailOptions);
-                // Return the email that the OTP was sent to
-                return res.json({ message: `OTP Sent to email: ${user.email}` }); 
-            } catch (mailError) {
-                console.error("Nodemailer failed to send email during login:", mailError);
-                return res.status(500).json({ error: "Failed to send OTP email." });
-            }
-        } else if (user.phone) {
-            // Option 2: If the user only has a phone number, use KudiSMS for login OTP
-            
-            // 1. Call KudiSMS API to send OTP
-            const { success, reference, error } = await requestSmsOtp(user.phone);
+		if (!user) return res.status(400).json({ error: "Invalid credentials" });
 
-            if (success) {
-                // 2. Temporarily save the KudiSMS reference
-                const newVerification = new OtpVerification({ 
-                    phone: user.phone, 
-                    reference, 
-                    isPhone: true 
-                });
-                await newVerification.save();
-                
-                // Return the phone number that the OTP was sent to
-                return res.json({ "message": `OTP Sent to phone: ${user.phone}`, reference: reference });
-            } else {
-                console.error("KudiSMS error for login phone:", user.phone, error);
-                return res.status(500).json({ error: error });
-            }
-        } else {
-             // User exists but has neither email nor phone (shouldn't happen with current registration)
-             return res.status(500).json({ error: "User profile incomplete. Cannot send OTP." });
-        }
+		// Email OTP
+		if (user.email && identifier.includes("@")) {
+			const otp = generateOtp(4);
+			await OtpVerification.create({ email: user.email, otp });
 
+			const mailOptions = {
+				from: process.env.EMAIL_USER,
+				to: user.email,
+				subject: "Login Verification OTP",
+				html: `<p>Your login code is:</p><h2>${otp}</h2>`,
+			};
 
-    } catch (err) {
-        return res.status(500).json({ error: err.message });
-    }
-}
+			try {
+				await transporter.sendMail(mailOptions);
+				return res.json({ message: `OTP Sent to email: ${user.email}` });
+			} catch (mailError) {
+				console.error("Email send error:", mailError);
+				return res.status(500).json({ error: "Failed to send OTP email." });
+			}
+		}
 
+		// Phone OTP
+		if (user.phone) {
+			let { success, reference, error } = await requestSmsOtp(user.phone);
+			if (!success) return res.status(500).json({ error });
+
+			// fallback reference if KudiSMS didn't return one
+			reference = reference || uuidv4();
+
+			await OtpVerification.create({
+				phone: user.phone,
+				reference,
+				isPhone: true,
+			});
+			return res.json({
+				message: `OTP Sent to phone: ${user.phone}`,
+				reference,
+			});
+		}
+
+		return res
+			.status(500)
+			.json({ error: "Cannot send OTP. User profile incomplete." });
+	} catch (err) {
+		console.error("Login Error:", err);
+		res.status(500).json({ error: err.message });
+	}
+};
+
+// --- REQUEST & VERIFY EMAIL OTP ---
 const requestOtp = async (req, res) => {
-  const { email } = req.body;
-  const exists = await User.findOne({ email });
-  if (exists) return res.status(400).json({ error: "Email already in use" });
+	try {
+		const { email } = req.body;
+		if (!email) return res.status(400).json({ error: "Email is required" });
 
-  const otp = generateOtp(4); // <-- UPDATED
-  console.log(`Generated OTP: ${otp}`);
-  const newOtp = new OtpVerification({ email, otp });
-  await newOtp.save();
+		const exists = await User.findOne({ email });
+		if (exists) return res.status(400).json({ error: "Email already in use" });
 
-  const mailOptions = {
-    from: process.env.EMAIL_USER,
-    to: email,
-    subject: "Email Verification OTP",
-    html: `<p>Your registration verification code for Ounje is:</p><h2 style="color: #007bff; text-align: center;">${otp}</h2>`,
-  };
+		const otp = generateOtp(4);
+		await OtpVerification.create({ email, otp });
 
-  try {
-    const response = await transporter.sendMail(mailOptions); // <-- UPDATED
-    console.log(response);
-    res.json({ message: "OTP Sent to email" });
-  } catch (mailError) {
-    console.error(
-      "Nodemailer failed to send email during request-otp:",
-      mailError
-    );
-    // Important: You may want to delete the saved OTP here if the email failed to prevent confusion
-    res
-      .status(500)
-      .json({ error: "Failed to send OTP email. Check EMAIL_PASS." });
-  }
+		await transporter.sendMail({
+			from: process.env.EMAIL_USER,
+			to: email,
+			subject: "Email Verification OTP",
+			html: `<p>Your code is:</p><h2>${otp}</h2>`,
+		});
+
+		res.json({ message: "OTP sent to email" });
+	} catch (err) {
+		console.error("Request OTP Error:", err);
+		res.status(500).json({ error: "Failed to send OTP email" });
+	}
 };
 
 const verifyOtp = async (req, res) => {
-  const { email, otp } = req.body;
-  const record = await OtpVerification.findOne({ email, otp });
-  if (!record) {
-    return res.status(400).json({ success: false, message: "Invalid OTP" });
-  }
-  await OtpVerification.deleteMany({ email });
+	try {
+		const { email, otp } = req.body;
+		if (!email || !otp)
+			return res.status(400).json({ error: "Email and OTP required" });
 
-  const loginUser = await User.findOne({ email });
-  if (loginUser) {
-    const accessToken = generateAccessToken({
-      id: loginUser._id,
-      role: loginUser.role,
-    });
-    const refreshToken = generateRefreshToken({
-      id: loginUser._id,
-      role: loginUser.role,
-    });
+		const record = await OtpVerification.findOne({ email, otp });
+		if (!record) return res.status(400).json({ error: "Invalid OTP" });
 
-    await RefreshToken.create({
-      token: refreshToken,
-      user: loginUser._id,
-      ip: req.ip,
-    });
+		await OtpVerification.deleteMany({ email });
 
-    return res.json({
-      success: true,
-      accessToken,
-      refreshToken,
-      user: {
-        id: loginUser._id,
-        name: loginUser.name,
-        email: loginUser.email,
-        role: loginUser.role,
-      },
-    });
-  }
-  const otpSession = jwt.sign({ email }, process.env.JWT_SECRET, {
-    expiresIn: "30m",
-  });
-  res.json({ success: true, otpSession });
+		const user = await User.findOne({ email });
+		if (user) {
+			const accessToken = generateAccessToken({
+				id: user._id,
+				role: user.role,
+			});
+			const refreshToken = generateRefreshToken({
+				id: user._id,
+				role: user.role,
+			});
+			await RefreshToken.create({
+				token: refreshToken,
+				user: user._id,
+				ip: req.ip,
+			});
+
+			return res.json({
+				success: true,
+				accessToken,
+				refreshToken,
+				user: {
+					id: user._id,
+					name: user.name,
+					email: user.email,
+					phone: user.phone,
+					role: user.role,
+				},
+			});
+		}
+
+		const otpSession = jwt.sign({ email }, process.env.JWT_SECRET, {
+			expiresIn: "30m",
+		});
+		res.json({ success: true, otpSession });
+	} catch (err) {
+		console.error("Verify OTP Error:", err);
+		res.status(500).json({ error: err.message });
+	}
 };
 
+// --- PHONE OTP ---
+const requestPhoneOtp = async (req, res) => {
+	try {
+		const { phone } = req.body;
+		if (!phone) return res.status(400).json({ error: "Phone required" });
+
+		const exists = await User.findOne({ phone });
+		if (exists) return res.status(400).json({ error: "Phone already in use" });
+
+		let { success, reference, error } = await requestSmsOtp(phone);
+		if (!success) return res.status(500).json({ error });
+
+		// fallback reference if KudiSMS didn't return one
+		reference = reference || uuidv4();
+
+		await OtpVerification.create({ phone, reference, isPhone: true });
+		res.json({ message: "OTP sent to phone", reference });
+	} catch (err) {
+		console.error("Request Phone OTP Error:", err);
+		res.status(500).json({ error: err.message });
+	}
+};
+
+const verifyPhoneOtp = async (req, res) => {
+	try {
+		const { phone, otp, reference } = req.body;
+		if (!phone || !otp || !reference)
+			return res
+				.status(400)
+				.json({ error: "Phone, OTP, and reference required" });
+
+		const record = await OtpVerification.findOne({
+			phone,
+			reference,
+			isPhone: true,
+		});
+		if (!record)
+			return res.status(400).json({ error: "Invalid verification session" });
+
+		const { success, error } = await verifySmsOtp(otp, reference);
+		if (!success) return res.status(400).json({ error });
+
+		await OtpVerification.deleteOne({ phone, reference, isPhone: true });
+
+		const user = await User.findOne({ phone });
+		if (user) {
+			const accessToken = generateAccessToken({
+				id: user._id,
+				role: user.role,
+			});
+			const refreshToken = generateRefreshToken({
+				id: user._id,
+				role: user.role,
+			});
+			await RefreshToken.create({
+				token: refreshToken,
+				user: user._id,
+				ip: req.ip,
+			});
+
+			return res.json({
+				success: true,
+				accessToken,
+				refreshToken,
+				user: {
+					id: user._id,
+					name: user.name,
+					email: user.email,
+					phone: user.phone,
+					role: user.role,
+				},
+			});
+		}
+
+		const otpSession = jwt.sign({ phone }, process.env.JWT_SECRET, {
+			expiresIn: "30m",
+		});
+		res.json({ success: true, otpSession });
+	} catch (err) {
+		console.error("Verify Phone OTP Error:", err);
+		res.status(500).json({ error: err.message });
+	}
+};
+
+// --- LOGOUT ---
 const logOut = async (req, res) => {
-  const token = req.body.refreshToken;
-  if (!token) return res.sendStatus(204);
+	try {
+		const token = req.body.refreshToken;
+		if (!token) return res.sendStatus(204);
 
-  try {
-    await RefreshToken.deleteOne({ token });
-    res.json({ message: "Logged out successfully" });
-  } catch {
-    res.status(500).json({ message: "Logout failed" });
-  }
+		await RefreshToken.deleteOne({ token });
+		res.json({ message: "Logged out successfully" });
+	} catch (err) {
+		console.error("Logout Error:", err);
+		res.status(500).json({ error: err.message });
+	}
 };
 
+// --- REFRESH ---
 const refresh = async (req, res) => {
-  const token = req.body.refreshToken;
-  if (!token)
-    return res.status(401).json({ message: "Refresh token required" });
+	try {
+		const token = req.body.refreshToken;
+		if (!token)
+			return res.status(401).json({ error: "Refresh token required" });
 
-  const refreshExists = await RefreshToken.findOne({ token });
-  if (!refreshExists)
-    return res.status(403).json({ message: "Invalid refresh token" });
-  try {
-    const decoded = jwt.verify(token, process.env.REFRESH_SECRET);
-    const user = await User.findById(decoded.id);
-    if (!user) return res.status(401).json({ message: "User not found" });
+		const refreshExists = await RefreshToken.findOne({ token });
+		if (!refreshExists)
+			return res.status(403).json({ error: "Invalid refresh token" });
 
-    const newAccessToken = generateAccessToken({
-      id: user._id,
-      role: user.role,
-    });
-    res.json({ accessToken: newAccessToken });
-  } catch (err) {
-    res.status(401).json({ message: err.message, name: err.name });
-  }
+		const decoded = jwt.verify(token, process.env.REFRESH_SECRET);
+		const user = await User.findById(decoded.id);
+		if (!user) return res.status(401).json({ error: "User not found" });
+
+		const newAccessToken = generateAccessToken({
+			id: user._id,
+			role: user.role,
+		});
+		res.json({ accessToken: newAccessToken });
+	} catch (err) {
+		console.error("Refresh Error:", err);
+		res.status(401).json({ error: err.message });
+	}
 };
-
-// --- CONTROLLERS FOR PHONE OTP ---
-
-const requestPhoneOtp = async(req,res) =>{
-    const { phone } = req.body;
-    if (!phone) return res.status(400).json({ error: "Missing phone number" });
-
-    const exists = await User.findOne({ phone });
-    if (exists) return res.status(400).json({ error: "Phone number already in use" });
-    
-    // 1. Call KudiSMS API to send OTP
-    const { success, reference, error } = await requestSmsOtp(phone);
-
-    if (success) {
-        // 2. Temporarily save the KudiSMS reference (needed for verification) 
-        //    instead of saving the OTP itself (which KudiSMS manages).
-        //    We reuse the OtpVerification model but store the phone and reference.
-        const newVerification = new OtpVerification({ 
-            phone, 
-            reference, 
-            isPhone: true // Add a flag to distinguish from email OTP
-        });
-        await newVerification.save();
-
-        res.json({ "message": "OTP Sent to phone", reference: reference });
-    } else {
-        console.error("KudiSMS error for phone:", phone, error);
-        res.status(500).json({ error: error });
-    }
-}
-
-const verifyPhoneOtp = async(req,res) =>{
-    const { phone, otp, reference } = req.body;
-    // ... (Initial validation and localRecord check remains the same)
-
-    const localRecord = await OtpVerification.findOne({ phone, reference, isPhone: true });
-    if (!localRecord) {
-        return res.status(400).json({ success: false, message: "Invalid verification session" });
-    }
-
-    // 2. Call KudiSMS API to verify OTP
-    const { success, error } = await verifySmsOtp(otp, reference);
-
-    if (success) {
-        // Verification successful. Clean up the local session.
-        await OtpVerification.deleteOne({ phone, reference, isPhone: true });
-        
-        // --- NEW LOGIN LOGIC ADDED HERE ---
-        const loginUser = await User.findOne({ phone });
-        if(loginUser){
-            // This is a login flow
-            const accessToken = generateAccessToken({id: loginUser._id, role: loginUser.role})
-            const refreshToken = generateRefreshToken({id: loginUser._id, role: loginUser.role})
-
-            await RefreshToken.create({ token: refreshToken, user: loginUser._id, ip: req.ip });
-            
-            return res.json({ 
-                success: true, 
-                accessToken, 
-                refreshToken,
-                user: { id: loginUser._id, name: loginUser.name, email: loginUser.email, role: loginUser.role } 
-            });
-        }
-        // --- END NEW LOGIN LOGIC ---
-        
-        // 3. Generate a temporary session token (otpSession) containing the phone number (Registration flow)
-        const otpSession = jwt.sign( { phone }, process.env.JWT_SECRET, { expiresIn: "30m" })
-        res.json({ success: true, otpSession});
-    } else {
-        res.status(400).json({ success: false, message: error });
-    }
-}
 
 module.exports = {
-  register,
-  login,
-  requestOtp,
-  verifyOtp,
-  logOut,
-  refresh,
-  requestPhoneOtp,
-  verifyPhoneOtp,
+	register,
+	login,
+	requestOtp,
+	verifyOtp,
+	requestPhoneOtp,
+	verifyPhoneOtp,
+	logOut,
+	refresh,
 };

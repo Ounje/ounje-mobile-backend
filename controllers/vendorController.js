@@ -4,104 +4,244 @@ const payoutService = require("../services/payout.service");
 
 // Get popular vendors
 const getPopularVendors = async (req, res) => {
-  try {
-    const vendors = await Vendor.find()
-      .sort({ totalOrders: -1 })  
-    res.json(vendors);
-  } catch (err) {
-    res.status(500).json({ message: err.message });
-  }
+	try {
+		const vendors = await Vendor.find().sort({ totalOrders: -1 });
+		res.json(vendors);
+	} catch (err) {
+		res.status(500).json({ message: err.message });
+	}
 };
 
 //Vendor side
 //This is for getting the vendor's own details along with their menu
 //you can only access this route if you're logged in as a vendor
-const getVendor = async(req, res) => {
-  try{
-    const vendorId = req.user.id;
-    const vendor = await Vendor.findById(vendorId).populate('menu');
-    if(!vendor) return res.status(404).json({message: "Vendor not found"});
-    res.json(vendor);
-  }catch(err){
-    res.status(500).json({ message: err.message });
-  }
-}
+const getVendor = async (req, res) => {
+	try {
+		const vendorId = req.user.id;
+		const vendor = await Vendor.findById(vendorId).populate("menu");
+		if (!vendor) return res.status(404).json({ message: "Vendor not found" });
+		res.json(vendor);
+	} catch (err) {
+		res.status(500).json({ message: err.message });
+	}
+};
 
 //Customer side
 //with this you'll get the vendor details along with their menu and options
-const userGetVendor = async(req, res) => {
-  try{
-    const vendorId = req.params.id;
-    const vendor = await Vendor.findById(vendorId)
-    .populate("menu")
-    .populate("foodItems")
-    .select("-email -role -img -__v -createdAt -updatedAt ");
-    if(!vendor) return res.status(404).json({message: "Vendor not found"});
-    res.json(vendor);
-  }catch(err){
-    res.status(500).json({ message: err.message });
-  }
-}
+const userGetVendor = async (req, res) => {
+	try {
+		const vendorId = req.params.id;
+		const vendor = await Vendor.findById(vendorId)
+			.populate("menu")
+			.populate("foodItems")
+			.select("-email -role -img -__v -createdAt -updatedAt ");
+		if (!vendor) return res.status(404).json({ message: "Vendor not found" });
+		res.json(vendor);
+	} catch (err) {
+		res.status(500).json({ message: err.message });
+	}
+};
 
 const updateBankDetails = async (req, res) => {
-  try {
-    const vendorId = req.user.id;
-    const { accountNumber, bankCode, accountName } = req.body;
+	try {
+		const vendorId = req.user.id;
+		const { accountNumber, bankCode, accountName } = req.body;
 
-    if (!accountNumber || !bankCode || !accountName) {
-      return res.status(400).json({ error: 'accountNumber, bankCode, accountName required' });
-    }
+		if (!accountNumber || !bankCode || !accountName) {
+			return res
+				.status(400)
+				.json({ error: "accountNumber, bankCode, accountName required" });
+		}
 
-    const vendor = await Vendor.findByIdAndUpdate(vendorId, { bankDetails: { accountNumber, bankCode, accountName } }, { new: true });
+		const vendor = await Vendor.findByIdAndUpdate(
+			vendorId,
+			{ bankDetails: { accountNumber, bankCode, accountName } },
+			{ new: true }
+		);
 
-    // Trigger retry of pending payouts
-    const retryResults = await payoutService.processPendingPayoutsForUser(vendor._id, 'VENDOR');
+		// Trigger retry of pending payouts
+		const retryResults = await payoutService.processPendingPayoutsForUser(
+			vendor._id,
+			"VENDOR"
+		);
 
-    res.json({ vendor, retryResults });
-  } catch (err) {
-    console.error('Update bank details failed:', err.message);
-    res.status(500).json({ error: err.message });
-  }
+		res.json({ vendor, retryResults });
+	} catch (err) {
+		console.error("Update bank details failed:", err.message);
+		res.status(500).json({ error: err.message });
+	}
 };
 
 // NEW: Get Nearby Vendors (Fixed User -> Vendor)
 const getNearbyVendors = async (req, res) => {
-  try {
-    const { lat, lng } = req.query; 
+	try {
+		const { lat, lng } = req.query;
 
-    if (!lat || !lng) {
-      return res.status(400).json({ message: "Latitude and Longitude are required" });
-    }
+		if (!lat || !lng) {
+			return res
+				.status(400)
+				.json({ message: "Latitude and Longitude are required" });
+		}
 
-    const vendors = await Vendor.find({
-      // Removed role: 'vendor' because you are already querying the Vendor model
-      location: {
-        $near: {
-          $geometry: { 
-            type: "Point", 
-            coordinates: [parseFloat(lng), parseFloat(lat)] 
-          },
-          $maxDistance: 3000 // 3km
-        }
-      }
-    });
+		const vendors = await Vendor.find({
+			// Removed role: 'vendor' because you are already querying the Vendor model
+			location: {
+				$near: {
+					$geometry: {
+						type: "Point",
+						coordinates: [parseFloat(lng), parseFloat(lat)],
+					},
+					$maxDistance: 3000, // 3km
+				},
+			},
+		});
 
-    res.status(200).json({
-      status: 'success',
-      results: vendors.length,
-      data: vendors
-    });
-  } catch (err) {
-    res.status(500).json({ message: err.message });
-  }
+		res.status(200).json({
+			status: "success",
+			results: vendors.length,
+			data: vendors,
+		});
+	} catch (err) {
+		res.status(500).json({ message: err.message });
+	}
 };
 
+const completeVendorRegistration = async (req, res) => {
+	try {
+		const {
+			storeName,
+			storeType,
+			isVerifiedBusiness,
+			CACNumber,
+			servicesOffered,
+			needCACHelp,
+		} = req.body;
+
+		const vendorId = req.user.id;
+
+		// Fetch vendor from DB
+		const vendor = await Vendor.findById(vendorId);
+		if (!vendor) {
+			return res.status(404).json({
+				success: false,
+				message: "Vendor not found",
+			});
+		}
+
+		// Prevent multiple profile completions
+		if (vendor.profile && vendor.profile.length > 0) {
+			return res.status(400).json({
+				success: false,
+				message: "Vendor profile already completed",
+			});
+		}
+
+		// Required fields validation
+		if (!storeName || !storeType || !servicesOffered) {
+			return res.status(400).json({
+				success: false,
+				message: "Store type and services offered are required",
+			});
+		}
+
+		if (!["physicalStore", "onlineStore"].includes(storeType)) {
+			return res.status(400).json({
+				success: false,
+				message: "Invalid store type. Must be 'physicalStore' or 'onlineStore'",
+			});
+		}
+
+		if (
+			!["InstantMeals", "preOrderMeals", "hybridMeals"].includes(
+				servicesOffered
+			)
+		) {
+			return res.status(400).json({
+				success: false,
+				message:
+					"Invalid services offered. Must be 'InstantMeals', 'preOrderMeals', or 'hybridMeals'",
+			});
+		}
+
+		// CAC logic
+		if (isVerifiedBusiness === "true" || isVerifiedBusiness === true) {
+			if (!CACNumber) {
+				return res.status(400).json({
+					success: false,
+					message: "CAC number is required for verified businesses",
+				});
+			}
+		} else {
+			if (needCACHelp === "yes") {
+				return res.status(200).json({
+					success: true,
+					message:
+						"Thank you! Our support team will attend to you shortly regarding CAC registration assistance.",
+					requiresSupport: true,
+				});
+			} else if (needCACHelp === "no") {
+				return res.status(400).json({
+					success: false,
+					message:
+						"A business is required to have a valid CAC number to complete vendor registration.",
+				});
+			} else {
+				return res.status(400).json({
+					success: false,
+					message:
+						"Your business needs to be registered. Would you like us to help you with CAC registration?",
+					needsCAC: true,
+				});
+			}
+		}
+
+		// Check NIN file
+		if (!req.file) {
+			return res.status(400).json({
+				success: false,
+				message: "NIN ID document is required",
+			});
+		}
+
+		const ninIDUrl = req.file.path;
+
+		// Save profile as single object inside profile array
+		vendor.storeDetails = [
+			{
+				storeName,
+				storeType,
+				isVerifiedBusiness:
+					isVerifiedBusiness === "true" || isVerifiedBusiness === true,
+				CACNumber: CACNumber || null,
+				servicesOffered,
+				ninID: ninIDUrl,
+			},
+		];
+
+		vendor.balance = 0;
+
+		await vendor.save();
+
+		res.status(200).json({
+			success: true,
+			message: "Vendor registration completed successfully",
+			data: vendor,
+		});
+	} catch (error) {
+		console.error("Error completing vendor registration:", error);
+		res.status(500).json({
+			success: false,
+			message: "An error occurred while completing vendor registration",
+			error: error.message,
+		});
+	}
+};
 
 module.exports = {
-  getPopularVendors,
-  getVendor,
-  userGetVendor,
-  updateBankDetails,
-  getNearbyVendors 
+	completeVendorRegistration,
+	getPopularVendors,
+	getVendor,
+	userGetVendor,
+	updateBankDetails,
+	getNearbyVendors,
 };
-

@@ -1,134 +1,221 @@
 {
-  "info": {
-    "name": "Ounje - Ordering & Payments",
-    "_postman_id": "ounje-ordering-payments",
-    "description": "Collection for order → payment → ledger → auto-payout flows (Paystack). Import into Postman/Insomnia.",
-    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
-  },
-  "variable": [
-    { "key": "base_url", "value": "http://localhost:5000" },
-    { "key": "customer_token", "value": "<customer_jwt>" },
-    { "key": "rider_token", "value": "<rider_jwt>" },
-    { "key": "admin_token", "value": "<admin_jwt>" },
-    { "key": "orderId", "value": "" },
-    { "key": "reference", "value": "" },
-    { "key": "payoutId", "value": "" },
-    { "key": "otp", "value": "123456" },
-    { "key": "paystack_signature", "value": "<x-paystack-signature>" }
-  ],
-  "item": [
-    {
-      "name": "Create Order",
-      "request": {
-        "method": "POST",
-        "header": [
-          { "key": "Content-Type", "value": "application/json" },
-          { "key": "Authorization", "value": "Bearer {{customer_token}}" }
-        ],
-        "body": {
-          "mode": "raw",
-          "raw": "{\n  \"vendorId\": \"<vendorId>\",\n  \"items\": [{ \"itemId\": \"<itemId>\", \"itemType\": \"Dish\", \"quantity\": 1 }],\n  \"deliveryAddress\": \"10 Adeola St, Ikeja\"\n}"
-        },
-        "url": { "raw": "{{base_url}}/api/orders", "host": ["{{base_url}}"], "path": ["api","orders"] }
-      },
-      "response": [ { "name": "201 Created", "body": "{ \"success\": true, \"order\": { \"_id\": \"{{orderId}}\", \"totalPrice\": 1200 } }" } ]
-    },
-    {
-      "name": "Initiate Payment",
-      "request": {
-        "method": "POST",
-        "header": [
-          { "key": "Content-Type", "value": "application/json" },
-          { "key": "Authorization", "value": "Bearer {{customer_token}}" }
-        ],
-        "body": { "mode": "raw", "raw": "{ \"orderId\": \"{{orderId}}\" }" },
-        "url": { "raw": "{{base_url}}/api/payments/initiate", "host": ["{{base_url}}"], "path": ["api","payments","initiate"] }
-      },
-      "response": [ { "name": "Paystack initialize response", "body": "{ \"data\": { \"reference\": \"ref_123\", \"authorization_url\": \"https://checkout.paystack.co/...\" } }" } ]
-    },
-    {
-      "name": "Verify Payment (manual)",
-      "request": {
-        "method": "GET",
-        "header": [ { "key": "Content-Type", "value": "application/json" } ],
-        "url": { "raw": "{{base_url}}/api/payments/verify?reference={{reference}}", "host": ["{{base_url}}"], "path": ["api","payments","verify"], "query": [ { "key": "reference", "value": "{{reference}}" } ] }
-      },
-      "response": []
-    },
-    {
-      "name": "Webhook (Paystack charge.success) - Test",
-      "request": {
-        "method": "POST",
-        "header": [
-          { "key": "Content-Type", "value": "application/json" },
-          { "key": "x-paystack-signature", "value": "{{paystack_signature}}" }
-        ],
-        "body": {
-          "mode": "raw",
-          "raw": "{\n  \"event\": \"charge.success\",\n  \"data\": {\n    \"reference\": \"{{reference}}\",\n    \"amount\": 100000,\n    \"paid_at\": \"2025-01-01T08:00:00Z\",\n    \"metadata\": { \"orderId\": \"{{orderId}}\" }\n  }\n}"
-        },
-        "url": { "raw": "{{base_url}}/api/payments/webhook", "host": ["{{base_url}}"], "path": ["api","payments","webhook"] }
-      },
-      "response": [ { "name": "200 OK", "body": "Webhook processed" } ],
-      "event": [
-        {
-          "listen": "test",
-          "script": {
-            "type": "text/javascript",
-            "exec": [
-              "// Example test: ensure 200 response and Payment created",
-              "pm.test('Webhook processed', function () {",
-              "  pm.response.to.have.status(200);",
-              "});"
-            ]
-          }
-        }
-      ]
-    },
-    {
-      "name": "Mark Order out_for_delivery (send OTP)",
-      "request": {
-        "method": "PUT",
-        "header": [ { "key": "Content-Type", "value": "application/json" }, { "key": "Authorization", "value": "Bearer {{rider_token}}" } ],
-        "body": { "mode": "raw", "raw": "{ \"status\": \"out_for_delivery\" }" },
-        "url": { "raw": "{{base_url}}/api/orders/{{orderId}}/rider-update", "host": ["{{base_url}}"], "path": ["api","orders","{{orderId}}","rider-update"] }
-      }
-    },
-    {
-      "name": "Confirm Delivery (verify OTP & trigger auto-payouts)",
-      "request": {
-        "method": "PUT",
-        "header": [ { "key": "Content-Type", "value": "application/json" }, { "key": "Authorization", "value": "Bearer {{rider_token}}" } ],
-        "body": { "mode": "raw", "raw": "{ \"status\": \"delivered\", \"otp\": \"{{otp}}\" }" },
-        "url": { "raw": "{{base_url}}/api/orders/{{orderId}}/rider-update", "host": ["{{base_url}}"], "path": ["api","orders","{{orderId}}","rider-update"] }
-      },
-      "response": [ { "name": "200 OK", "body": "{ \"success\": true }" } ]
-    },
-    {
-      "name": "Request Payout (user)",
-      "request": {
-        "method": "POST",
-        "header": [ { "key": "Content-Type", "value": "application/json" }, { "key": "Authorization", "value": "Bearer {{vendor_token}}" } ],
-        "body": { "mode": "raw", "raw": "{ \"amount\": 5000, \"bankDetails\": { \"accountNumber\": \"1234567890\", \"bankCode\": \"058\", \"accountName\": \"John Doe\" } }" },
-        "url": { "raw": "{{base_url}}/api/payouts/request", "host": ["{{base_url}}"], "path": ["api","payouts","request"] }
-      }
-    },
-    {
-      "name": "Admin process payout (mark completed)",
-      "request": {
-        "method": "PUT",
-        "header": [ { "key": "Content-Type", "value": "application/json" }, { "key": "Authorization", "value": "Bearer {{admin_token}}" } ],
-        "body": { "mode": "raw", "raw": "{ \"transactionRef\": \"TRF_12345\", \"status\": \"completed\" }" },
-        "url": { "raw": "{{base_url}}/api/payouts/{{payoutId}}/process", "host": ["{{base_url}}"], "path": ["api","payouts","{{payoutId}}","process"] }
-      }
-    },
-    {
-      "name": "Check Balance",
-      "request": {
-        "method": "GET",
-        "header": [ { "key": "Authorization", "value": "Bearer {{vendor_token}}" } ],
-        "url": { "raw": "{{base_url}}/api/payouts/balance", "host": ["{{base_url}}"], "path": ["api","payouts","balance"] }
-      }
-    }
-  ]
+	"info": {
+		"name": "Ounje - Ordering & Payments",
+		"_postman_id": "ounje-ordering-payments",
+		"description": "Collection for order → payment → ledger → auto-payout flows (Paystack). Import into Postman/Insomnia.",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+	},
+	"variable": [
+		{ "key": "base_url", "value": "http://localhost:5000" },
+		{ "key": "customer_token", "value": "<customer_jwt>" },
+		{ "key": "rider_token", "value": "<rider_jwt>" },
+		{ "key": "admin_token", "value": "<admin_jwt>" },
+		{ "key": "orderId", "value": "" },
+		{ "key": "reference", "value": "" },
+		{ "key": "payoutId", "value": "" },
+		{ "key": "otp", "value": "123456" },
+		{ "key": "paystack_signature", "value": "<x-paystack-signature>" }
+	],
+	"item": [
+		{
+			"name": "Create Order",
+			"request": {
+				"method": "POST",
+				"header": [
+					{ "key": "Content-Type", "value": "application/json" },
+					{ "key": "Authorization", "value": "Bearer {{customer_token}}" }
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n  \"vendorId\": \"<vendorId>\",\n  \"items\": [{ \"itemId\": \"<itemId>\", \"itemType\": \"Dish\", \"quantity\": 1 }],\n  \"deliveryAddress\": \"10 Adeola St, Ikeja\"\n}"
+				},
+				"url": {
+					"raw": "{{base_url}}/api/orders",
+					"host": ["{{base_url}}"],
+					"path": ["api", "orders"]
+				}
+			},
+			"response": [
+				{
+					"name": "201 Created",
+					"body": "{ \"success\": true, \"order\": { \"_id\": \"{{orderId}}\", \"totalPrice\": 1200 } }"
+				}
+			]
+		},
+		{
+			"name": "Initiate Payment",
+			"request": {
+				"method": "POST",
+				"header": [
+					{ "key": "Content-Type", "value": "application/json" },
+					{ "key": "Authorization", "value": "Bearer {{customer_token}}" }
+				],
+				"body": { "mode": "raw", "raw": "{ \"orderId\": \"{{orderId}}\" }" },
+				"url": {
+					"raw": "{{base_url}}/api/payments/initiate",
+					"host": ["{{base_url}}"],
+					"path": ["api", "payments", "initiate"]
+				}
+			},
+			"response": [
+				{
+					"name": "Paystack initialize response",
+					"body": "{ \"data\": { \"reference\": \"ref_123\", \"authorization_url\": \"https://checkout.paystack.co/...\" } }"
+				}
+			]
+		},
+		{
+			"name": "Verify Payment (manual)",
+			"request": {
+				"method": "GET",
+				"header": [{ "key": "Content-Type", "value": "application/json" }],
+				"url": {
+					"raw": "{{base_url}}/api/payments/verify?reference={{reference}}",
+					"host": ["{{base_url}}"],
+					"path": ["api", "payments", "verify"],
+					"query": [{ "key": "reference", "value": "{{reference}}" }]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "Webhook (Paystack charge.success) - Test",
+			"request": {
+				"method": "POST",
+				"header": [
+					{ "key": "Content-Type", "value": "application/json" },
+					{ "key": "x-paystack-signature", "value": "{{paystack_signature}}" }
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n  \"event\": \"charge.success\",\n  \"data\": {\n    \"reference\": \"{{reference}}\",\n    \"amount\": 100000,\n    \"paid_at\": \"2025-01-01T08:00:00Z\",\n    \"metadata\": { \"orderId\": \"{{orderId}}\" }\n  }\n}"
+				},
+				"url": {
+					"raw": "{{base_url}}/api/payments/webhook",
+					"host": ["{{base_url}}"],
+					"path": ["api", "payments", "webhook"]
+				}
+			},
+			"response": [{ "name": "200 OK", "body": "Webhook processed" }],
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"type": "text/javascript",
+						"exec": [
+							"// Example test: ensure 200 response and Payment created",
+							"pm.test('Webhook processed', function () {",
+							"  pm.response.to.have.status(200);",
+							"});"
+						]
+					}
+				}
+			]
+		},
+		{
+			"name": "Mark Order out_for_delivery (send OTP)",
+			"request": {
+				"method": "PUT",
+				"header": [
+					{ "key": "Content-Type", "value": "application/json" },
+					{ "key": "Authorization", "value": "Bearer {{rider_token}}" }
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{ \"status\": \"out_for_delivery\" }"
+				},
+				"url": {
+					"raw": "{{base_url}}/api/orders/{{orderId}}/rider-update",
+					"host": ["{{base_url}}"],
+					"path": ["api", "orders", "{{orderId}}", "rider-update"]
+				}
+			}
+		},
+		{
+			"name": "Confirm Delivery (verify OTP & trigger auto-payouts)",
+			"request": {
+				"method": "PUT",
+				"header": [
+					{ "key": "Content-Type", "value": "application/json" },
+					{ "key": "Authorization", "value": "Bearer {{rider_token}}" }
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{ \"status\": \"delivered\", \"otp\": \"{{otp}}\" }"
+				},
+				"url": {
+					"raw": "{{base_url}}/api/orders/{{orderId}}/rider-update",
+					"host": ["{{base_url}}"],
+					"path": ["api", "orders", "{{orderId}}", "rider-update"]
+				}
+			},
+			"response": [{ "name": "200 OK", "body": "{ \"success\": true }" }]
+		},
+		{
+			"name": "Request Payout (user)",
+			"request": {
+				"method": "POST",
+				"header": [
+					{ "key": "Content-Type", "value": "application/json" },
+					{ "key": "Authorization", "value": "Bearer {{vendor_token}}" }
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{ \"amount\": 5000, \"bankDetails\": { \"accountNumber\": \"1234567890\", \"bankCode\": \"058\", \"accountName\": \"John Doe\" } }"
+				},
+				"url": {
+					"raw": "{{base_url}}/api/payouts/request",
+					"host": ["{{base_url}}"],
+					"path": ["api", "payouts", "request"]
+				}
+			}
+		},
+		{
+			"name": "Admin process payout (mark completed)",
+			"request": {
+				"method": "PUT",
+				"header": [
+					{ "key": "Content-Type", "value": "application/json" },
+					{ "key": "Authorization", "value": "Bearer {{admin_token}}" }
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{ \"transactionRef\": \"TRF_12345\", \"status\": \"completed\" }"
+				},
+				"url": {
+					"raw": "{{base_url}}/api/payouts/{{payoutId}}/process",
+					"host": ["{{base_url}}"],
+					"path": ["api", "payouts", "{{payoutId}}", "process"]
+				}
+			}
+		},
+		{
+			"name": "Check Balance",
+			"request": {
+				"method": "GET",
+				"header": [
+					{ "key": "Authorization", "value": "Bearer {{vendor_token}}" }
+				],
+				"url": {
+					"raw": "{{base_url}}/api/payouts/balance",
+					"host": ["{{base_url}}"],
+					"path": ["api", "payouts", "balance"]
+				}
+			}
+		},
+		{
+			"name": "Store Details",
+			"request": {
+				"method": "POST",
+				"header": [
+					{ "key": "Authorization", "value": "Bearer {{vendor_token}}" }
+				],
+				"url": {
+					"raw": "{{base_url}}/api/vendors/complete-registration",
+					"host": ["{{base_url}}"],
+					"path": ["api", "vendors", "complete-registration"]
+				}
+			}
+		}
+	]
 }

@@ -38,4 +38,6 @@ tests/
 scripts/
 
 config/serviceAccountKey.json
+node_modules/
 
+node_modules/.bin/nodetouch.ps1
