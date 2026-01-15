@@ -202,20 +202,6 @@
 					"path": ["api", "payouts", "balance"]
 				}
 			}
-		},
-		{
-			"name": "Store Details",
-			"request": {
-				"method": "POST",
-				"header": [
-					{ "key": "Authorization", "value": "Bearer {{vendor_token}}" }
-				],
-				"url": {
-					"raw": "{{base_url}}/api/vendors/complete-registration",
-					"host": ["{{base_url}}"],
-					"path": ["api", "vendors", "complete-registration"]
-				}
-			}
 		}
 	]
 }
