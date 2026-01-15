@@ -105,7 +105,6 @@ const getNearbyVendors = async (req, res) => {
 		res.status(500).json({ message: err.message });
 	}
 };
-
 const completeVendorRegistration = async (req, res) => {
 	try {
 		const {
@@ -119,7 +118,6 @@ const completeVendorRegistration = async (req, res) => {
 
 		const vendorId = req.user.id;
 
-		// Fetch vendor from DB
 		const vendor = await Vendor.findById(vendorId);
 		if (!vendor) {
 			return res.status(404).json({
@@ -128,19 +126,18 @@ const completeVendorRegistration = async (req, res) => {
 			});
 		}
 
-		// Prevent multiple profile completions
-		if (vendor.profile && vendor.profile.length > 0) {
+		// Prevent multiple registrations
+		if (vendor.storeDetails && vendor.storeDetails.length > 0) {
 			return res.status(400).json({
 				success: false,
 				message: "Vendor profile already completed",
 			});
 		}
 
-		// Required fields validation
 		if (!storeName || !storeType || !servicesOffered) {
 			return res.status(400).json({
 				success: false,
-				message: "Store type and services offered are required",
+				message: "Store name, store type and services offered are required",
 			});
 		}
 
@@ -151,6 +148,7 @@ const completeVendorRegistration = async (req, res) => {
 			});
 		}
 
+		// Validate services
 		if (
 			!["InstantMeals", "preOrderMeals", "hybridMeals"].includes(
 				servicesOffered
@@ -163,29 +161,14 @@ const completeVendorRegistration = async (req, res) => {
 			});
 		}
 
+		const isBusinessVerified =
+			isVerifiedBusiness === true || isVerifiedBusiness === "true";
+
 		// CAC logic
-		if (isVerifiedBusiness === "true" || isVerifiedBusiness === true) {
-			if (!CACNumber) {
-				return res.status(400).json({
-					success: false,
-					message: "CAC number is required for verified businesses",
-				});
-			}
-		} else {
-			if (needCACHelp === "yes") {
-				return res.status(200).json({
-					success: true,
-					message:
-						"Thank you! Our support team will attend to you shortly regarding CAC registration assistance.",
-					requiresSupport: true,
-				});
-			} else if (needCACHelp === "no") {
-				return res.status(400).json({
-					success: false,
-					message:
-						"A business is required to have a valid CAC number to complete vendor registration.",
-				});
-			} else {
+		let needsCACSupport = false;
+
+		if (!isBusinessVerified) {
+			if (!needCACHelp) {
 				return res.status(400).json({
 					success: false,
 					message:
@@ -193,9 +176,27 @@ const completeVendorRegistration = async (req, res) => {
 					needsCAC: true,
 				});
 			}
+
+			if (needCACHelp === "no") {
+				return res.status(400).json({
+					success: false,
+					message:
+						"A business is required to have a valid CAC number to complete vendor registration.",
+				});
+			}
+
+			if (needCACHelp === "yes") {
+				needsCACSupport = true;
+			}
+		} else {
+			if (!CACNumber) {
+				return res.status(400).json({
+					success: false,
+					message: "CAC number is required for verified businesses",
+				});
+			}
 		}
 
-		// Check NIN file
 		if (!req.file) {
 			return res.status(400).json({
 				success: false,
@@ -205,22 +206,40 @@ const completeVendorRegistration = async (req, res) => {
 
 		const ninIDUrl = req.file.path;
 
-		// Save profile as single object inside profile array
+		// Save store details
 		vendor.storeDetails = [
 			{
 				storeName,
 				storeType,
-				isVerifiedBusiness:
-					isVerifiedBusiness === "true" || isVerifiedBusiness === true,
+				isVerifiedBusiness: isBusinessVerified,
 				CACNumber: CACNumber || null,
 				servicesOffered,
 				ninID: ninIDUrl,
+				status: "active",
+				needsCACSupport,
 			},
 		];
 
-		vendor.balance = 0;
+		if (vendor.balance == null) {
+			vendor.balance = 0;
+		}
 
 		await vendor.save();
+
+		// Response
+		if (needsCACSupport) {
+			return res.status(200).json({
+				success: true,
+				message:
+					"Store details saved successfully. Our support team will contact you shortly regarding CAC registration assistance.",
+				requiresSupport: true,
+				data: {
+					vendorId: vendor._id,
+					storeName,
+					status: "active",
+				},
+			});
+		}
 
 		res.status(200).json({
 			success: true,

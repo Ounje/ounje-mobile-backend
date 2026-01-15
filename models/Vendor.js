@@ -8,28 +8,40 @@ const ledgerSchema = new mongoose.Schema({
 	createdAt: { type: Date, default: Date.now },
 });
 
-const storeDetails = new mongoose.Schema({
-	storeName: { type: String, required: true },
-	storeType: {
-		type: String,
-		required: true,
-		enum: ["physicalStore", "onlineStore"],
+const storeDetailsSchema = new mongoose.Schema(
+	{
+		storeName: { type: String, required: true },
+		storeType: {
+			type: String,
+			required: true,
+			enum: ["physicalStore", "onlineStore"],
+		},
+		CACNumber: String,
+		isVerifiedBusiness: Boolean,
+		status: {
+			type: String,
+			enum: ["active", "suspended"],
+			default: "active",
+		},
+		needsCACSupport: {
+			type: Boolean,
+			default: false,
+		},
+		servicesOffered: {
+			type: String,
+			required: true,
+			enum: ["InstantMeals", "preOrderMeals", "hybridMeals"],
+		},
+		ninID: {
+			type: String,
+			required: true,
+		},
 	},
-	CACNumber: String,
-	isVerifiedBusiness: Boolean,
-	servicesOffered: {
-		type: String,
-		required: true,
-		enum: ["InstantMeals", "preOrderMeals", "hybridMeals"],
-	},
-	ninID: {
-		type: String,
-		required: true,
-	},
-});
+	{ timestamps: true }
+);
 
 const VendorSchema = new mongoose.Schema({
-	storeDetails: [storeDetails],
+	storeDetails: [storeDetailsSchema],
 	img: String,
 	description: String,
 	totalRating: { type: Number, default: 0 },
