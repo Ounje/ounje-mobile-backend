@@ -88,17 +88,16 @@ exports.createOrder = async (req, res) => {
   }
 };
 
-// ... other functions (getMyOrders, getOrderById, updateOrderStatus) remain the same ...
-// ... (The rest of the file is omitted for brevity but should remain)
 exports.getMyOrders = async (req, res) => {
   try {
-    const orders = await Order.find({ user: req.user.id })
+    const orders = await Order.find({ customer: req.user.id })
       .populate("vendor", "name")
       .populate("items.item");
 
     res.status(200).json(orders);
   } catch (error) {
-    res.status(500).json({ message: "Error fetching orders", error });
+    console.error("GET_MY_ORDERS_ERROR:", error);
+    res.status(500).json({ message: "Error fetching orders", error: error.message });
   }
 };
 
@@ -109,16 +108,21 @@ exports.getOrderById = async (req, res) => {
       .populate("items.item")
       .populate("customer");
 
-    if (!order) return res.status(404).json({ message: "Order not found" });
+    if (!order) {
+      return res.status(404).json({ message: "Order not found" });
+    }
+
+    const orderCustomerId = order.customer._id ? order.customer._id.toString() : order.customer.toString();
 
     // Ensure only the owner can access their order
-    if (order.user.toString() !== req.user.id.toString()) {
+    if (orderCustomerId !== req.user.id.toString()) {
       return res.status(403).json({ message: "Unauthorized" });
     }
 
     res.status(200).json(order);
   } catch (error) {
-    res.status(500).json({ message: "Error fetching order", error });
+    console.error("GET_ORDER_BY_ID_ERROR:", error); 
+    res.status(500).json({ message: "Error fetching order", error: error.message });
   }
 };
 
