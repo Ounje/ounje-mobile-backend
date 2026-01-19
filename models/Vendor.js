@@ -20,7 +20,7 @@ const storeDetailsSchema = new mongoose.Schema(
 		isVerifiedBusiness: Boolean,
 		status: {
 			type: String,
-			enum: ["active", "suspended"],
+			enum: ["active", "suspended", "pending"],
 			default: "active",
 		},
 		needsCACSupport: {
@@ -48,12 +48,13 @@ const VendorSchema = new mongoose.Schema({
 	averageRating: { type: Number, default: 0 },
 	totalOrders: { type: Number, default: 0 },
 	minPrice: Number,
-	closeTime: String,
 	balance: Number,
 	ledger: [ledgerSchema],
 	isAvailable: { type: Boolean, default: true },
 	minDeliveryFee: Number,
-	closingTime: String,
+	//workdays: date,
+	//openingHour: time,
+	//closingHour: time,
 
 	// Bank and payout recipient info
 	bankDetails: {

@@ -215,7 +215,7 @@ const completeVendorRegistration = async (req, res) => {
 				CACNumber: CACNumber || null,
 				servicesOffered,
 				ninID: ninIDUrl,
-				status: "active",
+				status: "pending",
 				needsCACSupport,
 			},
 		];
@@ -255,7 +255,9 @@ const completeVendorRegistration = async (req, res) => {
 		});
 	}
 };
-
+const viewOrder = async (req, res) => {
+	pass;
+};
 module.exports = {
 	completeVendorRegistration,
 	getPopularVendors,
