@@ -82,5 +82,5 @@ VendorSchema.set("toJSON", { virtuals: true });
 // This tells MongoDB to allow "distance" math on the location field
 VendorSchema.index({ location: "2dsphere" });
 
-const Vendor = User.discriminator("vendor", VendorSchema);
+const Vendor = User.discriminator("Vendor", VendorSchema);
 module.exports = Vendor;
