@@ -1,38 +1,90 @@
 const express = require("express");
 const { authMiddleware, roleGuard } = require("../middleware/auth");
-const { createDish, getDishes, getSpecificDish, deleteDish, updateDish, allItems, getFoodItemsByCategory, getFoodItemById, createFoodItem, deleteFoodItem } = require("../controllers/dishController");
-const { dishUpload, foodItemUpload } = require("../config/cloudinary");
+const {
+	createFoodItem,
+	updateFoodItem,
+	deleteFoodItem,
+	getAllFoodItems,
+	getFoodItemById,
+	getMyFoodItems,
+
+	createCombo,
+	updateCombo,
+	deleteCombo,
+	getAllCombos,
+	getComboById,
+	getMyCombos,
+} = require("../controllers/dishController");
+const { foodItemUpload, comboUpload } = require("../config/cloudinary");
 
 const router = express.Router();
 
+router.get("/food-items", getAllFoodItems);
 
-router.post("/create-dish", authMiddleware, dishUpload.single("file") , createDish);
+router.get("/food-items/:foodItemId", getFoodItemById);
 
-router.post("/create-food-item", authMiddleware, foodItemUpload.single("file"), createFoodItem);
- 
-router.get("/food-items", allItems);
+router.get(
+	"/food-items/vendor/my-items",
+	authMiddleware,
+	roleGuard(["vendor"]),
+	getMyFoodItems,
+);
 
-router.get("/food-item/:foodItemId", getFoodItemById);
+router.post(
+	"/food-items",
+	authMiddleware,
+	roleGuard(["vendor"]),
+	foodItemUpload.single("img"),
+	createFoodItem,
+);
 
-router.get("/food-category/:category", getFoodItemsByCategory);
+router.put(
+	"/food-items/:foodItemId",
+	authMiddleware,
+	roleGuard(["vendor"]),
+	foodItemUpload.single("img"),
+	updateFoodItem,
+);
 
+router.delete(
+	"/food-items/:foodItemId",
+	authMiddleware,
+	roleGuard(["vendor"]),
+	deleteFoodItem,
+);
 
+router.get("/combos", getAllCombos);
 
-// Public: list and view 
-router.get("/", getDishes);
+router.get("/combos/:comboId", getComboById);
 
-router.get("/dish/:dishId", getSpecificDish);
+router.get(
+	"/combos/vendor/my-combos",
+	authMiddleware,
+	roleGuard(["vendor"]),
+	getMyCombos,
+);
 
+router.post(
+	"/combos",
+	authMiddleware,
+	roleGuard(["vendor"]),
+	comboUpload.single("img"),
+	createCombo,
+);
 
+router.put(
+	"/combos/:comboId",
+	authMiddleware,
+	roleGuard(["vendor"]),
+	comboUpload.single("img"),
+	updateCombo,
+);
 
-// Update dish (seller only, must be owner). This does not update image or options for now
-router.put("/dish/:dishId", authMiddleware, roleGuard(["vendor"]), updateDish); 
-
-
-// Delete dish (seller only)
-//authmidlleware authenticates the jwt, role guard checks if the user has the "vendor" role. The role is contained in the jwt.
-router.delete("/dish/:dishId", authMiddleware, roleGuard(["vendor"]), deleteDish);
-
-router.delete("/food-item/:foodItemId", authMiddleware, roleGuard(["vendor"]), deleteFoodItem);
+router.delete(
+	"/combos/:comboId",
+	authMiddleware,
+	roleGuard(["vendor"]),
+	deleteCombo,
+);
 
 module.exports = router;

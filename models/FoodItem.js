@@ -1,16 +1,42 @@
-// models/Option.js
 const mongoose = require("mongoose");
-const { Schema } = mongoose;
+const {
+	getCategoryValues,
+	getSubCategoryValues,
+	//getSellingUnitValues,
+} = require("../utilis/foodEnums");
 
-const FoodItemSchema = new Schema({
-  name: { type: String, required: true },
-  price: { type: Number, required: true },
-  img: { type: String, required: true },
-  description: { type: String },
-  vendor: { type: Schema.Types.ObjectId, ref: "Vendor", required: true },
-  category: {type: String, required: true},
-  sellingUnit: { type: String, required: true  },
-});
+const FoodItemSchema = new mongoose.Schema(
+	{
+		name: { type: String, required: true },
+		price: { type: Number, required: true },
+		img: { type: String, required: true },
+		description: { type: String },
+		vendor: {
+			type: mongoose.Schema.Types.ObjectId,
+			ref: "vendor",
+			required: true,
+		},
+		category: {
+			type: String,
+			required: true,
+			enum: getCategoryValues(),
+		},
+		subCategory: {
+			type: String,
+			enum: getSubCategoryValues(),
+		},
+		// sellingUnit: {
+		// 	type: String,
+		// 	required: true,
+		// 	enum: getSellingUnitValues(),
+		// },
+		preparationTime: { type: String, required: true },
+		isAvailable: { type: Boolean, default: true },
+		ordersCount: { type: Number, default: 0 },
+		rating: { type: Number, default: 0 },
+		likes: { type: Number, default: 0 },
+	},
+	{ timestamps: true },
+);
 
-
-module.exports = mongoose.model("FoodItem", FoodItemSchema); 
+module.exports = mongoose.model("FoodItem", FoodItemSchema);

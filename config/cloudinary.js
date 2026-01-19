@@ -17,10 +17,10 @@ const foodItemsStorage = new CloudinaryStorage({
 	},
 });
 
-const dishesStorage = new CloudinaryStorage({
+const comboStorage = new CloudinaryStorage({
 	cloudinary,
 	params: {
-		folder: "dishes",
+		folder: "combos",
 		allowed_formats: ["jpg", "png", "jpeg", "webp"],
 		transformation: [{ width: 800, quality: "auto" }],
 	},
@@ -72,7 +72,7 @@ module.exports = {
 	cloudinary,
 	NINStorage: multer({ storage: NINStorage }),
 	userUpload: multer({ storage: usersStorage }),
-	dishUpload: multer({ storage: dishesStorage }),
+	comboUpload: multer({ storage: comboStorage }),
 	foodItemUpload: multer({ storage: foodItemsStorage }),
 	plateUpload: multer({ storage: platesStorage }),
 	deleteImage,
