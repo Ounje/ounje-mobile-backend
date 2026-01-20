@@ -37,7 +37,7 @@ const storeDetailsSchema = new mongoose.Schema(
 			required: true,
 		},
 	},
-	{ timestamps: true }
+	{ timestamps: true },
 );
 
 const VendorSchema = new mongoose.Schema({
@@ -66,7 +66,7 @@ const VendorSchema = new mongoose.Schema({
 });
 
 VendorSchema.virtual("menu", {
-	ref: "Dish",
+	ref: "Combo",
 	localField: "_id",
 	foreignField: "vendor",
 });

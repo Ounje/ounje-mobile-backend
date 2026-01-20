@@ -4,8 +4,8 @@ const router = express.Router();
 const {
 	register,
 	login,
-	requestOtp,
-	verifyOtp,
+	requestEmailOtp,
+	verifyEmailOtp,
 	requestPhoneOtp,
 	verifyPhoneOtp,
 	logOut,
@@ -19,10 +19,10 @@ const {
 	registerLimiter,
 } = require("../utilis/rateLimiter");
 
-router.post("/request-otp", otpRequestLimiter, requestOtp);
+router.post("/request-otp", otpRequestLimiter, requestEmailOtp);
 router.post("/request-phone-otp", otpRequestLimiter, requestPhoneOtp);
 
-router.post("/verify-otp", otpVerifyLimiter, verifyOtp);
+router.post("/verify-otp", otpVerifyLimiter, verifyEmailOtp);
 router.post("/verify-phone-otp", otpVerifyLimiter, verifyPhoneOtp);
 
 router.post("/login", loginLimiter, login);
