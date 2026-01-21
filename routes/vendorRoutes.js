@@ -26,7 +26,7 @@ router.put(
 
 router.get("/vendor/:id", userGetVendor);
 
-router.get("/nearby", getNearbyVendors);
+router.get("/nearby", authMiddleware, getNearbyVendors);
 router.post(
 	"/complete-registration",
 	authMiddleware,

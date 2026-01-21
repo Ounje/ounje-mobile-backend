@@ -1,6 +1,9 @@
+const mongoose = require("mongoose");
 const Vendor = require("../models/Vendor");
 const Combo = require("../models/Combo");
 const payoutService = require("../services/payout.service");
+const Customer = require("../models/Customer");
+const FoodItem = require("../models/FoodItem"); 
 
 // Get popular vendors
 const getPopularVendors = async (req, res) => {
@@ -29,17 +32,29 @@ const getVendor = async (req, res) => {
 //Customer side
 //with this you'll get the vendor details along with their menu and options
 const userGetVendor = async (req, res) => {
-	try {
-		const vendorId = req.params.id;
-		const vendor = await Vendor.findById(vendorId)
-			.populate("menu")
-			.populate("foodItems")
-			.select("-email -role -img -__v -createdAt -updatedAt ");
-		if (!vendor) return res.status(404).json({ message: "Vendor not found" });
-		res.json(vendor);
-	} catch (err) {
-		res.status(500).json({ message: err.message });
-	}
+    try {
+        const vendorId = req.params.id;
+        
+        // Validate if the ID is a valid MongoDB ObjectId
+        if (!mongoose.Types.ObjectId.isValid(vendorId)) {
+            return res.status(400).json({ message: "Invalid Vendor ID format" });
+        }
+
+        const vendor = await Vendor.findById(vendorId)
+            .populate("menu")
+            .populate("foodItems");
+
+        if (!vendor) {
+            return res.status(404).json({ message: "Vendor not found" });
+        }
+
+        // Always return a proper JSON object
+        res.status(200).json(vendor);
+    } catch (err) {
+        console.error("USER_GET_VENDOR_ERROR:", err);
+        // This ensures the frontend gets JSON error, not HTML
+        res.status(500).json({ message: "Internal Server Error", error: err.message });
+    }
 };
 
 const updateBankDetails = async (req, res) => {
@@ -74,37 +89,60 @@ const updateBankDetails = async (req, res) => {
 
 // NEW: Get Nearby Vendors (Fixed User -> Vendor)
 const getNearbyVendors = async (req, res) => {
-	try {
-		const { lat, lng } = req.query;
+    try {
+        let { lat, lng } = req.query;
+        let userId = req.user ? req.user.id : null;
 
-		if (!lat || !lng) {
-			return res
-				.status(400)
-				.json({ message: "Latitude and Longitude are required" });
-		}
+        // STEP 1: If GPS is missing, try to get location from Customer Profile
+        if ((!lat || !lng) && userId) {
+            const customer = await Customer.findById(userId);
+            if (customer && customer.location && customer.location.coordinates) {
+                lng = customer.location.coordinates[0];
+                lat = customer.location.coordinates[1];
+                console.log("Using saved profile location for user:", userId);
+            }
+        }
 
-		const vendors = await Vendor.find({
-			// Removed role: 'vendor' because you are already querying the Vendor model
-			location: {
-				$near: {
-					$geometry: {
-						type: "Point",
-						coordinates: [parseFloat(lng), parseFloat(lat)],
-					},
-					$maxDistance: 3000, // 3km
-				},
-			},
-		});
+        // STEP 2: If we have coordinates (from GPS or Profile), search by distance
+        if (lat && lng) {
+            const vendors = await Vendor.find({
+                isAvailable: { $ne: false }, // Only show vendors that are open
+                location: {
+                    $near: {
+                        $geometry: {
+                            type: "Point",
+                            coordinates: [parseFloat(lng), parseFloat(lat)],
+                        },
+                        $maxDistance: 10000, // Increased to 10km for better coverage
+                    },
+                },
+            });
 
-		res.status(200).json({
-			status: "success",
-			results: vendors.length,
-			data: vendors,
-		});
-	} catch (err) {
-		res.status(500).json({ message: err.message });
-	}
+            return res.status(200).json({
+                status: "success",
+                source: "location-based",
+                results: vendors.length,
+                data: vendors,
+            });
+        }
+
+        // STEP 3: FINAL FALLBACK - If no location found at all, show all available vendors
+        console.log("No location available. Returning default vendor list.");
+        const allVendors = await Vendor.find({ isAvailable: { $ne: false } }).limit(20);
+        
+        res.status(200).json({
+            status: "success",
+            source: "default-fallback",
+            results: allVendors.length,
+            data: allVendors,
+        });
+
+    } catch (err) {
+        console.error("Nearby Vendors Error:", err.message);
+        res.status(500).json({ message: "Error retrieving vendors", error: err.message });
+    }
 };
+
 const completeVendorRegistration = async (req, res) => {
 	try {
 		const {
