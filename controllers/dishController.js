@@ -1,6 +1,6 @@
 const Vendor = require("../models/Vendor");
 const FoodItem = require("../models/FoodItem");
-const Combo = require("../models/Dish");
+const Combo = require("../models/Combo");
 const { FOOD_ENUMS } = require("../utilis/foodEnums");
 
 const createFoodItem = async (req, res) => {

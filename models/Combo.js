@@ -46,7 +46,7 @@ const ComboSchema = new mongoose.Schema(
 		},
 		vendor: {
 			type: mongoose.Schema.Types.ObjectId,
-			ref: "vendor",
+			ref: "Vendor",
 			required: true,
 		},
 		price: { type: Number }, // Auto-calculated
@@ -55,8 +55,9 @@ const ComboSchema = new mongoose.Schema(
 		deliveryTime: { type: String },
 		ordersCount: { type: Number, default: 0 },
 		isActive: { type: Boolean, default: true },
-		rating: { type: Number, default: 0 },
-		likes: { type: Number, default: 0 },
+		ratingAverage: { type: Number, default: 0 },
+		ratingCount: { type: Number, default: 0 },
+		likes: [{ type: mongoose.Schema.Types.ObjectId, ref: "customer" }],
 	},
 	{ timestamps: true },
 );

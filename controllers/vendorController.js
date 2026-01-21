@@ -1,5 +1,5 @@
 const Vendor = require("../models/Vendor");
-const Dish = require("../models/Dish");
+const Combo = require("../models/Combo");
 const payoutService = require("../services/payout.service");
 
 // Get popular vendors
