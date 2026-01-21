@@ -30,17 +30,29 @@ const getVendor = async (req, res) => {
 //Customer side
 //with this you'll get the vendor details along with their menu and options
 const userGetVendor = async (req, res) => {
-	try {
-		const vendorId = req.params.id;
-		const vendor = await Vendor.findById(vendorId)
-			.populate("menu")
-			.populate("foodItems")
-			.select("-email -role -img -__v -createdAt -updatedAt ");
-		if (!vendor) return res.status(404).json({ message: "Vendor not found" });
-		res.json(vendor);
-	} catch (err) {
-		res.status(500).json({ message: err.message });
-	}
+    try {
+        const vendorId = req.params.id;
+        
+        // Validate if the ID is a valid MongoDB ObjectId
+        if (!mongoose.Types.ObjectId.isValid(vendorId)) {
+            return res.status(400).json({ message: "Invalid Vendor ID format" });
+        }
+
+        const vendor = await Vendor.findById(vendorId)
+            .populate("menu")
+            .populate("foodItems");
+
+        if (!vendor) {
+            return res.status(404).json({ message: "Vendor not found" });
+        }
+
+        // Always return a proper JSON object
+        res.status(200).json(vendor);
+    } catch (err) {
+        console.error("USER_GET_VENDOR_ERROR:", err);
+        // This ensures the frontend gets JSON error, not HTML
+        res.status(500).json({ message: "Internal Server Error", error: err.message });
+    }
 };
 
 const updateBankDetails = async (req, res) => {
