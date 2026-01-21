@@ -57,13 +57,13 @@ const updateBankDetails = async (req, res) => {
 		const vendor = await Vendor.findByIdAndUpdate(
 			vendorId,
 			{ bankDetails: { accountNumber, bankCode, accountName } },
-			{ new: true }
+			{ new: true },
 		);
 
 		// Trigger retry of pending payouts
 		const retryResults = await payoutService.processPendingPayoutsForUser(
 			vendor._id,
-			"VENDOR"
+			"VENDOR",
 		);
 
 		res.json({ vendor, retryResults });
@@ -175,7 +175,7 @@ const completeVendorRegistration = async (req, res) => {
 		// Validate services
 		if (
 			!["InstantMeals", "preOrderMeals", "hybridMeals"].includes(
-				servicesOffered
+				servicesOffered,
 			)
 		) {
 			return res.status(400).json({
@@ -279,9 +279,7 @@ const completeVendorRegistration = async (req, res) => {
 		});
 	}
 };
-const viewOrder = async (req, res) => {
-	pass;
-};
+
 module.exports = {
 	completeVendorRegistration,
 	getPopularVendors,

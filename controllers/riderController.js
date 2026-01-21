@@ -1,4 +1,5 @@
 const payoutService = require("../services/payout.service");
+const RiderRating = require("../models/RiderRating");
 
 const registerRider = async (req, res) => {
 	const { name, selectedZones } = req.body; // e.g., ["Ikeja", "Yaba"]
@@ -50,7 +51,56 @@ const updateBankDetails = async (req, res) => {
 	}
 };
 const riderLeaderBoard = async (req, res) => {
-	pass;
+	try {
+		const { page = 1, limit = 10 } = req.query;
+
+		const fourteenDaysAgo = new Date();
+		fourteenDaysAgo.setDate(fourteenDaysAgo.getDate() - 14);
+
+		const skip = (Number(page) - 1) * Number(limit);
+
+		const leaderboard = await RiderRating.aggregate([
+			{ $match: { createdAt: { $gte: fourteenDaysAgo } } },
+			{
+				$group: {
+					_id: "$rider",
+					averageRating: { $avg: "$rating" },
+					totalRatings: { $sum: 1 },
+				},
+			},
+			{ $sort: { averageRating: -1, totalRatings: -1 } },
+			{ $skip: skip },
+			{ $limit: Number(limit) },
+			{
+				$lookup: {
+					from: "riders",
+					localField: "_id",
+					foreignField: "_id",
+					as: "rider",
+				},
+			},
+			{ $unwind: "$rider" },
+			{
+				$project: {
+					rider: { _id: 1, name: 1 },
+					averageRating: { $round: ["$averageRating", 2] },
+					totalRatings: 1,
+				},
+			},
+		]);
+
+		res.status(200).json({
+			success: true,
+			count: leaderboard.length,
+			data: leaderboard,
+		});
+	} catch (err) {
+		console.error("Rider Leaderboard Error:", err);
+		res.status(500).json({
+			success: false,
+			error: err.message,
+		});
+	}
 };
 
-module.exports = { registerRider, updateBankDetails };
+module.exports = { registerRider, updateBankDetails, riderLeaderBoard };
