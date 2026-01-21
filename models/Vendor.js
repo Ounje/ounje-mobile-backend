@@ -55,7 +55,10 @@ const VendorSchema = new mongoose.Schema({
 	//workdays: date,
 	//openingHour: time,
 	//closingHour: time,
-
+	location: {
+		type: { type: String, default: 'Point' },
+		coordinates: { type: [Number], index: '2dsphere' } // [longitude, latitude]
+	},
 	// Bank and payout recipient info
 	bankDetails: {
 		accountNumber: String,
