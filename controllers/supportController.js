@@ -11,7 +11,7 @@ const supportWhatsAppRedirect = async (req, res) => {
 		}
 
 		// Build message as plain text
-		let message = `Hello Ounje Support,\n\n`;
+		let message = `Hello Ounje Market Support,\n\n`;
 
 		if (user.role === "vendor") {
 			message += `I am a vendor.\n`;
