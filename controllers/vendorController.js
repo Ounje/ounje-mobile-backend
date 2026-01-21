@@ -2,6 +2,7 @@ const Vendor = require("../models/Vendor");
 const Dish = require("../models/Dish");
 const payoutService = require("../services/payout.service");
 const Customer = require("../models/Customer");
+const FoodItem = require("../models/FoodItem"); 
 
 // Get popular vendors
 const getPopularVendors = async (req, res) => {
