@@ -34,7 +34,7 @@ app.use(express.json());
 app.set("trust proxy", 1);
 //api routes
 app.use("/api/auth", authRoutes);
-app.use("/api/food", dishRoutes);
+//app.use("/api/food", dishRoutes);
 app.use("/api/dishes", dishRoutes);
 app.use("/api/orders", orderRoutes);
 app.use("/api/payments", paymentRoutes);
