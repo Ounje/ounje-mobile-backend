@@ -7,7 +7,6 @@ const Vendor = require("../models/Vendor");
 
 
 const {
-<<<<<<< HEAD
   createOrder,
   getMyOrders,
   getOrderById,
@@ -15,14 +14,6 @@ const {
   sendDeliveryOtp,
   verifyDeliveryOtp,
   acceptOrder,
-=======
-	createOrder,
-	getMyOrders,
-	getOrderById,
-	updateOrderStatus,
-	sendDeliveryOtp,
-	verifyDeliveryOtp,
->>>>>>> 7689f37489411ccf8083e13c095d91e2cd8bb6ea
 } = require("../controllers/orderController");
 
 const router = express.Router();
