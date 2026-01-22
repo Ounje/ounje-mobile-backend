@@ -6,9 +6,22 @@ const buildPlate = async (req, res) => {
     try {
         const { name, price, timeToMake, items, vendor } = req.body;
         
+        if (typeof items === 'string') {
+            try {
+                items = JSON.parse(items);
+            } catch (e) {
+                // if it's just a single ID string, wrap it in an array
+                items = [items];
+            }
+        }
+
         // Fetch item names to create the description
         // 'items' is likely an array of IDs from the frontend
         const selectedItems = await FoodItem.find({ _id: { $in: items } });
+        
+        // Debugging: See if items are actually being found in your terminal
+        console.log("Items found in DB:", selectedItems.length);
+        
         const description = selectedItems.map(item => item.name).join(", ");
 
         // Logic to build a plate using plateData
