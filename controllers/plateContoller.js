@@ -1,8 +1,16 @@
 const Plate = require("../models/Plate");
+const FoodItem = require("../models/FoodItem");
+const { deleteImage } = require("../config/cloudinary");
 
 const buildPlate = async (req, res) => {
     try {
         const { name, price, timeToMake, items, vendor } = req.body;
+        
+        // Fetch item names to create the description
+        // 'items' is likely an array of IDs from the frontend
+        const selectedItems = await FoodItem.find({ _id: { $in: items } });
+        const description = selectedItems.map(item => item.name).join(", ");
+
         // Logic to build a plate using plateData
         const newPlate = await Plate.create({ 
             name, 
@@ -11,7 +19,8 @@ const buildPlate = async (req, res) => {
             price,
             img: req.file ? req.file.path : undefined,
             timeToMake,
-            items
+            items,
+            description
         });
         res.status(201).json(newPlate);
     } catch (error) {
@@ -51,6 +60,10 @@ const deletePlate = async (req, res) => {
         console.log(plate.customer.toString())
         if(req.user.id !== plate.customer.toString()){
             return  res.status(403).json({ error: "Forbidden: You can only delete your own plates" });
+        }
+        if (plate.img) {
+            const publicId = plate.img.split('/').pop().split('.')[0]; 
+            await deleteImage(`plates/${publicId}`); 
         }
         await plate.deleteOne();
         res.status(200).json({ message: "Plate deleted successfully" });
