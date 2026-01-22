@@ -109,5 +109,5 @@ const fixAllPlates = async (req, res) => {
 };
 
 module.exports = {
-    buildPlate, getAllPlates, getSpecificPlate, deletePlate
+    buildPlate, getAllPlates, getSpecificPlate, deletePlate, fixAllPlates
 };
