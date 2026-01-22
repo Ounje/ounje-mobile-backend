@@ -58,19 +58,18 @@ const orderSchema = new mongoose.Schema({
 	rider: { type: mongoose.Schema.Types.ObjectId, ref: "rider" },
 	status: {
 		type: String,
-		enum: [
-			"pending",
-			"confirmed",
-			"assigned",
-			"out_for_delivery",
-			"delivered",
-			"in_progress",
-			"completed",
-			"cancelled",
+		enum: ["CONFIRMING", "PACKAGING", "RIDING", "DELIVERED", "CANCELLED"
 		],
-		default: "pending",
+		default: "CONFIRMING",
 	},
-	subStatus: { type: String, default: "" }, // for more granular tracking if needed
+	subStatus: { 
+    type: String, 
+    enum: [
+      "CONFIRMING", "CONFIRMED", "PACKAGING", "PACKAGED", 
+      "LOOKING_FOR_RIDER", "RIDER_ASSIGNED", "PICKED_UP", 
+      "ON_THE_WAY", "DELIVERED"
+    ],
+    default: "CONFIRMING" }, 
 	deliveryAddress: {
 		type: String,
 	},

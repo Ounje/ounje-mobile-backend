@@ -9,6 +9,7 @@ const payoutService = require("../services/payout.service");
 const Customer = require("../models/Customer");
 const { sendPushNotification } = require("../services/notification.service");
 const Rider = require("../models/Rider");
+const ledgerService = require("../services/ledger.service"); 
 
 // Helper: generate secure numeric OTP of given length
 const generateNumericOtp = (length = 6) => {
@@ -80,7 +81,8 @@ exports.createOrder = async (req, res) => {
 			totalPrice: itemsTotalPrice + fee,
 			deliveryFee: fee,
 			deliveryAddress,
-			status: "pending",
+			status: "CONFIRMING",    
+      subStatus: "CONFIRMING",
 			zone: orderZone,
 		});
 
@@ -245,7 +247,8 @@ exports.verifyDeliveryOtp = async (order, otp, riderId) => {
 	if (providedHash !== order.deliveryOtpHash)
 		return { success: false, error: "Invalid OTP" };
 
-	order.status = "completed";
+	order.status = "DELIVERED";
+	order.subStatus = "DELIVERED";
 	order.deliveryConfirmedAt = new Date();
 	order.deliveryConfirmedBy = riderId;
 
@@ -270,6 +273,129 @@ exports.verifyDeliveryOtp = async (order, otp, riderId) => {
 	}
 
 	return { success: true };
+};
+
+// Rider accepts a pending order
+exports.acceptOrder = async (req, res) => {
+  try {
+    const { orderId } = req.params;
+    const riderId = req.user.id; // From your auth middleware
+
+    // 1. Fetch the order
+    const order = await Order.findById(orderId);
+    if (!order) return res.status(404).json({ success: false, message: "Order not found" });
+
+    // 2. Check if the order is still available (must be 'pending')
+    // and hasn't been assigned to another rider yet.
+    if (order.status !== "pending" || order.rider) {
+      return res.status(400).json({ 
+        success: false, 
+        message: "Order is no longer available. Another rider may have accepted it." 
+      });
+    }
+
+    // 3. Assign the riderId and update status
+    // Using 'assigned' as per your Schema's enum
+    order.rider = riderId;
+    order.status = "RIDING"; 
+    order.subStatus = "RIDER_ASSIGNED";
+    
+    await order.save();
+
+    // 4. Real-time notification to the Customer that a rider is coming
+    if (global.io) {
+      global.io.to(order.customer.toString()).emit('orderUpdate', {
+        orderId: order._id,
+        status: order.status,
+        message: "A rider has accepted your order and is on the way!"
+      });
+    }
+
+    return res.status(200).json({ 
+      success: true, 
+      message: "Order accepted successfully", 
+      order 
+    });
+
+  } catch (error) {
+    console.error("ACCEPT_ORDER_ERROR:", error);
+    return res.status(500).json({ success: false, message: "Failed to accept order", error: error.message });
+  }
+};
+
+exports.pickUpOrder = async (req, res) => {
+  try {
+    const { orderId } = req.params;
+    const riderId = req.user.id;
+
+    const order = await Order.findById(orderId);
+
+    if (!order) return res.status(404).json({ message: "Order not found" });
+
+    // Security: Only the assigned rider can pick up this order
+    if (order.rider.toString() !== riderId) {
+      return res.status(403).json({ message: "You are not the assigned rider for this order" });
+    }
+
+    // Update status to 'out_for_delivery' (matching your Schema)
+    order.status = "RIDING";
+    order.subStatus = "PICKED_UP";
+    await order.save();
+
+    // TRIGGER: Send the OTP to the customer now that food is moving
+    // We call your existing helper function
+    await exports.sendDeliveryOtp(order);
+
+    res.status(200).json({ 
+      success: true, 
+      message: "Order picked up! OTP sent to customer.", 
+      order 
+    });
+  } catch (error) {
+    res.status(500).json({ message: "Pickup failed", error: error.message });
+  }
+};
+
+// Rider enters the OTP to complete the delivery
+exports.completeDelivery = async (req, res) => {
+  try {
+    const { orderId } = req.params;
+    const { otp } = req.body;
+    const riderId = req.user.id;
+
+    const order = await Order.findById(orderId);
+    if (!order) return res.status(404).json({ message: "Order not found" });
+
+    // Verify this is the right rider
+    if (order.rider.toString() !== riderId) {
+      return res.status(403).json({ message: "Not assigned to you" });
+    }
+
+    // Use your existing helper to check OTP and release funds
+    const result = await exports.verifyDeliveryOtp(order, otp, riderId);
+
+    if (!result.success) {
+      return res.status(400).json({ message: result.error || "Invalid OTP" });
+    }
+
+    // REAL-TIME UPDATE: Tell the customer the food is officially delivered
+    if (global.io) {
+      global.io.to(order.customer.toString()).emit('orderUpdate', {
+        orderId: order._id,
+        status: "DELIVERED",
+        subStatus: "DELIVERED",
+        message: "Delivery confirmed! Enjoy your meal."
+      });
+    }
+
+    res.status(200).json({ 
+      success: true, 
+      message: "Delivery completed successfully!", 
+      order 
+    });
+  } catch (error) {
+    res.status(500).json({ message: "Delivery completion failed", error: error.message });
+  }
 };
 
 const findNearbyRiders = async (vendorLocation, orderId) => {

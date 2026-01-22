@@ -5,13 +5,17 @@ const Order = require("../models/Order");
 const Rider = require("../models/Rider");
 const Vendor = require("../models/Vendor");
 
+
 const {
-	createOrder,
-	getMyOrders,
-	getOrderById,
-	updateOrderStatus,
-	sendDeliveryOtp,
-	verifyDeliveryOtp,
+  createOrder,
+  getMyOrders,
+  getOrderById,
+  updateOrderStatus,
+  sendDeliveryOtp,
+  verifyDeliveryOtp,
+  acceptOrder,
+  pickUpOrder,
+  completeDelivery,
 } = require("../controllers/orderController");
 
 const router = express.Router();
@@ -44,7 +48,7 @@ router.get(
 	async (req, res) => {
 		try {
 			const orders = await Order.find({ vendor: req.user.id })
-				.populate("user", "name phone")
+				.populate("customer", "name phone")
 				.populate("items.item");
 			res.json(orders);
 		} catch (err) {
@@ -109,112 +113,97 @@ router.get(
 );
 
 // Claim an order (rider)
-router.post(
-	"/:id/assign",
-	authMiddleware,
-	roleGuard(["rider"]),
-	async (req, res) => {
-		try {
-			const order = await Order.findById(req.params.id);
-			if (!order) return res.status(404).json({ error: "Order not found" });
-			if (order.rider)
-				return res.status(400).json({ error: "Order already assigned" });
-			if (order.status !== "confirmed")
-				return res.status(400).json({ error: "Order must be confirmed first" });
-
-			order.rider = req.user.id;
-			order.status = "assigned";
-			await order.save();
-			res.json(order);
-		} catch (err) {
-			res.status(500).json({ error: err.message });
-		}
-	},
-);
+router.put("/accept/:orderId", authMiddleware, roleGuard(["rider"]), acceptOrder);
 
 // Update order status and optionally rider location
-router.put(
-	"/:id/rider-update",
-	authMiddleware,
-	roleGuard(["rider"]),
-	async (req, res) => {
-		try {
-			const { status, riderLocation, otp } = req.body;
-			const order = await Order.findById(req.params.id);
-			if (!order) return res.status(404).json({ error: "Order not found" });
-			if (!order.rider || !order.rider.equals(req.user.id))
-				return res.status(403).json({ error: "Not assigned to you" });
+// router.put(
+// 	"/:id/rider-update",
+// 	authMiddleware,
+// 	roleGuard(["rider"]),
+// 	async (req, res) => {
+// 		try {
+// 			const { status, riderLocation, otp } = req.body;
+// 			const order = await Order.findById(req.params.id);
+// 			if (!order) return res.status(404).json({ error: "Order not found" });
+// 			if (!order.rider || !order.rider.equals(req.user.id))
+// 				return res.status(403).json({ error: "Not assigned to you" });
 
-			if (status && !["out_for_delivery", "delivered"].includes(status))
-				return res.status(400).json({ error: "Invalid rider status" });
+// 			if (status && !["out_for_delivery", "delivered"].includes(status))
+// 				return res.status(400).json({ error: "Invalid rider status" });
 
 			// When rider picks up (out_for_delivery) -> send OTP to customer
-			if (status === "out_for_delivery") {
-				order.status = status;
-				if (riderLocation?.lat && riderLocation?.lng) {
-					order.riderLocation = {
-						lat: riderLocation.lat,
-						lng: riderLocation.lng,
-						updatedAt: new Date(),
-					};
-				}
-				await order.save();
+			// if (status === "out_for_delivery") {
+			// 	order.status = status;
+			// 	if (riderLocation?.lat && riderLocation?.lng) {
+			// 		order.riderLocation = {
+			// 			lat: riderLocation.lat,
+			// 			lng: riderLocation.lng,
+			// 			updatedAt: new Date(),
+			// 		};
+			// 	}
+			// 	await order.save();
 
-				try {
-					await sendDeliveryOtp(order);
-				} catch (e) {
-					console.error("Failed to send delivery OTP:", e.message);
-				}
+			// 	try {
+			// 		await sendDeliveryOtp(order);
+			// 	} catch (e) {
+			// 		console.error("Failed to send delivery OTP:", e.message);
+			// 	}
 
-				return res.json({
-					message: "OTP sent to customer and order updated",
-					order,
-				});
-			}
+			// 	return res.json({
+			// 		message: "OTP sent to customer and order updated",
+			// 		order,
+			// 	});
+			// }
 
 			// When delivered -> verify OTP (required) then complete order and trigger payouts
-			if (status === "delivered") {
-				if (!otp)
-					return res
-						.status(400)
-						.json({ error: "OTP required to confirm delivery" });
+			// if (status === "delivered") {
+			// 	if (!otp)
+			// 		return res
+			// 			.status(400)
+			// 			.json({ error: "OTP required to confirm delivery" });
 
-				const verified = await verifyDeliveryOtp(order, otp, req.user.id);
-				if (!verified.success) {
-					return res.status(400).json({ error: "Invalid OTP" });
-				}
+			// 	const verified = await verifyDeliveryOtp(order, otp, req.user.id);
+			// 	if (!verified.success) {
+			// 		return res.status(400).json({ error: "Invalid OTP" });
+			// 	}
 
 				// Refresh order after verification
-				const updated = await Order.findById(req.params.id);
-				return res.json({
-					message: "Order marked delivered and payouts triggered",
-					order: updated,
-				});
-			}
+			// 	const updated = await Order.findById(req.params.id);
+			// 	return res.json({
+			// 		message: "Order marked delivered and payouts triggered",
+			// 		order: updated,
+			// 	});
+			// }
 
 			// Fallback: generic update
-			if (status) order.status = status;
-			if (riderLocation?.lat && riderLocation?.lng) {
-				order.riderLocation = {
-					lat: riderLocation.lat,
-					lng: riderLocation.lng,
-					updatedAt: new Date(),
-				};
-			}
+// 			if (status) order.status = status;
+// 			if (riderLocation?.lat && riderLocation?.lng) {
+// 				order.riderLocation = {
+// 					lat: riderLocation.lat,
+// 					lng: riderLocation.lng,
+// 					updatedAt: new Date(),
+// 				};
+// 			}
 
-			await order.save();
-			res.json(order);
-		} catch (err) {
-			res.status(500).json({ error: err.message });
-		}
-	},
-);
+// 			await order.save();
+// 			res.json(order);
+// 		} catch (err) {
+// 			res.status(500).json({ error: err.message });
+// 		}
+// 	},
+// );
+
+// Rider marks order as picked up from Vendor
+router.put("/pickup/:orderId", authMiddleware, roleGuard(["rider"]), pickUpOrder);
+
+// Rider completes the delivery using the Customer's OTP
+router.put("/complete/:orderId", authMiddleware, roleGuard(["rider"]), completeDelivery);
 
 // View rider's own orders
 router.get("/rider", authMiddleware, roleGuard(["rider"]), async (req, res) => {
 	try {
 		const orders = await Order.find({ rider: req.user.id })
-			.populate("user", "name phone")
+			.populate("customer", "name phone")
 			.populate("vendor", "name location");
 		res.json(orders);
 	} catch (err) {
