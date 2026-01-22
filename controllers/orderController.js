@@ -81,7 +81,8 @@ exports.createOrder = async (req, res) => {
 			totalPrice: itemsTotalPrice + fee,
 			deliveryFee: fee,
 			deliveryAddress,
-			status: "pending",
+			status: "CONFIRMING",    
+      subStatus: "CONFIRMING"
 			zone: orderZone,
 		});
 
