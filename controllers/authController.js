@@ -280,15 +280,24 @@ const requestPhoneOtp = async (req, res) => {
 
 const verifyPhoneOtp = async (req, res) => {
 	try {
-		const { phone, otp, reference } = req.body;
+		let { phone, otp, reference } = req.body;
 		if (!phone || !otp || !reference)
 			return res.status(400).json({ error: "Phone, OTP, reference required" });
 
+		const normalizePhone = (phone) => {
+			phone = phone.trim();
+			if (phone.startsWith("0")) phone = phone.slice(1);
+			if (phone.startsWith("234")) phone = phone.slice(3);
+			return phone;
+		};
+
+		phone = normalizePhone(phone);
 		const record = await OtpVerification.findOne({
 			phone,
 			reference,
 			isPhone: true,
 		});
+
 		if (!record)
 			return res.status(400).json({ error: "Invalid verification session" });
 

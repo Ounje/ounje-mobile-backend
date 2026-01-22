@@ -392,7 +392,7 @@ const getMyCombos = async (req, res) => {
 
 const getComboById = async (req, res) => {
 	try {
-		const combo = await Combo.findById(req.params.id).populate(
+		const combo = await Combo.findById(req.params.comboId).populate(
 			"vendor",
 			"storeDetails img description averageRating totalOrders location",
 		);
