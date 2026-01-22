@@ -1,104 +1,53 @@
 const mongoose = require("mongoose");
-const {
-	getCategoryValues,
-	getSubCategoryValues,
-} = require("../utilis/foodEnums");
+// const {
+// 	getCategoryValues,
+// 	getSubCategoryValues,
+// } = require("../utilis/foodEnums");
 
-const ComboItemSchema = new mongoose.Schema({
-	foodItem: {
-		type: mongoose.Schema.Types.ObjectId, // can get existing food item
-		ref: "FoodItem",
+// Schema for individual items within a selection
+const SelectionItemSchema = new mongoose.Schema({
+	name: { type: String, required: true },
+	price: {
+		type: Number,
+		required: true,
+		min: [0.01, "Price must be greater than zero"],
 	},
-
-	//create new food item
-	name: { type: String }, // Required if foodItem is null
-	unitPrice: { type: Number }, // Required if foodItem is null
-
-	// Common fields
-	quantity: { type: Number, required: true, default: 1 },
-	notes: { type: String }, // Additional notes about this item
+	isAvailable: { type: Boolean, default: true },
 });
 
-// Validation: Either foodItem OR (name + unitPrice) must be provided
-ComboItemSchema.pre("validate", function (next) {
-	if (!this.foodItem && (!this.name || !this.unitPrice)) {
-		return next(
-			new Error(
-				"Either foodItem reference OR (name + unitPrice) must be provided",
-			),
-		);
-	}
-	next();
+// Schema for selection groups (e.g., base, sides, extras)
+const SelectionGroupSchema = new mongoose.Schema({
+	category: { type: String, required: true }, // e.g., "rice", "protein", "extras"
+	label: { type: String, required: true }, // e.g., "Rice Selection", "Protein Selection"
+	required: { type: Boolean, default: false },
+	items: [SelectionItemSchema],
 });
 
 const ComboSchema = new mongoose.Schema(
 	{
 		comboName: { type: String, required: true },
-		description: { type: String }, // Text description
-		items: [ComboItemSchema], // Array of items in the combo
-		category: {
-			type: String,
-			enum: getCategoryValues(),
-		},
-		subCategory: {
-			type: String,
-			enum: getSubCategoryValues(),
-		},
+		description: { type: String },
+		basePrice: { type: Number, required: true }, // Base price of the combo
+		selections: {
+			type: Map,
+			of: SelectionGroupSchema,
+		}, // Dynamic keys like "base", "sides", "extras"
 		vendor: {
 			type: mongoose.Schema.Types.ObjectId,
-			ref: "Vendor",
+			ref: "vendor",
 			required: true,
 		},
-		price: { type: Number }, // Auto-calculated
 		img: { type: String, required: true },
 		time: { type: String, required: true }, // Preparation time
 		deliveryTime: { type: String },
 		ordersCount: { type: Number, default: 0 },
-		isActive: { type: Boolean, default: true },
+		//isAvailable: { type: Boolean, default: true },
 		ratingAverage: { type: Number, default: 0 },
 		ratingCount: { type: Number, default: 0 },
 		likes: [{ type: mongoose.Schema.Types.ObjectId, ref: "customer" }],
 	},
 	{ timestamps: true },
 );
-
-// Virtual to compute total price
-ComboSchema.virtual("computedPrice").get(function () {
-	return (this.items || []).reduce((sum, item) => {
-		if (item.foodItem && item.foodItem.price) {
-			// Using existing FoodItem (must be populated)
-			return sum + item.foodItem.price * item.quantity;
-		} else if (item.unitPrice) {
-			// Using custom item
-			return sum + item.unitPrice * item.quantity;
-		}
-		return sum;
-	}, 0);
-});
-
-// Auto-calculate price before saving
-ComboSchema.pre("save", async function (next) {
-	// If items have foodItem references, populate them to calculate price
-	if (this.items && this.items.length > 0) {
-		let totalPrice = 0;
-
-		for (let item of this.items) {
-			if (item.foodItem) {
-				// fetch the FoodItem to get its price if food item is used
-				const FoodItem = mongoose.model("FoodItem");
-				const foodItem = await FoodItem.findById(item.foodItem);
-				if (foodItem) {
-					totalPrice += foodItem.price * item.quantity;
-				}
-			} else if (item.unitPrice) {
-				totalPrice += item.unitPrice * item.quantity;
-			}
-		}
-
-		this.price = totalPrice;
-	}
-	next();
-});
 
 ComboSchema.set("toJSON", { virtuals: true });
 ComboSchema.set("toObject", { virtuals: true });

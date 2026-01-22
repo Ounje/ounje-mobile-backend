@@ -13,7 +13,7 @@ const FoodItemSchema = new mongoose.Schema(
 		description: { type: String },
 		vendor: {
 			type: mongoose.Schema.Types.ObjectId,
-			ref: "Vendor",
+			ref: "vendor",
 			required: true,
 		},
 		category: {
