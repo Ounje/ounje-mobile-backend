@@ -251,6 +251,53 @@ exports.verifyDeliveryOtp = async (order, otp, riderId) => {
   return { success: true };
 };
 
+// Rider accepts a pending order
+exports.acceptOrder = async (req, res) => {
+  try {
+    const { orderId } = req.params;
+    const riderId = req.user.id; // From your auth middleware
+
+    // 1. Fetch the order
+    const order = await Order.findById(orderId);
+    if (!order) return res.status(404).json({ success: false, message: "Order not found" });
+
+    // 2. Check if the order is still available (must be 'pending')
+    // and hasn't been assigned to another rider yet.
+    if (order.status !== "pending" || order.rider) {
+      return res.status(400).json({ 
+        success: false, 
+        message: "Order is no longer available. Another rider may have accepted it." 
+      });
+    }
+
+    // 3. Assign the riderId and update status
+    // Using 'assigned' as per your Schema's enum
+    order.rider = riderId;
+    order.status = "assigned"; 
+    
+    await order.save();
+
+    // 4. Real-time notification to the Customer that a rider is coming
+    if (global.io) {
+      global.io.to(order.customer.toString()).emit('orderUpdate', {
+        orderId: order._id,
+        status: order.status,
+        message: "A rider has accepted your order and is on the way!"
+      });
+    }
+
+    return res.status(200).json({ 
+      success: true, 
+      message: "Order accepted successfully", 
+      order 
+    });
+
+  } catch (error) {
+    console.error("ACCEPT_ORDER_ERROR:", error);
+    return res.status(500).json({ success: false, message: "Failed to accept order", error: error.message });
+  }
+};
+
 const findNearbyRiders = async (vendorLocation, orderId) => {
   try {
     // 1. Find all available riders within 3km (3000 meters)

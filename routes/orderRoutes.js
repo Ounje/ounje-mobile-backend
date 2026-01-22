@@ -5,6 +5,7 @@ const Order = require("../models/Order");
 const Rider = require("../models/Rider");
 const Vendor= require("../models/Vendor");
 
+
 const {
   createOrder,
   getMyOrders,
@@ -12,6 +13,7 @@ const {
   updateOrderStatus,
   sendDeliveryOtp,
   verifyDeliveryOtp,
+  acceptOrder,
 } = require("../controllers/orderController");
 
 const router = express.Router();
@@ -97,22 +99,7 @@ router.get("/available", authMiddleware, roleGuard(["rider"]), async (req, res) 
 });
 
 // Claim an order (rider)
-router.post("/:id/assign", authMiddleware, roleGuard(["rider"]), async (req, res) => {
-  try {
-    const order = await Order.findById(req.params.id);
-    if (!order) return res.status(404).json({ error: "Order not found" });
-    if (order.rider) return res.status(400).json({ error: "Order already assigned" });
-    if (order.status !== "confirmed") return res.status(400).json({ error: "Order must be confirmed first" });
-
-
-    order.rider = req.user.id;
-    order.status = "assigned";
-    await order.save();
-    res.json(order);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
+router.put("/accept/:orderId", authMiddleware, roleGuard(["rider"]), acceptOrder);
 
 
 // Update order status and optionally rider location
