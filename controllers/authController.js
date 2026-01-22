@@ -28,7 +28,8 @@ const generateOtp = () => Math.floor(1000 + Math.random() * 9000).toString();
 
 const register = async (req, res) => {
 	try {
-		const { name, role, location, email, otpSession, operatingArea } = req.body;
+		const { name, role, phone, location, email, otpSession, operatingArea } =
+			req.body;
 
 		if (!otpSession)
 			return res.status(400).json({ error: "OTP session token is required" });

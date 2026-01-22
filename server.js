@@ -17,6 +17,7 @@ const riderRoutes = require("./routes/riderRoutes");
 const payoutRoutes = require("./routes/payoutRoutes");
 const deliveryRoutes = require("./routes/deliveryRoutes");
 const supportRoutes = require("./routes/supportRoutes");
+const ratingRouter = require("./routes/ratingsRoutes");
 
 const app = express();
 
@@ -44,6 +45,7 @@ app.use("/api/riders", riderRoutes);
 app.use("/api/payouts", payoutRoutes);
 app.use("/api/delivery", deliveryRoutes);
 app.use("/api/support", supportRoutes);
+app.use("/api/rating", ratingRouter);
 // app.use("/api/test", require("./tests/test01"));
 
 console.log(process.env.FRONTEND_URL);

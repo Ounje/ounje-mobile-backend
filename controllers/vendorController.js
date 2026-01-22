@@ -1,6 +1,6 @@
 const mongoose = require("mongoose");
 const Vendor = require("../models/Vendor");
-const Dish = require("../models/Dish");
+const Combo = require("../models/Combo");
 const payoutService = require("../services/payout.service");
 const Customer = require("../models/Customer");
 const FoodItem = require("../models/FoodItem"); 

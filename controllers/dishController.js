@@ -1,6 +1,6 @@
 const Vendor = require("../models/Vendor");
 const FoodItem = require("../models/FoodItem");
-const Combo = require("../models/Dish");
+const Combo = require("../models/Combo");
 const { FOOD_ENUMS } = require("../utilis/foodEnums");
 
 const createFoodItem = async (req, res) => {
@@ -647,45 +647,6 @@ const deleteCombo = async (req, res) => {
 	}
 };
 
-const getAllCombos = async (req, res) => {
-	try {
-		const {
-			category,
-			subCategory,
-			vendor,
-			search,
-			page = 1,
-			limit = 10,
-		} = req.query;
-		const filter = { isAvailable: true };
-
-		if (category) filter.category = category;
-		if (subCategory) filter.subCategory = subCategory;
-		if (vendor) filter.vendor = vendor;
-		if (search) filter.comboName = { $regex: search, $options: "i" };
-
-		const skip = (Number(page) - 1) * Number(limit);
-
-		const combos = await Combo.find(filter)
-			.populate("vendor", "name")
-			.populate("items.foodItem")
-			.sort({ createdAt: -1 })
-			.skip(skip)
-			.limit(Number(limit));
-
-		res.status(200).json({
-			success: true,
-			count: combos.length,
-			data: combos,
-		});
-	} catch (err) {
-		res.status(500).json({
-			success: false,
-			error: err.message,
-		});
-	}
-};
-
 const getComboById = async (req, res) => {
 	try {
 		const { comboId } = req.params;
@@ -723,6 +684,31 @@ const getMyCombos = async (req, res) => {
 		const skip = (Number(page) - 1) * Number(limit);
 
 		const combos = await Combo.find({ vendor: vendorId })
+			.populate("items.foodItem")
+			.sort({ createdAt: -1 })
+			.skip(skip)
+			.limit(Number(limit));
+
+		res.status(200).json({
+			success: true,
+			count: combos.length,
+			data: combos,
+		});
+	} catch (err) {
+		res.status(500).json({
+			success: false,
+			error: err.message,
+		});
+	}
+};
+const getAllCombos = async (req, res) => {
+	try {
+		const { page = 1, limit = 10 } = req.query;
+
+		const skip = (Number(page) - 1) * Number(limit);
+
+		const combos = await Combo.find({})
+			.populate("vendor", "name")
 			.populate("items.foodItem")
 			.sort({ createdAt: -1 })
 			.skip(skip)

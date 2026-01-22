@@ -18,7 +18,7 @@ const riderRatingSchema = new mongoose.Schema(
 			max: 5,
 			required: true,
 		},
-		comment: String,
+		comments: String,
 	},
 	{ timestamps: true },
 );

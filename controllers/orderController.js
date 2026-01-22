@@ -1,10 +1,10 @@
 const Order = require("../models/Order");
 const Vendor = require("../models/Vendor");
-const Dish = require("../models/Dish");
+const Combo = require("../models/Combo");
 const FoodItem = require("../models/FoodItem");
 const Plate = require("../models/Plate");
-const { calculateOunjeFee, identifyZone } = require('../utilis/delivery');
-const crypto = require('crypto');
+const { calculateOunjeFee, identifyZone } = require("../utilis/delivery");
+const crypto = require("crypto");
 const payoutService = require("../services/payout.service");
 const Customer = require("../models/Customer");
 const { sendPushNotification } = require("../services/notification.service");
@@ -12,163 +12,179 @@ const Rider = require("../models/Rider");
 
 // Helper: generate secure numeric OTP of given length
 const generateNumericOtp = (length = 6) => {
-  let otp = '';
-  for (let i = 0; i < length; i++) otp += crypto.randomInt(0, 10).toString();
-  return otp;
+	let otp = "";
+	for (let i = 0; i < length; i++) otp += crypto.randomInt(0, 10).toString();
+	return otp;
 };
 
-const hashOtp = (otp) => crypto.createHash('sha256').update(otp).digest('hex');
+const hashOtp = (otp) => crypto.createHash("sha256").update(otp).digest("hex");
 
 // Create a new order
 exports.createOrder = async (req, res) => {
-  try {
-    const { items, vendorId, deliveryAddress } = req.body;
-    const userId = req.user.id;
+	try {
+		const { items, vendorId, deliveryAddress } = req.body;
+		const userId = req.user.id;
 
-    if (!items || items.length === 0) {
-      return res.status(400).json({ message: "No items in the order." });
-    }
+		if (!items || items.length === 0) {
+			return res.status(400).json({ message: "No items in the order." });
+		}
 
-    // 1. Identify Zone
-    const orderZone = identifyZone(deliveryAddress);
+		// 1. Identify Zone
+		const orderZone = identifyZone(deliveryAddress);
 
-    // 2. Fetch Vendor
-    const vendor = await Vendor.findById(vendorId);
-    if (!vendor) return res.status(404).json({ message: "Vendor not found" });
-    if (!vendor.address) return res.status(400).json({ message: "Vendor has no address set" });
+		// 2. Fetch Vendor
+		const vendor = await Vendor.findById(vendorId);
+		if (!vendor) return res.status(404).json({ message: "Vendor not found" });
+		if (!vendor.address)
+			return res.status(400).json({ message: "Vendor has no address set" });
 
-    // 3. Calculate Fee (Check for null!)
-    const fee = await calculateOunjeFee(vendor.address, deliveryAddress);
-    if (fee === null) {
-      return res.status(400).json({ message: "Google Maps could not calculate distance. Check addresses." });
-    }
+		// 3. Calculate Fee (Check for null!)
+		const fee = await calculateOunjeFee(vendor.address, deliveryAddress);
+		if (fee === null) {
+			return res
+				.status(400)
+				.json({
+					message: "Google Maps could not calculate distance. Check addresses.",
+				});
+		}
 
-    let itemsTotalPrice = 0; // Renamed for clarity
-    const orderItems = [];
-    const models = { FoodItem, Dish, Plate };
+		let itemsTotalPrice = 0; // Renamed for clarity
+		const orderItems = [];
+		const models = { FoodItem, Dish: Combo, Plate };
 
-    for (const item of items) {
-      const { itemId, itemType, quantity = 1, notes } = item;
-      if (!itemId || !itemType || !models[itemType]) continue;
+		for (const item of items) {
+			const { itemId, itemType, quantity = 1, notes } = item;
+			if (!itemId || !itemType || !models[itemType]) continue;
 
-      const ProductModel = models[itemType];
-      const product = await ProductModel.findById(itemId).select("price");
+			const ProductModel = models[itemType];
+			const product = await ProductModel.findById(itemId).select("price");
 
-      if (product) {
-        const itemPrice = product.price;
-        itemsTotalPrice += (itemPrice * quantity);
-        orderItems.push({
-          itemType,
-          item: itemId,
-          quantity,
-          price: itemPrice,
-          notes,
-        });
-      }
-    }
+			if (product) {
+				const itemPrice = product.price;
+				itemsTotalPrice += itemPrice * quantity;
+				orderItems.push({
+					itemType,
+					item: itemId,
+					quantity,
+					price: itemPrice,
+					notes,
+				});
+			}
+		}
 
-    // 4. Create Order (FIXED: using itemsTotalPrice + fee)
-    const order = await Order.create({
-      customer: userId,
-      vendor: vendorId,
-      items: orderItems,
-      totalPrice: itemsTotalPrice + fee, 
-      deliveryFee: fee,
-      deliveryAddress,
-      status: "pending",
-      zone: orderZone,
-    });
+		// 4. Create Order (FIXED: using itemsTotalPrice + fee)
+		const order = await Order.create({
+			customer: userId,
+			vendor: vendorId,
+			items: orderItems,
+			totalPrice: itemsTotalPrice + fee,
+			deliveryFee: fee,
+			deliveryAddress,
+			status: "pending",
+			zone: orderZone,
+		});
 
-    return res.status(201).json({ success: true, order });
-
-  } catch (error) {
-    console.error("CRITICAL ERROR:", error);
-    // This return ensures Postman STOPS loading and shows the error
-    return res.status(500).json({ message: "Order failed", error: error.message });
-  }
+		return res.status(201).json({ success: true, order });
+	} catch (error) {
+		console.error("CRITICAL ERROR:", error);
+		// This return ensures Postman STOPS loading and shows the error
+		return res
+			.status(500)
+			.json({ message: "Order failed", error: error.message });
+	}
 };
 
 exports.getMyOrders = async (req, res) => {
-  try {
-    const orders = await Order.find({ customer: req.user.id })
-      .populate("vendor", "name")
-      .populate("items.item");
+	try {
+		const orders = await Order.find({ customer: req.user.id })
+			.populate("vendor", "name")
+			.populate("items.item");
 
-    res.status(200).json(orders);
-  } catch (error) {
-    console.error("GET_MY_ORDERS_ERROR:", error);
-    res.status(500).json({ message: "Error fetching orders", error: error.message });
-  }
+		res.status(200).json(orders);
+	} catch (error) {
+		console.error("GET_MY_ORDERS_ERROR:", error);
+		res
+			.status(500)
+			.json({ message: "Error fetching orders", error: error.message });
+	}
 };
 
 exports.getOrderById = async (req, res) => {
-  try {
-    const order = await Order.findById(req.params.id)
-      .populate("vendor", "name")
-      .populate("items.item")
-      .populate("customer");
+	try {
+		const order = await Order.findById(req.params.id)
+			.populate("vendor", "name")
+			.populate("items.item")
+			.populate("customer");
 
-    if (!order) {
-      return res.status(404).json({ message: "Order not found" });
-    }
+		if (!order) {
+			return res.status(404).json({ message: "Order not found" });
+		}
 
-    const orderCustomerId = order.customer._id ? order.customer._id.toString() : order.customer.toString();
+		const orderCustomerId = order.customer._id
+			? order.customer._id.toString()
+			: order.customer.toString();
 
-    // Ensure only the owner can access their order
-    if (orderCustomerId !== req.user.id.toString()) {
-      return res.status(403).json({ message: "Unauthorized" });
-    }
+		// Ensure only the owner can access their order
+		if (orderCustomerId !== req.user.id.toString()) {
+			return res.status(403).json({ message: "Unauthorized" });
+		}
 
-    res.status(200).json(order);
-  } catch (error) {
-    console.error("GET_ORDER_BY_ID_ERROR:", error); 
-    res.status(500).json({ message: "Error fetching order", error: error.message });
-  }
+		res.status(200).json(order);
+	} catch (error) {
+		console.error("GET_ORDER_BY_ID_ERROR:", error);
+		res
+			.status(500)
+			.json({ message: "Error fetching order", error: error.message });
+	}
 };
 
 exports.updateOrderStatus = async (req, res) => {
-  try {
-    // Note: I'm using req.params.id to match your route /:id
-    const { id } = req.params; 
-    const { status, subStatus } = req.body;
+	try {
+		// Note: I'm using req.params.id to match your route /:id
+		const { id } = req.params;
+		const { status, subStatus } = req.body;
 
-    const order = await Order.findById(id).populate("customer");;
-    if (!order) return res.status(404).json({ message: "Order not found" });
+		const order = await Order.findById(id).populate("customer");
+		if (!order) return res.status(404).json({ message: "Order not found" });
 
-    // Update Database
-    order.status = status;
-    order.subStatus = subStatus || "";
-    await order.save();
+		// Update Database
+		order.status = status;
+		order.subStatus = subStatus || "";
+		await order.save();
 
-    // Send Real-Time Update to the specific Customer
-    if (global.io) {
-      // order.customer is the ID of the user who made the order
-      global.io.to(order.customer.toString()).emit('orderUpdate', {
-        orderId: order._id,
-        status: order.status,
-        subStatus: order.subStatus
-      });
-      console.log(`Real-time update sent to Customer ${order.customer}: ${status}`);
-    }
-    
-    // Firebase (Push Notification if app is closed/in pocket)
-    if (order.customer && order.customer.fcmToken) {
-      const title = `Order Update: ${status}`;
-      const body = subStatus || `Your order is now ${status}`;
-      
-      await sendPushNotification(order.customer.fcmToken, title, body);
-    }
+		// Send Real-Time Update to the specific Customer
+		if (global.io) {
+			// order.customer is the ID of the user who made the order
+			global.io.to(order.customer.toString()).emit("orderUpdate", {
+				orderId: order._id,
+				status: order.status,
+				subStatus: order.subStatus,
+			});
+			console.log(
+				`Real-time update sent to Customer ${order.customer}: ${status}`,
+			);
+		}
 
-    if (status === "Rider Enroute" && subStatus === "Looking for Rider") {
-      const vendor = await Vendor.findById(order.vendor);
-      // Start searching for riders!
-      await findNearbyRiders(vendor.location, order._id);
-    }
+		// Firebase (Push Notification if app is closed/in pocket)
+		if (order.customer && order.customer.fcmToken) {
+			const title = `Order Update: ${status}`;
+			const body = subStatus || `Your order is now ${status}`;
 
-    res.status(200).json({ success: true, order });
-  } catch (error) {
-    res.status(500).json({ message: "Failed to update order", error: error.message });
-  }
+			await sendPushNotification(order.customer.fcmToken, title, body);
+		}
+
+		if (status === "Rider Enroute" && subStatus === "Looking for Rider") {
+			const vendor = await Vendor.findById(order.vendor);
+			// Start searching for riders!
+			await findNearbyRiders(vendor.location, order._id);
+		}
+
+		res.status(200).json({ success: true, order });
+	} catch (error) {
+		res
+			.status(500)
+			.json({ message: "Failed to update order", error: error.message });
+	}
 };
 
 /**
@@ -177,36 +193,38 @@ exports.updateOrderStatus = async (req, res) => {
  * Accepts an Order document (already loaded) and returns { success }
  */
 exports.sendDeliveryOtp = async (order) => {
-  if (!order) throw new Error("Order required");
-  const customer = await Customer.findById(order.customer);
-  if (!customer) throw new Error("Customer not found");
+	if (!order) throw new Error("Order required");
+	const customer = await Customer.findById(order.customer);
+	if (!customer) throw new Error("Customer not found");
 
-  const otp = generateNumericOtp(parseInt(process.env.DELIVERY_OTP_LENGTH || 6));
-  const otpHash = hashOtp(otp);
-  const duration = parseInt(process.env.DELIVERY_OTP_DURATION || 5); // minutes
+	const otp = generateNumericOtp(
+		parseInt(process.env.DELIVERY_OTP_LENGTH || 6),
+	);
+	const otpHash = hashOtp(otp);
+	const duration = parseInt(process.env.DELIVERY_OTP_DURATION || 5); // minutes
 
-  order.deliveryOtpCode = otp; // short-lived plaintext for app delivery
-  console.log("Generated OTP for order", order._id, "OTP:", otp);
-  order.deliveryOtpHash = otpHash;
-  order.deliveryOtpSentAt = new Date();
-  order.deliveryOtpExpiresAt = new Date(Date.now() + duration * 60 * 1000);
-  await order.save();
+	order.deliveryOtpCode = otp; // short-lived plaintext for app delivery
+	console.log("Generated OTP for order", order._id, "OTP:", otp);
+	order.deliveryOtpHash = otpHash;
+	order.deliveryOtpSentAt = new Date();
+	order.deliveryOtpExpiresAt = new Date(Date.now() + duration * 60 * 1000);
+	await order.save();
 
-  // Emit via socket.io so customer app can receive immediately if connected
-  try {
-    if (global.io) {
-      global.io.emit('delivery-otp', {
-        orderId: order._id,
-        customerId: order.customer,
-        otp,
-        expiresAt: order.deliveryOtpExpiresAt,
-      });
-    }
-  } catch (err) {
-    console.error("Failed to emit delivery OTP via socket.io:", err.message);
-  }
+	// Emit via socket.io so customer app can receive immediately if connected
+	try {
+		if (global.io) {
+			global.io.emit("delivery-otp", {
+				orderId: order._id,
+				customerId: order.customer,
+				otp,
+				expiresAt: order.deliveryOtpExpiresAt,
+			});
+		}
+	} catch (err) {
+		console.error("Failed to emit delivery OTP via socket.io:", err.message);
+	}
 
-  return { success: true };
+	return { success: true };
 };
 
 /**
@@ -214,41 +232,44 @@ exports.sendDeliveryOtp = async (order) => {
  * Returns { success: true } on success
  */
 exports.verifyDeliveryOtp = async (order, otp, riderId) => {
-  if (!order) throw new Error("Order required");
-  if (!otp) return { success: false, error: "OTP required" };
-  if (!order.deliveryOtpHash || !order.deliveryOtpExpiresAt) return { success: false, error: "No OTP session found for this order" };
+	if (!order) throw new Error("Order required");
+	if (!otp) return { success: false, error: "OTP required" };
+	if (!order.deliveryOtpHash || !order.deliveryOtpExpiresAt)
+		return { success: false, error: "No OTP session found for this order" };
 
-  // Expiry check
-  if (new Date() > new Date(order.deliveryOtpExpiresAt)) return { success: false, error: "OTP expired" };
+	// Expiry check
+	if (new Date() > new Date(order.deliveryOtpExpiresAt))
+		return { success: false, error: "OTP expired" };
 
-  const providedHash = hashOtp(otp);
-  if (providedHash !== order.deliveryOtpHash) return { success: false, error: "Invalid OTP" };
+	const providedHash = hashOtp(otp);
+	if (providedHash !== order.deliveryOtpHash)
+		return { success: false, error: "Invalid OTP" };
 
-  order.status = "completed";
-  order.deliveryConfirmedAt = new Date();
-  order.deliveryConfirmedBy = riderId;
+	order.status = "completed";
+	order.deliveryConfirmedAt = new Date();
+	order.deliveryConfirmedBy = riderId;
 
-  // Clear OTP fields (one-time use)
-  order.deliveryOtpCode = null;
-  order.deliveryOtpHash = null;
-  order.deliveryOtpExpiresAt = null;
-  order.deliveryOtpSentAt = null;
+	// Clear OTP fields (one-time use)
+	order.deliveryOtpCode = null;
+	order.deliveryOtpHash = null;
+	order.deliveryOtpExpiresAt = null;
+	order.deliveryOtpSentAt = null;
 
-  // RELEASE THE MONEY TO RIDER WALLET
-  await ledgerService.releaseRiderFee(order.rider, order._id);
-  await order.save();
+	// RELEASE THE MONEY TO RIDER WALLET
+	await ledgerService.releaseRiderFee(order.rider, order._id);
+	await order.save();
 
-  // Trigger automatic payouts asynchronously; don't block on it fully
-  try {
-    console.log("Triggering auto payouts for order", order._id);
-    if (order.rider) {
-    await ledgerService.releaseRiderFee(order.rider, order._id);
-    }
-  } catch (err) {
-    console.error("Auto payout failed for order", order._id, err.message);
-  }
+	// Trigger automatic payouts asynchronously; don't block on it fully
+	try {
+		console.log("Triggering auto payouts for order", order._id);
+		if (order.rider) {
+			await ledgerService.releaseRiderFee(order.rider, order._id);
+		}
+	} catch (err) {
+		console.error("Auto payout failed for order", order._id, err.message);
+	}
 
-  return { success: true };
+	return { success: true };
 };
 
 // Rider accepts a pending order
@@ -299,32 +320,32 @@ exports.acceptOrder = async (req, res) => {
 };
 
 const findNearbyRiders = async (vendorLocation, orderId) => {
-  try {
-    // 1. Find all available riders within 3km (3000 meters)
-    const nearbyRiders = await Rider.find({
-      isOnline: true,
-      isAvailable: true,
-      lastKnownLocation: {
-        $near: {
-          $geometry: vendorLocation, // The Vendor's [lng, lat]
-          $maxDistance: 3000 
-        }
-      }
-    });
+	try {
+		// 1. Find all available riders within 3km (3000 meters)
+		const nearbyRiders = await Rider.find({
+			isOnline: true,
+			isAvailable: true,
+			lastKnownLocation: {
+				$near: {
+					$geometry: vendorLocation, // The Vendor's [lng, lat]
+					$maxDistance: 3000,
+				},
+			},
+		});
 
-    // 2. Broadcast to these specific riders via Socket.io
-    if (global.io && nearbyRiders.length > 0) {
-      nearbyRiders.forEach(rider => {
-        global.io.to(rider._id.toString()).emit('newOrderAvailable', {
-          orderId: orderId,
-          message: "New delivery request nearby!"
-        });
-      });
-      console.log(`Pings sent to ${nearbyRiders.length} riders.`);
-    }
-    
-    return nearbyRiders;
-  } catch (error) {
-    console.error("Error finding riders:", error);
-  }
+		// 2. Broadcast to these specific riders via Socket.io
+		if (global.io && nearbyRiders.length > 0) {
+			nearbyRiders.forEach((rider) => {
+				global.io.to(rider._id.toString()).emit("newOrderAvailable", {
+					orderId: orderId,
+					message: "New delivery request nearby!",
+				});
+			});
+			console.log(`Pings sent to ${nearbyRiders.length} riders.`);
+		}
+
+		return nearbyRiders;
+	} catch (error) {
+		console.error("Error finding riders:", error);
+	}
 };
