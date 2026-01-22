@@ -21,7 +21,7 @@ router.put(
 	"/profile/bank-details",
 	authMiddleware,
 	roleGuard(["vendor"]),
-	updateBankDetails
+	updateBankDetails,
 );
 
 router.get("/vendor/:id", userGetVendor);
@@ -32,7 +32,7 @@ router.post(
 	authMiddleware,
 	roleGuard(["vendor"]),
 	NINStorage.single("ninID"),
-	completeVendorRegistration
+	completeVendorRegistration,
 );
 
 module.exports = router;

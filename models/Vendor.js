@@ -56,8 +56,8 @@ const VendorSchema = new mongoose.Schema({
 	//openingHour: time,
 	//closingHour: time,
 	location: {
-		type: { type: String, default: 'Point' },
-		coordinates: { type: [Number], index: '2dsphere' } // [longitude, latitude]
+		type: { type: String, default: "Point" },
+		coordinates: { type: [Number], index: "2dsphere" }, // [longitude, latitude]
 	},
 	// Bank and payout recipient info
 	bankDetails: {
@@ -86,5 +86,5 @@ VendorSchema.set("toJSON", { virtuals: true });
 // This tells MongoDB to allow "distance" math on the location field
 VendorSchema.index({ location: "2dsphere" });
 
-const Vendor = User.discriminator("Vendor", VendorSchema);
+const Vendor = User.discriminator("vendor", VendorSchema);
 module.exports = Vendor;

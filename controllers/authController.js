@@ -36,7 +36,7 @@ const register = async (req, res) => {
 
 		const decoded = jwt.verify(otpSession, process.env.JWT_SECRET);
 
-		let finalPhone = null;
+		let finalPhone = phone || null;
 		let finalEmail = email || null;
 
 		if (role === "vendor" || role === "rider") {
