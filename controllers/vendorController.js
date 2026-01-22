@@ -3,7 +3,7 @@ const Vendor = require("../models/Vendor");
 const Combo = require("../models/Combo");
 const payoutService = require("../services/payout.service");
 const Customer = require("../models/Customer");
-const FoodItem = require("../models/FoodItem"); 
+const FoodItem = require("../models/FoodItem");
 
 // Get popular vendors
 const getPopularVendors = async (req, res) => {
@@ -32,29 +32,31 @@ const getVendor = async (req, res) => {
 //Customer side
 //with this you'll get the vendor details along with their menu and options
 const userGetVendor = async (req, res) => {
-    try {
-        const vendorId = req.params.id;
-        
-        // Validate if the ID is a valid MongoDB ObjectId
-        if (!mongoose.Types.ObjectId.isValid(vendorId)) {
-            return res.status(400).json({ message: "Invalid Vendor ID format" });
-        }
+	try {
+		const vendorId = req.params.id;
 
-        const vendor = await Vendor.findById(vendorId)
-            .populate("menu")
-            .populate("foodItems");
+		// Validate if the ID is a valid MongoDB ObjectId
+		if (!mongoose.Types.ObjectId.isValid(vendorId)) {
+			return res.status(400).json({ message: "Invalid Vendor ID format" });
+		}
 
-        if (!vendor) {
-            return res.status(404).json({ message: "Vendor not found" });
-        }
+		const vendor = await Vendor.findById(vendorId)
+			.populate("menu")
+			.populate("foodItems");
 
-        // Always return a proper JSON object
-        res.status(200).json(vendor);
-    } catch (err) {
-        console.error("USER_GET_VENDOR_ERROR:", err);
-        // This ensures the frontend gets JSON error, not HTML
-        res.status(500).json({ message: "Internal Server Error", error: err.message });
-    }
+		if (!vendor) {
+			return res.status(404).json({ message: "Vendor not found" });
+		}
+
+		// Always return a proper JSON object
+		res.status(200).json(vendor);
+	} catch (err) {
+		console.error("USER_GET_VENDOR_ERROR:", err);
+		// This ensures the frontend gets JSON error, not HTML
+		res
+			.status(500)
+			.json({ message: "Internal Server Error", error: err.message });
+	}
 };
 
 const updateBankDetails = async (req, res) => {
@@ -89,58 +91,61 @@ const updateBankDetails = async (req, res) => {
 
 // NEW: Get Nearby Vendors (Fixed User -> Vendor)
 const getNearbyVendors = async (req, res) => {
-    try {
-        let { lat, lng } = req.query;
-        let userId = req.user ? req.user.id : null;
+	try {
+		let { lat, lng } = req.query;
+		let userId = req.user ? req.user.id : null;
 
-        // STEP 1: If GPS is missing, try to get location from Customer Profile
-        if ((!lat || !lng) && userId) {
-            const customer = await Customer.findById(userId);
-            if (customer && customer.location && customer.location.coordinates) {
-                lng = customer.location.coordinates[0];
-                lat = customer.location.coordinates[1];
-                console.log("Using saved profile location for user:", userId);
-            }
-        }
+		// STEP 1: If GPS is missing, try to get location from Customer Profile
+		if ((!lat || !lng) && userId) {
+			const customer = await Customer.findById(userId);
+			if (customer && customer.location && customer.location.coordinates) {
+				lng = customer.location.coordinates[0];
+				lat = customer.location.coordinates[1];
+				console.log("Using saved profile location for user:", userId);
+			}
+		}
 
-        // STEP 2: If we have coordinates (from GPS or Profile), search by distance
-        if (lat && lng) {
-            const vendors = await Vendor.find({
-                isAvailable: { $ne: false }, // Only show vendors that are open
-                location: {
-                    $near: {
-                        $geometry: {
-                            type: "Point",
-                            coordinates: [parseFloat(lng), parseFloat(lat)],
-                        },
-                        $maxDistance: 10000, // Increased to 10km for better coverage
-                    },
-                },
-            });
+		// STEP 2: If we have coordinates (from GPS or Profile), search by distance
+		if (lat && lng) {
+			const vendors = await Vendor.find({
+				isAvailable: { $ne: false }, // Only show vendors that are open
+				location: {
+					$near: {
+						$geometry: {
+							type: "Point",
+							coordinates: [parseFloat(lng), parseFloat(lat)],
+						},
+						$maxDistance: 10000, // Increased to 10km for better coverage
+					},
+				},
+			});
 
-            return res.status(200).json({
-                status: "success",
-                source: "location-based",
-                results: vendors.length,
-                data: vendors,
-            });
-        }
+			return res.status(200).json({
+				status: "success",
+				source: "location-based",
+				results: vendors.length,
+				data: vendors,
+			});
+		}
 
-        // STEP 3: FINAL FALLBACK - If no location found at all, show all available vendors
-        console.log("No location available. Returning default vendor list.");
-        const allVendors = await Vendor.find({ isAvailable: { $ne: false } }).limit(20);
-        
-        res.status(200).json({
-            status: "success",
-            source: "default-fallback",
-            results: allVendors.length,
-            data: allVendors,
-        });
+		// STEP 3: FINAL FALLBACK - If no location found at all, show all available vendors
+		console.log("No location available. Returning default vendor list.");
+		const allVendors = await Vendor.find({ isAvailable: { $ne: false } }).limit(
+			20,
+		);
 
-    } catch (err) {
-        console.error("Nearby Vendors Error:", err.message);
-        res.status(500).json({ message: "Error retrieving vendors", error: err.message });
-    }
+		res.status(200).json({
+			status: "success",
+			source: "default-fallback",
+			results: allVendors.length,
+			data: allVendors,
+		});
+	} catch (err) {
+		console.error("Nearby Vendors Error:", err.message);
+		res
+			.status(500)
+			.json({ message: "Error retrieving vendors", error: err.message });
+	}
 };
 
 const completeVendorRegistration = async (req, res) => {
@@ -253,7 +258,7 @@ const completeVendorRegistration = async (req, res) => {
 				CACNumber: CACNumber || null,
 				servicesOffered,
 				ninID: ninIDUrl,
-				status: "pending",
+				status: "active",
 				needsCACSupport,
 			},
 		];
@@ -274,7 +279,7 @@ const completeVendorRegistration = async (req, res) => {
 				data: {
 					vendorId: vendor._id,
 					storeName,
-					status: "active",
+					status: "pending",
 				},
 			});
 		}
@@ -282,7 +287,12 @@ const completeVendorRegistration = async (req, res) => {
 		res.status(200).json({
 			success: true,
 			message: "Vendor registration completed successfully",
-			data: vendor,
+			data: {
+				storeName,
+				storeType,
+				servicesOffered,
+				status: "active",
+			},
 		});
 	} catch (error) {
 		console.error("Error completing vendor registration:", error);
