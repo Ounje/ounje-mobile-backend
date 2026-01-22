@@ -12,4 +12,6 @@ router.get("/plate/:plateId", getSpecificPlate)
 
 router.delete("/plate/:plateId", authMiddleware ,roleGuard(["customer"]) ,deletePlate)
 
+router.get("/fix-data", fixAllPlates);
+
 module.exports = router;

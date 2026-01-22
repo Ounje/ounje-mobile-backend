@@ -85,6 +85,29 @@ const deletePlate = async (req, res) => {
     }
 };
 
+const fixAllPlates = async (req, res) => {
+    try {
+        // 1. Find all plates that don't have a description yet
+        const plates = await Plate.find(); 
+
+        for (let plate of plates) {
+            // 2. Look up the food items for this specific plate
+            const selectedItems = await FoodItem.find({ _id: { $in: plate.items } });
+            
+            // 3. Create the description string
+            const description = selectedItems.map(item => item.name).join(", ");
+            
+            // 4. Update the plate in the DB
+            plate.description = description;
+            await plate.save();
+        }
+
+        res.status(200).json({ message: "All existing plates have been updated with descriptions!" });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+};
+
 module.exports = {
-    buildPlate, getAllPlates, getSpecificPlate, deletePlate
+    buildPlate, getAllPlates, getSpecificPlate, deletePlate, fixAllPlates
 };
