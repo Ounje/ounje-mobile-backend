@@ -3,6 +3,7 @@ const mongoose = require("mongoose");
 const plateSchema = new mongoose.Schema(
 	{
 		name: { type: String, required: true },
+		description: { type: String },
 		customer: {
 			type: mongoose.Schema.Types.ObjectId,
 			ref: "customer",
