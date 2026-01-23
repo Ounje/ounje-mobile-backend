@@ -1,6 +1,8 @@
 const jwt = require("jsonwebtoken");
 const nodemailer = require("nodemailer");
 const { v4: uuidv4 } = require("uuid");
+const fs = require("fs").promises;
+const path = require("path");
 
 const User = require("../models/User");
 const Customer = require("../models/Customer");
@@ -25,6 +27,62 @@ const transporter = nodemailer.createTransport({
 });
 
 const generateOtp = () => Math.floor(1000 + Math.random() * 9000).toString();
+
+const sendWelcomeEmail = async (email, name) => {
+	try {
+		const templatePath = path.join(
+			__dirname,
+			"../templates/welcome-email.html",
+		);
+		let htmlTemplate = await fs.readFile(templatePath, "utf-8");
+
+		htmlTemplate = htmlTemplate.replace("{{name}}", name);
+
+		await transporter.sendMail({
+			from: process.env.EMAIL_USER,
+			to: email,
+			subject: "Welcome to OunjeFood - Eat Fresh, Spend Less, Order Fast!",
+			html: htmlTemplate,
+		});
+
+		console.log(`Welcome email sent to ${email}`);
+		return true;
+	} catch (error) {
+		console.error("Error sending welcome email:", error);
+		return false;
+	}
+};
+
+const sendOtpEmail = async (email, otp, purpose = "verification") => {
+	try {
+		const templatePath = path.join(__dirname, "../templates/otp.html");
+		let htmlTemplate = await fs.readFile(templatePath, "utf-8");
+
+		const otpDigits = otp.split("");
+		htmlTemplate = htmlTemplate.replace("{{otp_1}}", otpDigits[0] || "0");
+		htmlTemplate = htmlTemplate.replace("{{otp_2}}", otpDigits[1] || "0");
+		htmlTemplate = htmlTemplate.replace("{{otp_3}}", otpDigits[2] || "0");
+		htmlTemplate = htmlTemplate.replace("{{otp_4}}", otpDigits[3] || "0");
+
+		const subject =
+			purpose === "login"
+				? "Your OunjeFood Login Code"
+				: "Verify Your OunjeFood Email";
+
+		await transporter.sendMail({
+			from: process.env.EMAIL_USER,
+			to: email,
+			subject: subject,
+			html: htmlTemplate,
+		});
+
+		//console.log(`OTP email sent to ${email}`);
+		return true;
+	} catch (error) {
+		console.error("Error sending OTP email:", error);
+		throw error;
+	}
+};
 
 const register = async (req, res) => {
 	try {
@@ -104,6 +162,12 @@ const register = async (req, res) => {
 			ip: req.ip,
 		});
 
+		if (finalEmail) {
+			sendWelcomeEmail(finalEmail, name).catch((err) =>
+				console.error("Welcome email failed:", err),
+			);
+		}
+
 		res.status(201).json({
 			success: true,
 			accessToken,
@@ -140,12 +204,7 @@ const login = async (req, res) => {
 			await OtpVerification.deleteMany({ email: user.email, isEmail: true });
 			await OtpVerification.create({ email: user.email, otp, isEmail: true });
 
-			await transporter.sendMail({
-				from: process.env.EMAIL_USER,
-				to: user.email,
-				subject: "Login Verification OTP",
-				html: `<p>Your login OTP:</p><h2>${otp}</h2>`,
-			});
+			await sendOtpEmail(user.email, otp, "login");
 
 			return res.json({ message: `OTP sent to email: ${user.email}` });
 		}
@@ -189,12 +248,7 @@ const requestEmailOtp = async (req, res) => {
 		await OtpVerification.deleteMany({ email, isEmail: true });
 		await OtpVerification.create({ email, otp, isEmail: true });
 
-		await transporter.sendMail({
-			from: process.env.EMAIL_USER,
-			to: email,
-			subject: "Email Verification OTP",
-			html: `<p>Your code:</p><h2>${otp}</h2>`,
-		});
+		await sendOtpEmail(email, otp, "verification");
 
 		res.json({ success: true, message: "OTP sent to email" });
 	} catch (err) {
