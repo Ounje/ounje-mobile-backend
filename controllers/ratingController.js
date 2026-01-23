@@ -20,7 +20,7 @@ const hasCompletedOrder = async ({
 	targetId,
 	targetType,
 }) => {
-	const query = { status: "completed", customer: toObjectId(customerId) };
+	const query = { status: "DELIVERED", customer: toObjectId(customerId) };
 
 	switch (targetType) {
 		case "Vendor":
@@ -63,24 +63,20 @@ const rateEntity = async ({ req, res, targetType, model }) => {
 				.status(404)
 				.json({ success: false, message: `${targetType} not found` });
 
-		// Ensure likes array exists and clean invalid entries
-		if (!Array.isArray(target.likes)) target.likes = [];
-		target.likes = target.likes.filter((id) => id != null);
-
 		const { rating, comment, like } = req.body;
 
 		// LIKE
 		if (like === true) {
-			if (!target.likes.some((id) => id.equals(req.user._id))) {
-				target.likes.push(req.user._id);
-				await target.save();
-			}
+			await model.findByIdAndUpdate(targetId, {
+				$addToSet: { likes: req.user._id },
+			});
 		}
 
 		// UNLIKE
 		if (like === false) {
-			target.likes = target.likes.filter((id) => !id.equals(req.user._id));
-			await target.save();
+			await model.findByIdAndUpdate(targetId, {
+				$pull: { likes: req.user._id },
+			});
 		}
 
 		// RATING & COMMENT
@@ -132,21 +128,30 @@ const rateEntity = async ({ req, res, targetType, model }) => {
 
 			const { avg, count } = await updateAverage(targetType, targetId);
 
-			if ("averageRating" in target) target.averageRating = avg;
-			if ("rating" in target) target.rating = avg;
-			if ("totalRatings" in target) target.totalRatings = count;
-			if ("ratingCount" in target) target.ratingCount = count;
+			const updates = {};
+			if ("averageRating" in target) updates.averageRating = avg;
+			if ("rating" in target) updates.rating = avg;
+			if ("totalRatings" in target) updates.totalRatings = count;
+			if ("ratingCount" in target) updates.ratingCount = count;
 
-			await target.save();
+			if (Object.keys(updates).length > 0) {
+				await model.findByIdAndUpdate(targetId, updates);
+			}
 		}
+
+		// Refetch target to get updated likes and ratings for response
+		const updatedTarget = await model.findById(targetId);
 
 		return res.status(200).json({
 			success: true,
 			message: "Your feedback was successfully recorded",
 			data: {
-				likes: target.likes.length,
-				averageRating: target.averageRating || target.rating || 0,
-				totalRatings: target.totalRatings || target.ratingCount || 0,
+				likes:
+					updatedTarget.likes && Array.isArray(updatedTarget.likes)
+						? updatedTarget.likes.length
+						: 0,
+				averageRating: updatedTarget.averageRating || updatedTarget.rating || 0,
+				totalRatings: updatedTarget.totalRatings || updatedTarget.ratingCount || 0,
 			},
 		});
 	} catch (err) {
