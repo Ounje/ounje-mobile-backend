@@ -45,7 +45,7 @@ const sendWelcomeEmail = async (email, name) => {
 			html: htmlTemplate,
 		});
 
-		console.log(`Welcome email sent to ${email}`);
+		//console.log(`Welcome email sent to ${email}`);
 		return true;
 	} catch (error) {
 		console.error("Error sending welcome email:", error);
