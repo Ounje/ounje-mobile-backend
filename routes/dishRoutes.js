@@ -14,6 +14,7 @@ const {
 	getAllCombos,
 	getComboById,
 	getMyCombos,
+	getVendorCombos,
 } = require("../controllers/dishController");
 const { foodItemUpload, comboUpload } = require("../config/cloudinary");
 
@@ -56,7 +57,7 @@ router.delete(
 router.get("/combos", getAllCombos);
 
 router.get("/combos/:comboId", getComboById);
-
+router.get("/:vendorId/combos", getVendorCombos);
 router.get(
 	"/combos/vendor/my-combos",
 	authMiddleware,

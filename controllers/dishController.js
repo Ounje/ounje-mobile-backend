@@ -405,6 +405,46 @@ const getComboById = async (req, res) => {
 		res.status(500).json({ success: false, message: error.message });
 	}
 };
+const getVendorCombos = async (req, res) => {
+	try {
+		const vendorId = req.params.vendorId;
+
+		const vendor = await Vendor.findById(vendorId);
+		if (!vendor || !vendor.storeDetails || vendor.storeDetails.length === 0) {
+			return res.status(404).json({
+				success: false,
+				message: "Vendor not found or profile incomplete",
+			});
+		}
+
+		const page = parseInt(req.query.page) || 1;
+		const limit = parseInt(req.query.limit) || 10;
+		const skip = (page - 1) * limit;
+
+		const combos = await Combo.find({ vendor: vendorId })
+			.sort({ createdAt: -1 })
+			.skip(skip)
+			.limit(limit);
+
+		const totalCombos = await Combo.countDocuments({ vendor: vendorId });
+
+		res.status(200).json({
+			success: true,
+			data: {
+				vendorId: vendor._id,
+				combos: {
+					count: combos.length,
+					total: totalCombos,
+					page,
+					pages: Math.ceil(totalCombos / limit),
+					data: combos,
+				},
+			},
+		});
+	} catch (error) {
+		res.status(500).json({ success: false, message: error.message });
+	}
+};
 
 module.exports = {
 	createFoodItem,
@@ -419,4 +459,5 @@ module.exports = {
 	getAllCombos,
 	getComboById,
 	getMyCombos,
+	getVendorCombos,
 };
