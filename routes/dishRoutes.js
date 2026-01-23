@@ -68,6 +68,29 @@ router.get("/food-items", getAllFoodItems);
  */
 router.get("/food-items/:foodItemId", getFoodItemById);
 
+/**
+ * @swagger
+ * /api/dishes/food-items/vendor/my-items:
+ *   get:
+ *     summary: Get logged-in vendor's food items
+ *     tags: [Dishes]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: page
+ *         schema:
+ *           type: integer
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *     responses:
+ *       200:
+ *         description: List of vendor's food items
+ *       403:
+ *         description: Unauthorized
+ */
 router.get(
 	"/food-items/vendor/my-items",
 	authMiddleware,
@@ -127,6 +150,51 @@ router.post(
 	createFoodItem,
 );
 
+/**
+ * @swagger
+ * /api/dishes/food-items/{foodItemId}:
+ *   put:
+ *     summary: Update a food item
+ *     tags: [Dishes]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: foodItemId
+ *         required: true
+ *         schema:
+ *           type: string
+ *     requestBody:
+ *       content:
+ *         multipart/form-data:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               name:
+ *                 type: string
+ *               price:
+ *                 type: number
+ *               description:
+ *                 type: string
+ *               category:
+ *                 type: string
+ *               subCategory:
+ *                 type: string
+ *               preparationTime:
+ *                 type: string
+ *               isAvailable:
+ *                 type: boolean
+ *               img:
+ *                 type: string
+ *                 format: binary
+ *     responses:
+ *       200:
+ *         description: Food item updated
+ *       403:
+ *         description: Unauthorized
+ *       404:
+ *         description: Food item not found
+ */
 router.put(
 	"/food-items/:foodItemId",
 	authMiddleware,
@@ -135,6 +203,28 @@ router.put(
 	updateFoodItem,
 );
 
+/**
+ * @swagger
+ * /api/dishes/food-items/{foodItemId}:
+ *   delete:
+ *     summary: Delete a food item
+ *     tags: [Dishes]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: foodItemId
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Food item deleted
+ *       403:
+ *         description: Unauthorized
+ *       404:
+ *         description: Food item not found
+ */
 router.delete(
 	"/food-items/:foodItemId",
 	authMiddleware,
@@ -163,8 +253,76 @@ router.delete(
  */
 router.get("/combos", getAllCombos);
 
+/**
+ * @swagger
+ * /api/dishes/combos/{comboId}:
+ *   get:
+ *     summary: Get combo by ID
+ *     tags: [Dishes]
+ *     parameters:
+ *       - in: path
+ *         name: comboId
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Combo details
+ *       404:
+ *         description: Combo not found
+ */
 router.get("/combos/:comboId", getComboById);
+
+/**
+ * @swagger
+ * /api/dishes/{vendorId}/combos:
+ *   get:
+ *     summary: Get combos by vendor ID
+ *     tags: [Dishes]
+ *     parameters:
+ *       - in: path
+ *         name: vendorId
+ *         required: true
+ *         schema:
+ *           type: string
+ *       - in: query
+ *         name: page
+ *         schema:
+ *           type: integer
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *     responses:
+ *       200:
+ *         description: List of vendor's combos
+ *       404:
+ *         description: Vendor not found
+ */
 router.get("/:vendorId/combos", getVendorCombos);
+/**
+ * @swagger
+ * /api/dishes/combos/vendor/my-combos:
+ *   get:
+ *     summary: Get logged-in vendor's combos
+ *     tags: [Dishes]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: page
+ *         schema:
+ *           type: integer
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *     responses:
+ *       200:
+ *         description: List of vendor's combos
+ *       403:
+ *         description: Unauthorized
+ */
 router.get(
 	"/combos/vendor/my-combos",
 	authMiddleware,
@@ -172,6 +330,50 @@ router.get(
 	getMyCombos,
 );
 
+/**
+ * @swagger
+ * /api/dishes/combos:
+ *   post:
+ *     summary: Create a combo
+ *     tags: [Dishes]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         multipart/form-data:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - comboName
+ *               - basePrice
+ *               - time
+ *               - img
+ *             properties:
+ *               comboName:
+ *                 type: string
+ *               description:
+ *                 type: string
+ *               basePrice:
+ *                 type: number
+ *               time:
+ *                 type: string
+ *               deliveryTime:
+ *                 type: string
+ *               selections:
+ *                 type: string
+ *                 description: JSON string of selections
+ *               img:
+ *                 type: string
+ *                 format: binary
+ *     responses:
+ *       201:
+ *         description: Combo created
+ *       400:
+ *         description: Missing fields or invalid data
+ *       403:
+ *         description: Vendor profile incomplete
+ */
 router.post(
 	"/combos",
 	authMiddleware,
@@ -180,6 +382,50 @@ router.post(
 	createCombo,
 );
 
+/**
+ * @swagger
+ * /api/dishes/combos/{comboId}:
+ *   put:
+ *     summary: Update a combo
+ *     tags: [Dishes]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: comboId
+ *         required: true
+ *         schema:
+ *           type: string
+ *     requestBody:
+ *       content:
+ *         multipart/form-data:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               comboName:
+ *                 type: string
+ *               description:
+ *                 type: string
+ *               basePrice:
+ *                 type: number
+ *               time:
+ *                 type: string
+ *               deliveryTime:
+ *                 type: string
+ *               selections:
+ *                 type: string
+ *                 description: JSON string of selections
+ *               img:
+ *                 type: string
+ *                 format: binary
+ *     responses:
+ *       200:
+ *         description: Combo updated
+ *       403:
+ *         description: Unauthorized
+ *       404:
+ *         description: Combo not found
+ */
 router.put(
 	"/combos/:comboId",
 	authMiddleware,
@@ -188,6 +434,28 @@ router.put(
 	updateCombo,
 );
 
+/**
+ * @swagger
+ * /api/dishes/combos/{comboId}:
+ *   delete:
+ *     summary: Delete a combo
+ *     tags: [Dishes]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: comboId
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Combo deleted
+ *       403:
+ *         description: Unauthorized
+ *       404:
+ *         description: Combo not found
+ */
 router.delete(
 	"/combos/:comboId",
 	authMiddleware,
