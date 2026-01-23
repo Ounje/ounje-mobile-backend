@@ -1,5 +1,5 @@
 const express = require("express");
-const { buildPlate, getAllPlates, getSpecificPlate, deletePlate } = require("../controllers/plateContoller");
+const { buildPlate, getAllPlates, getSpecificPlate, deletePlate, fixAllPlates } = require("../controllers/plateContoller");
 const { roleGuard, authMiddleware } = require("../middleware/auth");
 const { plateUpload } = require("../config/cloudinary");
 const router = express.Router();
