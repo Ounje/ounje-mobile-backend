@@ -55,7 +55,7 @@ class RatingService {
 		const updatedTarget = await Model.findById(targetId);
 		return {
 			averageRating: updatedTarget.averageRating || 0,
-			totalRatings: updatedTarget.ratingCount || 0, // standardized to ratingCount check
+			totalRatings: updatedTarget.ratingCount || 0,
 		};
 	}
 
@@ -118,15 +118,12 @@ class RatingService {
 		const { avg = 0, count = 0 } = stats[0] || {};
 
 		// Update target model with new stats
-		// Using consistent field names standardized in previous steps
 		await Model.findByIdAndUpdate(targetId, {
 			averageRating: avg,
 			ratingCount: count,
-			// Maintain backward compatibility or redundancy if needed, but primarily use ratingCount
-			// totalRatings: count, // Remove if strictly sticking to new schema
 		});
 
-		return { avg, count };
+		return { averageRating: avg, totalRatings: count };
 	}
 
 	async hasCompletedOrder({ customerId, targetType, targetId, target }) {
@@ -159,11 +156,11 @@ class RatingService {
 		const exists = await Order.exists(query);
 		return !!exists;
 	}
-	
+
 	// Expose for usage in deleteReview or other places if needed
 	async updateAverage(targetType, targetId) {
 		const Model = this.models[targetType];
-		if(Model) {
+		if (Model) {
 			return this.updateEntityRatingStats(targetType, targetId, Model);
 		}
 		return { avg: 0, count: 0 };
@@ -171,7 +168,7 @@ class RatingService {
 
 	async getReviews(targetType, targetId, { page = 1, limit = 10 }) {
 		if (!this.toObjectId(targetId)) throw new Error("Invalid target ID");
-		
+
 		const validTypes = Object.keys(this.models);
 		if (!validTypes.includes(targetType)) {
 			throw new Error(`Invalid target type. Must be one of: ${validTypes.join(", ")}`);
@@ -238,7 +235,7 @@ class RatingService {
 		}
 
 		await review.deleteOne();
-		
+
 		const Model = this.models[review.targetType];
 		if (Model) {
 			await this.updateEntityRatingStats(review.targetType, review.target, Model);
