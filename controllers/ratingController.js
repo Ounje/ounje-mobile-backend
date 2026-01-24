@@ -1,15 +1,41 @@
 const ratingService = require("../services/rating.service");
+const likeService = require("../services/like.service");
 
 // Main handler for rating & likes
 const rateEntity = async ({ req, res, targetType }) => {
 	try {
     const { rating, comment, like } = req.body;
-		const result = await ratingService.rateEntity(
+    let result = {};
+
+    // 1. Handle Like
+    if (like !== undefined) {
+        const likeResult = await likeService.toggleLike(
+            req.user._id,
+            targetType,
+            req.params.id,
+            like
+        );
+        result = { ...result, ...likeResult };
+    }
+
+    // 2. Handle Rating
+    if (rating !== undefined || comment !== undefined) {
+		const ratingResult = await ratingService.rateEntity(
 			req.user._id,
 			targetType,
 			req.params.id,
-			{ rating, comment, like }
+			{ rating, comment }
 		);
+        result = { ...result, ...ratingResult };
+    }
+
+    // If both are undefined, it's a bad request, but the services or previous logic handled simple checks.
+    // The previous controller didn't explicitly check if BOTH were missing at the top level, 
+    // but the individual checks inside would catch it or do nothing.
+    // Let's ensure we did something.
+    if (like === undefined && rating === undefined && comment === undefined) {
+         return res.status(400).json({ success: false, message: "No rating, comment, or like provided" });
+    }
 
 		return res.status(200).json({
 			success: true,
@@ -18,8 +44,6 @@ const rateEntity = async ({ req, res, targetType }) => {
 		});
 	} catch (err) {
 		console.error(`Rate ${targetType} Error:`, err);
-		// Determine status code based on error message or type if strict specific error handling needed
-		// For now generic 400 for input errors, 500 for server
 		const status = err.message.includes("not found") ? 404 : 
                    err.message.includes("Invalid") || err.message.includes("Rating must be") ? 400 : 
                    err.message.includes("can only rate") ? 403 : 500;

@@ -22,7 +22,7 @@ class RatingService {
 		return id && Types.ObjectId.isValid(id) ? new Types.ObjectId(id) : null;
 	}
 
-	async rateEntity(customerId, targetType, targetId, { rating, comment, like }) {
+	async rateEntity(customerId, targetType, targetId, { rating, comment }) {
 		const Model = this.models[targetType];
 		if (!Model) {
 			throw new Error(`Invalid target type: ${targetType}`);
@@ -37,10 +37,7 @@ class RatingService {
 			throw new Error(`${targetType} not found`);
 		}
 
-		// Handle Likes
-		if (like !== undefined) {
-			await this.handleLike(targetId, customerId, like, Model);
-		}
+
 
 		// Handle Ratings & Comments
 		if (rating !== undefined || comment !== undefined) {
@@ -57,23 +54,12 @@ class RatingService {
 		// Return updated stats
 		const updatedTarget = await Model.findById(targetId);
 		return {
-			likes: updatedTarget.likes ? updatedTarget.likes.length : 0,
 			averageRating: updatedTarget.averageRating || 0,
 			totalRatings: updatedTarget.ratingCount || 0, // standardized to ratingCount check
 		};
 	}
 
-	async handleLike(targetId, customerId, like, Model) {
-		if (like === true) {
-			await Model.findByIdAndUpdate(targetId, {
-				$addToSet: { likes: customerId },
-			});
-		} else if (like === false) {
-			await Model.findByIdAndUpdate(targetId, {
-				$pull: { likes: customerId },
-			});
-		}
-	}
+
 
 	async handleRating(
 		customerId,
