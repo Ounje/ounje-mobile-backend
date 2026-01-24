@@ -1,5 +1,5 @@
 const jwt = require("jsonwebtoken");
-const nodemailer = require("nodemailer");
+
 const { v4: uuidv4 } = require("uuid");
 
 const User = require("../models/User");
@@ -8,21 +8,13 @@ const Vendor = require("../models/Vendor");
 const Rider = require("../models/Rider");
 const OtpVerification = require("../models/OtpVerification");
 const RefreshToken = require("../models/RefreshToken");
-
+const { sendWelcomeEmail, sendOtpEmail } = require("../utilis/email.utils");
 const {
 	generateAccessToken,
 	generateRefreshToken,
 } = require("../utilis/generateToken");
 const { requestSmsOtp, verifySmsOtp } = require("../utilis/kudiSmsHelper");
 const { getCoordsFromAddress } = require("../utilis/delivery");
-
-const transporter = nodemailer.createTransport({
-	service: "gmail",
-	auth: {
-		user: process.env.EMAIL_USER,
-		pass: process.env.EMAIL_PASS,
-	},
-});
 
 const generateOtp = () => Math.floor(1000 + Math.random() * 9000).toString();
 
@@ -104,6 +96,12 @@ const register = async (req, res) => {
 			ip: req.ip,
 		});
 
+		if (finalEmail) {
+			sendWelcomeEmail(finalEmail, name).catch((err) =>
+				console.error("Welcome email failed:", err),
+			);
+		}
+
 		res.status(201).json({
 			success: true,
 			accessToken,
@@ -154,6 +152,7 @@ const login = async (req, res) => {
 			} catch (emailError) {
 				console.error("⚠️ Login Email failed (Use Console OTP):", emailError.message);
 			}
+			await sendOtpEmail(user.email, otp, "login");
 
 			return res.json({ message: `OTP sent to email: ${user.email}` });
 		}
@@ -211,6 +210,7 @@ const requestEmailOtp = async (req, res) => {
 		} catch (emailError) {
 			console.error("⚠️ Email failed to send (using Console OTP instead):", emailError.message);
 		}
+		await sendOtpEmail(email, otp, "verification");
 
 		res.json({ success: true, message: "OTP generated (Check Console for Code)" });
 	} catch (err) {
