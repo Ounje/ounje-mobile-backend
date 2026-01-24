@@ -5,7 +5,9 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "dev": "nodemon server.js"
+    "dev": "nodemon server.js",
+    "lint": "eslint .",
+    "build": "npm install --legacy-peer-deps && npm run lint"
   },
   "author": "",
   "license": "ISC",
@@ -37,6 +39,8 @@
     "twilio": "^5.9.0"
   },
   "devDependencies": {
+    "eslint": "^9.39.2",
+    "globals": "^17.1.0",
     "nodemon": "^3.1.10"
   },
   "repository": {
