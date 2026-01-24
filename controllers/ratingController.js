@@ -10,7 +10,7 @@ const rateEntity = async ({ req, res, targetType }) => {
     // 1. Handle Like
     if (like !== undefined) {
         const likeResult = await likeService.toggleLike(
-            req.user._id,
+            req.user.id,
             targetType,
             req.params.id,
             like
@@ -21,7 +21,7 @@ const rateEntity = async ({ req, res, targetType }) => {
     // 2. Handle Rating
     if (rating !== undefined || comment !== undefined) {
 		const ratingResult = await ratingService.rateEntity(
-			req.user._id,
+			req.user.id,
 			targetType,
 			req.params.id,
 			{ rating, comment }
@@ -81,7 +81,7 @@ const getReviews = async (req, res) => {
 const deleteReview = async (req, res) => {
 	try {
 		const { reviewId } = req.params;
-    await ratingService.deleteReview(reviewId, req.user._id);
+    await ratingService.deleteReview(reviewId, req.user.id);
 
 		return res
 			.status(200)

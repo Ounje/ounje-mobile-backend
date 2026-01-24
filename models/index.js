@@ -12,7 +12,6 @@ require("./Plate");
 require("./Rating");
 require("./Combo");
 require("./FoodItem");
-require("./VendorRating");
 require("./SupportTicket");
 
 module.exports = true;

@@ -35,7 +35,10 @@ class LikeService {
 			throw new Error(`${targetType} not found`);
 		}
 
+
 		// likeStatus: true = like, false = unlike
+		console.log(`[LikeService] Toggling like: User ${customerId} -> ${targetType} ${targetId} (Like: ${likeStatus})`);
+		
 		if (likeStatus === true) {
 			await Model.findByIdAndUpdate(targetId, {
 				$addToSet: { likes: customerId },
@@ -47,6 +50,8 @@ class LikeService {
 		}
 
 		const updatedTarget = await Model.findById(targetId);
+		console.log(`[LikeService] Updated likes count: ${updatedTarget.likes ? updatedTarget.likes.length : 0}`);
+		
 		return {
 			likes: updatedTarget.likes ? updatedTarget.likes.length : 0,
 		};

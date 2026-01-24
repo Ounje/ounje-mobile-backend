@@ -39,14 +39,15 @@ const {
  *         application/json:
  *           schema:
  *             type: object
- *             required:
- *               - rating
- *               - comment
  *             properties:
  *               rating:
  *                 type: number
+ *                 description: 1-5
  *               comment:
  *                 type: string
+ *               like:
+ *                 type: boolean
+ *                 description: true to like, false to unlike
  *     responses:
  *       201:
  *         description: Rated successfully
@@ -73,14 +74,13 @@ router.post("/food/:id", authMiddleware, roleGuard(["customer"]), rateFood);
  *         application/json:
  *           schema:
  *             type: object
- *             required:
- *               - rating
- *               - comment
  *             properties:
  *               rating:
  *                 type: number
  *               comment:
  *                 type: string
+ *               like:
+ *                 type: boolean
  *     responses:
  *       201:
  *         description: Rated successfully
@@ -107,14 +107,13 @@ router.post("/combo/:id", authMiddleware, roleGuard(["customer"]), rateCombo);
  *         application/json:
  *           schema:
  *             type: object
- *             required:
- *               - rating
- *               - comment
  *             properties:
  *               rating:
  *                 type: number
  *               comment:
  *                 type: string
+ *               like:
+ *                 type: boolean
  *     responses:
  *       201:
  *         description: Rated successfully
@@ -141,14 +140,13 @@ router.post("/vendor/:id", authMiddleware, roleGuard(["customer"]), rateVendor);
  *         application/json:
  *           schema:
  *             type: object
- *             required:
- *               - rating
- *               - comment
  *             properties:
  *               rating:
  *                 type: number
  *               comment:
  *                 type: string
+ *               like:
+ *                 type: boolean
  *     responses:
  *       201:
  *         description: Rated successfully
