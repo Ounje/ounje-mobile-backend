@@ -7,50 +7,150 @@ const { authMiddleware } = require("../middleware/auth");
 
 
 /**
- * Get current balance
- * GET /api/payouts/balance
+ * @swagger
+ * tags:
+ *   name: Payouts
+ *   description: Payout and Wallet Management
+ */
+
+/**
+ * @swagger
+ * /api/payouts/balance:
+ *   get:
+ *     summary: Get current wallet balance
+ *     tags: [Payouts]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Current balance
  */
 router.get("/balance", authMiddleware, payoutController.getBalance);
 
 /**
- * Get transaction history
- * GET /api/payouts/history
+ * @swagger
+ * /api/payouts/history:
+ *   get:
+ *     summary: Get transaction history
+ *     tags: [Payouts]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Transaction history
  */
 router.get("/history", authMiddleware, payoutController.getTransactionHistory);
 
 /**
- * Get pending payout requests
- * GET /api/payouts/pending
+ * @swagger
+ * /api/payouts/pending:
+ *   get:
+ *     summary: Get pending payout requests
+ *     tags: [Payouts]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Pending payouts
  */
 router.get("/pending", authMiddleware, payoutController.getPendingPayouts);
 
 /**
- * Get account statement (for reconciliation)
- * GET /api/payouts/statement
+ * @swagger
+ * /api/payouts/statement:
+ *   get:
+ *     summary: Get account statement for reconciliation
+ *     tags: [Payouts]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Statement data
  */
 router.get("/statement", authMiddleware, payoutController.getStatement);
 
 /**
- * Request a payout
- * POST /api/payouts/request
+ * @swagger
+ * /api/payouts/request:
+ *   post:
+ *     summary: Request a payout
+ *     tags: [Payouts]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - amount
+ *             properties:
+ *               amount:
+ *                 type: number
+ *     responses:
+ *       200:
+ *         description: Payout requested
  */
 router.post("/request", authMiddleware, payoutController.requestPayout);
 
 /**
- * Cancel a payout request
- * PUT /api/payouts/:payoutId/cancel
+ * @swagger
+ * /api/payouts/{payoutId}/cancel:
+ *   put:
+ *     summary: Cancel a payout request
+ *     tags: [Payouts]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: payoutId
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Payout cancelled
  */
 router.put("/:payoutId/cancel", authMiddleware, payoutController.cancelPayout);
 
 /**
- * Process payout (admin only)
- * PUT /api/payouts/:payoutId/process
+ * @swagger
+ * /api/payouts/{payoutId}/process:
+ *   put:
+ *     summary: Process a payout (Admin)
+ *     tags: [Payouts]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: payoutId
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Payout processed
  */
 router.put("/:payoutId/process", authMiddleware, payoutController.processPayout);
 
 /**
- * Retry a payout (admin only)
- * POST /api/payouts/:payoutId/retry
+ * @swagger
+ * /api/payouts/{payoutId}/retry:
+ *   post:
+ *     summary: Retry a payout (Admin)
+ *     tags: [Payouts]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: payoutId
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Payout retried
  */
 router.post("/:payoutId/retry", authMiddleware, payoutController.retryPayout);
 

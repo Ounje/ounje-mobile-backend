@@ -4,6 +4,11 @@ const mongoose = require("mongoose");
 const Rider = User.discriminator("rider", new mongoose.Schema({
   isAvailable: { type: Boolean, default: true },
   operatingArea: [String],
+  
+  // Rating & Likes
+  ratingCount: { type: Number, default: 0 },
+  averageRating: { type: Number, default: 0 },
+  likes: [{ type: mongoose.Schema.Types.ObjectId, ref: "customer" }],
 
   // Geospatial searches
   lastKnownLocation: {

@@ -1,10 +1,15 @@
 const admin = require("firebase-admin");
-const serviceAccount = require("../config/serviceAccountKey.json");
+let serviceAccount;
 
-// This initializes the connection to Firebase
-admin.initializeApp({
-  credential: admin.credential.cert(serviceAccount)
-});
+try {
+  serviceAccount = require("../config/serviceAccountKey.json");
+  admin.initializeApp({
+    credential: admin.credential.cert(serviceAccount),
+  });
+  console.log("✅ Firebase Admin Initialized");
+} catch (error) {
+  console.warn("⚠️ Firebase configuration missing or invalid. Push notifications will be disabled.");
+}
 
 /**
  * @param {string} token - The user's unique device token
@@ -19,6 +24,11 @@ const sendPushNotification = async (token, title, body) => {
       notification: { title, body },
       token: token, // This is the specific phone's ID
     };
+
+    if (!admin.apps?.length) {
+      console.log("⚠️ Push skipped (Firebase not configured):", title);
+      return;
+    }
 
     await admin.messaging().send(message);
     console.log("✅ Push Notification sent!");
