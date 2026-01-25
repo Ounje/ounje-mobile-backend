@@ -36,25 +36,33 @@ const register = async (req, res) => {
 					.json({ error: "Phone OTP required for vendor/rider" });
 			finalPhone = decoded.phone;
 		} else if (role === "customer") {
+			// Customer can use either phone or email
 			finalPhone = decoded.phone || phone;
 			finalEmail = decoded.email || email;
 		} else {
 			return res.status(400).json({ error: "Invalid role" });
 		}
 
-		if (!name || (!finalEmail && !finalPhone))
-			return res.status(400).json({ error: "Missing required fields" });
+		if (!name) return res.status(400).json({ error: "Name is required" });
 
-		if ((role === "vendor" || role === "rider") && !finalPhone)
-			return res
-				.status(400)
-				.json({ error: "Phone number required for vendor/rider" });
+		if (role === "vendor" || role === "rider") {
+			if (!finalPhone)
+				return res
+					.status(400)
+					.json({ error: "Phone number required for vendor/rider" });
+		} else if (role === "customer") {
+			if (!finalEmail && !finalPhone)
+				return res
+					.status(400)
+					.json({ error: "Email or phone required for customer" });
+		}
 
 		if (finalEmail) {
 			const existingEmail = await User.findOne({ email: finalEmail });
 			if (existingEmail)
 				return res.status(400).json({ error: "Email already exists" });
 		}
+
 		if (finalPhone) {
 			const existingPhone = await User.findOne({ phone: finalPhone });
 			if (existingPhone)
@@ -68,7 +76,7 @@ const register = async (req, res) => {
 
 		const userProps = {
 			name,
-			email: finalEmail,
+			email: finalEmail || undefined,
 			phone: finalPhone,
 			address: location,
 			location: coordinates,
