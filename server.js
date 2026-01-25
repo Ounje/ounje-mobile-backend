@@ -32,6 +32,11 @@ const io = require("socket.io")(server, {
 app.use(cors());
 app.use(express.json());
 app.set("trust proxy", 1);
+
+// Swagger Documentation
+const swaggerUi = require('swagger-ui-express');
+const swaggerSpecs = require('./config/swagger');
+app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpecs));
 //api routes
 app.use("/api/auth", authRoutes);
 //app.use("/api/food", dishRoutes);

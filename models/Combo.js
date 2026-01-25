@@ -42,7 +42,7 @@ const ComboSchema = new mongoose.Schema(
 		deliveryTime: { type: String },
 		ordersCount: { type: Number, default: 0 },
 		//isAvailable: { type: Boolean, default: true },
-		ratingAverage: { type: Number, default: 0 },
+		averageRating: { type: Number, default: 0 },
 		ratingCount: { type: Number, default: 0 },
 		likes: [{ type: mongoose.Schema.Types.ObjectId, ref: "customer" }],
 	},

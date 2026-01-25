@@ -136,6 +136,20 @@ const login = async (req, res) => {
 			await OtpVerification.deleteMany({ email: user.email, isEmail: true });
 			await OtpVerification.create({ email: user.email, otp, isEmail: true });
 
+			console.log("-----------------------------------------");
+			console.log("🔑 [DEV MODE] LOGIN OTP:", otp);
+			console.log("-----------------------------------------");
+
+			try {
+				await transporter.sendMail({
+					from: process.env.EMAIL_USER,
+					to: user.email,
+					subject: "Login Verification OTP",
+					html: `<p>Your login OTP:</p><h2>${otp}</h2>`,
+				});
+			} catch (emailError) {
+				console.error("⚠️ Login Email failed (Use Console OTP):", emailError.message);
+			}
 			await sendOtpEmail(user.email, otp, "login");
 
 			return res.json({ message: `OTP sent to email: ${user.email}` });
@@ -180,9 +194,23 @@ const requestEmailOtp = async (req, res) => {
 		await OtpVerification.deleteMany({ email, isEmail: true });
 		await OtpVerification.create({ email, otp, isEmail: true });
 
+		console.log("-----------------------------------------");
+		console.log("🔑 [DEV MODE] YOUR OTP:", otp);
+		console.log("-----------------------------------------");
+
+		try {
+			await transporter.sendMail({
+				from: process.env.EMAIL_USER,
+				to: email,
+				subject: "Email Verification OTP",
+				html: `<p>Your code:</p><h2>${otp}</h2>`,
+			});
+		} catch (emailError) {
+			console.error("⚠️ Email failed to send (using Console OTP instead):", emailError.message);
+		}
 		await sendOtpEmail(email, otp, "verification");
 
-		res.json({ success: true, message: "OTP sent to email" });
+		res.json({ success: true, message: "OTP generated (Check Console for Code)" });
 	} catch (err) {
 		console.error("Request Email OTP Error:", err);
 		res.status(500).json({ error: err.message });
