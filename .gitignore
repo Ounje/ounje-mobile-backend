@@ -41,3 +41,8 @@ config/serviceAccountKey.json
 node_modules/
 
 node_modules/.bin/nodetouch.ps1
+services/check.js
+services/cleanup.js
+services/const.js
+services/data.js
+services/test.js

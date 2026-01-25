@@ -1,5 +1,5 @@
 const payoutService = require("../services/payout.service");
-const Rating = require("../models/Rating");
+const ratingService = require("../services/rating.service");
 
 const registerRider = async (req, res) => {
 	const { name, selectedZones } = req.body; // e.g., ["Ikeja", "Yaba"]
@@ -53,63 +53,8 @@ const updateBankDetails = async (req, res) => {
 
 const riderLeaderBoard = async (req, res) => {
 	try {
-		let { page = 1, limit = 10 } = req.query;
-		page = Number(page);
-		limit = Number(limit);
-
-		const fourteenDaysAgo = new Date();
-		fourteenDaysAgo.setDate(fourteenDaysAgo.getDate() - 14);
-
-		const skip = (page - 1) * limit;
-
-		const leaderboard = await Rating.aggregate([
-			// Only rider ratings in the last 14 days
-			{
-				$match: {
-					targetType: "Rider",
-					createdAt: { $gte: fourteenDaysAgo },
-				},
-			},
-			// Group by rider
-			{
-				$group: {
-					_id: "$target",
-					averageRating: { $avg: "$rating" },
-					totalRatings: { $sum: 1 },
-				},
-			},
-			// Sort by rating then number of ratings
-			{
-				$sort: { averageRating: -1, totalRatings: -1 },
-			},
-			// Pagination
-			{ $skip: skip },
-			{ $limit: limit },
-			// Join with Rider collection
-			{
-				$lookup: {
-					from: "riders",
-					localField: "_id",
-					foreignField: "_id",
-					as: "rider",
-				},
-			},
-			{ $unwind: "$rider" },
-			// Only pick necessary fields
-			{
-				$project: {
-					rider: { _id: 1, name: 1 },
-					averageRating: { $round: ["$averageRating", 2] },
-					totalRatings: 1,
-				},
-			},
-		]);
-
-		res.status(200).json({
-			success: true,
-			count: leaderboard.length,
-			data: leaderboard,
-		});
+		const result = await ratingService.getRiderLeaderboard();
+		res.status(200).json(result);
 	} catch (err) {
 		console.error("Rider Leaderboard Error:", err);
 		res.status(500).json({
@@ -118,5 +63,4 @@ const riderLeaderBoard = async (req, res) => {
 		});
 	}
 };
-
 module.exports = { registerRider, updateBankDetails, riderLeaderBoard };

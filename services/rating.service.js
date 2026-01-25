@@ -15,6 +15,10 @@ class RatingService {
 			Vendor,
 			Rider,
 		};
+		this.collectionNames = {
+			//Vendor: "users",
+			Rider: "users",
+		};
 	}
 
 	// Safe ObjectId conversion
@@ -37,8 +41,6 @@ class RatingService {
 			throw new Error(`${targetType} not found`);
 		}
 
-
-
 		// Handle Ratings & Comments
 		if (rating !== undefined || comment !== undefined) {
 			await this.handleRating(
@@ -47,7 +49,7 @@ class RatingService {
 				targetId,
 				target,
 				rating,
-				comment
+				comment,
 			);
 		}
 
@@ -59,15 +61,13 @@ class RatingService {
 		};
 	}
 
-
-
 	async handleRating(
 		customerId,
 		targetType,
 		targetId,
 		target,
 		rating,
-		comment
+		comment,
 	) {
 		if (rating !== undefined && (rating < 1 || rating > 5)) {
 			throw new Error("Rating must be between 1 and 5");
@@ -82,7 +82,7 @@ class RatingService {
 
 		if (!canRate) {
 			throw new Error(
-				`You can only rate a ${targetType} after completing a relevant order.`
+				`You can only rate a ${targetType} after completing a relevant order.`,
 			);
 		}
 
@@ -97,10 +97,19 @@ class RatingService {
 		await Rating.findOneAndUpdate(
 			{ targetType, target: targetId, customer: customerId },
 			updateData,
-			{ upsert: true, new: true, runValidators: true, setDefaultsOnInsert: true }
+			{
+				upsert: true,
+				new: true,
+				runValidators: true,
+				setDefaultsOnInsert: true,
+			},
 		);
 
-		await this.updateEntityRatingStats(targetType, targetId, this.models[targetType]);
+		await this.updateEntityRatingStats(
+			targetType,
+			targetId,
+			this.models[targetType],
+		);
 	}
 
 	async updateEntityRatingStats(targetType, targetId, Model) {
@@ -171,7 +180,9 @@ class RatingService {
 
 		const validTypes = Object.keys(this.models);
 		if (!validTypes.includes(targetType)) {
-			throw new Error(`Invalid target type. Must be one of: ${validTypes.join(", ")}`);
+			throw new Error(
+				`Invalid target type. Must be one of: ${validTypes.join(", ")}`,
+			);
 		}
 
 		page = parseInt(page);
@@ -223,7 +234,6 @@ class RatingService {
 		};
 	}
 
-
 	async deleteReview(reviewId, userId) {
 		const review = await Rating.findById(reviewId);
 		if (!review) {
@@ -238,9 +248,76 @@ class RatingService {
 
 		const Model = this.models[review.targetType];
 		if (Model) {
-			await this.updateEntityRatingStats(review.targetType, review.target, Model);
+			await this.updateEntityRatingStats(
+				review.targetType,
+				review.target,
+				Model,
+			);
 		}
 	}
-}
+	async getRiderLeaderboard() {
+		const fourteenDaysAgo = new Date();
+		fourteenDaysAgo.setDate(fourteenDaysAgo.getDate() - 14);
 
+		const leaderboard = await Rating.aggregate([
+			// Only rider ratings in last 14 days
+			{
+				$match: {
+					targetType: "Rider",
+					createdAt: { $gte: fourteenDaysAgo },
+				},
+			},
+			{
+				$group: {
+					_id: "$target",
+					averageRating: { $avg: "$rating" },
+					totalRatings: { $sum: 1 },
+				},
+			},
+
+			{
+				$lookup: {
+					from: "users",
+					localField: "_id",
+					foreignField: "_id",
+					as: "rider",
+				},
+			},
+
+			{ $unwind: "$rider" },
+
+			{
+				$match: {
+					"rider.role": "rider",
+				},
+			},
+
+			{
+				$sort: {
+					averageRating: -1,
+					totalRatings: -1,
+				},
+			},
+
+			{ $limit: 5 },
+
+			{
+				$project: {
+					rider: {
+						_id: "$rider._id",
+						name: "$rider.name",
+					},
+					averageRating: { $round: ["$averageRating", 2] },
+					totalRatings: 1,
+				},
+			},
+		]);
+
+		return {
+			success: true,
+			count: leaderboard.length,
+			data: leaderboard,
+		};
+	}
+}
 module.exports = new RatingService();
