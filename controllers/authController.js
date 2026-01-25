@@ -16,6 +16,14 @@ const { getCoordsFromAddress } = require("../utilis/delivery");
 
 const generateOtp = () => Math.floor(1000 + Math.random() * 9000).toString();
 
+const normalizePhone = (phone) => {
+	if (!phone) return phone;
+	phone = phone.trim();
+	if (phone.startsWith("0")) phone = phone.slice(1);
+	if (phone.startsWith("234")) phone = phone.slice(3);
+	return phone;
+};
+
 const register = async (req, res) => {
 	try {
 		const { name, role, phone, location, email, otpSession, operatingArea } =
@@ -247,8 +255,10 @@ const verifyEmailOtp = async (req, res) => {
 
 const requestPhoneOtp = async (req, res) => {
 	try {
-		const { phone } = req.body;
+		let { phone } = req.body;
 		if (!phone) return res.status(400).json({ error: "Phone required" });
+
+		phone = normalizePhone(phone);
 
 		const exists = await User.findOne({ phone });
 		if (exists) return res.status(400).json({ error: "Phone already in use" });
@@ -278,14 +288,8 @@ const verifyPhoneOtp = async (req, res) => {
 		if (!phone || !otp || !reference)
 			return res.status(400).json({ error: "Phone, OTP, reference required" });
 
-		const normalizePhone = (phone) => {
-			phone = phone.trim();
-			if (phone.startsWith("0")) phone = phone.slice(1);
-			if (phone.startsWith("234")) phone = phone.slice(3);
-			return phone;
-		};
-
 		phone = normalizePhone(phone);
+
 		const record = await OtpVerification.findOne({
 			phone,
 			reference,
