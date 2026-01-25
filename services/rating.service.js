@@ -260,7 +260,6 @@ class RatingService {
 		fourteenDaysAgo.setDate(fourteenDaysAgo.getDate() - 14);
 
 		const leaderboard = await Rating.aggregate([
-			// Only rider ratings in last 14 days
 			{
 				$match: {
 					targetType: "Rider",
@@ -274,7 +273,29 @@ class RatingService {
 					totalRatings: { $sum: 1 },
 				},
 			},
+		]);
 
+		for (const rider of leaderboard) {
+			await Rider.findByIdAndUpdate(rider._id, {
+				averageRating: rider.averageRating,
+				ratingCount: rider.totalRatings,
+			});
+		}
+
+		const leaderboardWithRiderInfo = await Rating.aggregate([
+			{
+				$match: {
+					targetType: "Rider",
+					createdAt: { $gte: fourteenDaysAgo },
+				},
+			},
+			{
+				$group: {
+					_id: "$target",
+					averageRating: { $avg: "$rating" },
+					totalRatings: { $sum: 1 },
+				},
+			},
 			{
 				$lookup: {
 					from: "users",
@@ -283,30 +304,13 @@ class RatingService {
 					as: "rider",
 				},
 			},
-
 			{ $unwind: "$rider" },
-
-			{
-				$match: {
-					"rider.role": "rider",
-				},
-			},
-
-			{
-				$sort: {
-					averageRating: -1,
-					totalRatings: -1,
-				},
-			},
-
+			{ $match: { "rider.role": "rider" } },
+			{ $sort: { averageRating: -1, totalRatings: -1 } },
 			{ $limit: 5 },
-
 			{
 				$project: {
-					rider: {
-						_id: "$rider._id",
-						name: "$rider.name",
-					},
+					rider: { _id: "$rider._id", name: "$rider.name" },
 					averageRating: { $round: ["$averageRating", 2] },
 					totalRatings: 1,
 				},
@@ -315,9 +319,10 @@ class RatingService {
 
 		return {
 			success: true,
-			count: leaderboard.length,
-			data: leaderboard,
+			count: leaderboardWithRiderInfo.length,
+			data: leaderboardWithRiderInfo,
 		};
 	}
 }
+
 module.exports = new RatingService();
