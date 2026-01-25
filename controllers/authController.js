@@ -1,7 +1,5 @@
 const jwt = require("jsonwebtoken");
-
 const { v4: uuidv4 } = require("uuid");
-
 const User = require("../models/User");
 const Customer = require("../models/Customer");
 const Vendor = require("../models/Vendor");
