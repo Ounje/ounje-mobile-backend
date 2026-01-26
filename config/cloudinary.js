@@ -1,8 +1,6 @@
 const cloudinary = require("cloudinary").v2;
 const multer = require("multer");
-const multerStorageCloudinary = require("multer-storage-cloudinary");
-const CloudinaryStorage = multerStorageCloudinary.CloudinaryStorage || multerStorageCloudinary;
-
+const { CloudinaryStorage } = require("multer-storage-cloudinary");
 cloudinary.config({
 	cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
 	api_key: process.env.CLOUDINARY_API_KEY,
@@ -61,6 +59,14 @@ const NINStorage = new CloudinaryStorage({
 		transformation: [{ width: 800, quality: "auto" }],
 	},
 });
+const RiderDocumentStorage = new CloudinaryStorage({
+	cloudinary,
+	params: {
+		folder: "rider-documents",
+		allowed_formats: ["jpg", "png", "jpeg", "webp"],
+		transformation: [{ width: 800, quality: "auto" }],
+	},
+});
 const deleteImage = async (publicId) => {
 	try {
 		await cloudinary.uploader.destroy(publicId);
@@ -76,5 +82,6 @@ module.exports = {
 	comboUpload: multer({ storage: comboStorage }),
 	foodItemUpload: multer({ storage: foodItemsStorage }),
 	plateUpload: multer({ storage: platesStorage }),
+	riderUpload: multer({ storage: RiderDocumentStorage }),
 	deleteImage,
 };

@@ -1,5 +1,6 @@
 const payoutService = require("../services/payout.service");
 const ratingService = require("../services/rating.service");
+const Rider = require("../models/Rider");
 
 const registerRider = async (req, res) => {
 	const { name, selectedZones } = req.body; // e.g., ["Ikeja", "Yaba"]
@@ -63,4 +64,115 @@ const riderLeaderBoard = async (req, res) => {
 		});
 	}
 };
-module.exports = { registerRider, updateBankDetails, riderLeaderBoard };
+
+const completeRiderRegistration = async (req, res) => {
+	try {
+		const { modeOfDelivery, guarantorName, guarantorPhone, guarantorNin } =
+			req.body;
+
+		const riderId = req.user.id;
+
+		const rider = await Rider.findById(riderId);
+		if (!rider) {
+			return res.status(404).json({
+				success: false,
+				message: "Rider not found",
+			});
+		}
+
+		if (rider.Guarantor && rider.Guarantor.length > 0) {
+			return res.status(400).json({
+				success: false,
+				message: "Registration already completed. Guarantor already exists.",
+			});
+		}
+
+		if (!modeOfDelivery || !guarantorName || !guarantorPhone || !guarantorNin) {
+			return res.status(400).json({
+				success: false,
+				message:
+					"All fields are required: modeOfDelivery, guarantorName, guarantorPhone, guarantorNin",
+			});
+		}
+
+		if (!["Bicycle", "Motorcycle"].includes(modeOfDelivery)) {
+			return res.status(400).json({
+				success: false,
+				message: "Invalid mode of delivery. Must be 'Bicycle' or 'Motorcycle'",
+			});
+		}
+
+		let driversLicense = null;
+		let nin = null;
+
+		if (modeOfDelivery === "Motorcycle") {
+			if (!req.file || !req.file.path) {
+				return res.status(400).json({
+					success: false,
+					message: "Drivers license document is required for Motorcycle riders",
+				});
+			}
+			driversLicense = req.file.path;
+		}
+
+		if (modeOfDelivery === "Bicycle") {
+			if (!req.file || !req.file.path) {
+				return res.status(400).json({
+					success: false,
+					message: "NIN document is required for Bicycle riders",
+				});
+			}
+			nin = req.file.path;
+		}
+
+		const guarantor = {
+			guarantorName,
+			guarantorPhone: Number(guarantorPhone),
+			guarantorNin,
+		};
+
+		rider.modeOfDelivery = modeOfDelivery;
+		rider.Guarantor = [guarantor];
+
+		if (driversLicense) {
+			rider.driversLicense = driversLicense;
+		}
+
+		if (nin) {
+			rider.nin = nin;
+		}
+
+		await rider.save();
+
+		return res.status(200).json({
+			success: true,
+			message: "Rider registration completed successfully",
+			data: {
+				riderId: rider._id,
+				name: rider.name,
+				modeOfDelivery: rider.modeOfDelivery,
+				guarantor: {
+					guarantorName: guarantor.guarantorName,
+				},
+				documentsUploaded: {
+					driversLicense: !!driversLicense,
+					nin: !!nin,
+				},
+			},
+		});
+	} catch (err) {
+		console.error("Complete Rider Registration Error:", err);
+		return res.status(500).json({
+			success: false,
+			message: "An error occurred while completing registration",
+			error: err.message,
+		});
+	}
+};
+
+module.exports = {
+	completeRiderRegistration,
+	registerRider,
+	updateBankDetails,
+	riderLeaderBoard,
+};
