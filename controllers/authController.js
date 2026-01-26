@@ -103,7 +103,7 @@ const register = async (req, res) => {
 			ip: req.ip,
 		});
 
-		if (finalEmail) {
+		if (role === "customer" && finalEmail) {
 			sendWelcomeEmail(finalEmail, name).catch((err) =>
 				console.error("Welcome email failed:", err),
 			);

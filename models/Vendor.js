@@ -36,6 +36,33 @@ const storeDetailsSchema = new mongoose.Schema(
 			type: String,
 			required: true,
 		},
+
+		timePeriod: [
+			{
+				day: {
+					type: String,
+					enum: [
+						"sunday",
+						"monday",
+						"tuesday",
+						"wednesday",
+						"thursday",
+						"friday",
+						"saturday",
+					],
+				},
+				closingHour: String,
+				openingHour: String,
+			},
+		],
+
+		preorderPeriods: [
+			{
+				orderingTime: String,
+				preparationTime: String,
+				period: { type: String, enum: ["breakfast", "lunch", "dinner"] },
+			},
+		],
 	},
 	{ timestamps: true },
 );
@@ -53,17 +80,10 @@ const VendorSchema = new mongoose.Schema({
 	ledger: [ledgerSchema],
 	isAvailable: { type: Boolean, default: true },
 	minDeliveryFee: Number,
-	period: { type: String, enum: ["breakfast", "lunch", "dinner"] },
-	orderingTime: String,
-	preparationTime: String,
-	//workdays: date,
-	//openingHour: time,
-	//closingHour: time,
 	location: {
 		type: { type: String, default: "Point" },
-		coordinates: { type: [Number], index: "2dsphere" }, // [longitude, latitude]
+		coordinates: { type: [Number], index: "2dsphere" },
 	},
-	// Bank and payout recipient info
 	bankDetails: {
 		accountNumber: String,
 		bankCode: String,
@@ -87,7 +107,6 @@ VendorSchema.virtual("foodItems", {
 VendorSchema.set("toObject", { virtuals: true });
 VendorSchema.set("toJSON", { virtuals: true });
 
-// This tells MongoDB to allow "distance" math on the location field
 VendorSchema.index({ location: "2dsphere" });
 
 const Vendor = User.discriminator("vendor", VendorSchema);

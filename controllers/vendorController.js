@@ -150,14 +150,62 @@ const getNearbyVendors = async (req, res) => {
 
 const completeVendorRegistration = async (req, res) => {
 	try {
-		const {
+		let {
 			storeName,
 			storeType,
 			isVerifiedBusiness,
 			CACNumber,
 			servicesOffered,
 			needCACHelp,
+			day,
+			openingHour,
+			closingHour,
+			orderingTime,
+			preparationTime,
+			period,
 		} = req.body;
+
+		let timePeriod = [];
+		if (req.body.timePeriod && Array.isArray(req.body.timePeriod)) {
+			timePeriod = req.body.timePeriod;
+		} else {
+			let i = 0;
+			while (req.body[`timePeriod[${i}][day]`]) {
+				timePeriod.push({
+					day: req.body[`timePeriod[${i}][day]`],
+					openingHour: req.body[`timePeriod[${i}][openingHour]`],
+					closingHour: req.body[`timePeriod[${i}][closingHour]`],
+				});
+				i++;
+			}
+			if (timePeriod.length === 0 && day && openingHour && closingHour) {
+				timePeriod.push({ day, openingHour, closingHour });
+			}
+		}
+
+		let preorderPeriods = [];
+		if (req.body.preorderPeriods && Array.isArray(req.body.preorderPeriods)) {
+			preorderPeriods = req.body.preorderPeriods;
+		} else {
+			let i = 0;
+			while (req.body[`preorderPeriods[${i}][orderingTime]`]) {
+				preorderPeriods.push({
+					orderingTime: req.body[`preorderPeriods[${i}][orderingTime]`],
+					preparationTime: req.body[`preorderPeriods[${i}][preparationTime]`],
+					period: req.body[`preorderPeriods[${i}][period]`],
+				});
+				i++;
+			}
+
+			if (
+				preorderPeriods.length === 0 &&
+				orderingTime &&
+				preparationTime &&
+				period
+			) {
+				preorderPeriods.push({ orderingTime, preparationTime, period });
+			}
+		}
 
 		const vendorId = req.user.id;
 
@@ -169,7 +217,6 @@ const completeVendorRegistration = async (req, res) => {
 			});
 		}
 
-		// Prevent multiple registrations
 		if (vendor.storeDetails && vendor.storeDetails.length > 0) {
 			return res.status(400).json({
 				success: false,
@@ -191,7 +238,6 @@ const completeVendorRegistration = async (req, res) => {
 			});
 		}
 
-		// Validate services
 		if (
 			!["InstantMeals", "preOrderMeals", "hybridMeals"].includes(
 				servicesOffered,
@@ -207,8 +253,18 @@ const completeVendorRegistration = async (req, res) => {
 		const isBusinessVerified =
 			isVerifiedBusiness === true || isVerifiedBusiness === "true";
 
-		// CAC logic
+		if (!req.file) {
+			return res.status(400).json({
+				success: false,
+				message: "NIN ID document is required",
+			});
+		}
+
+		const ninIDUrl = req.file.path;
+
+		let accountStatus = "active";
 		let needsCACSupport = false;
+		let warningMessage = null;
 
 		if (!isBusinessVerified) {
 			if (!needCACHelp) {
@@ -220,16 +276,15 @@ const completeVendorRegistration = async (req, res) => {
 				});
 			}
 
-			if (needCACHelp === "no") {
-				return res.status(400).json({
-					success: false,
-					message:
-						"A business is required to have a valid CAC number to complete vendor registration.",
-				});
-			}
-
 			if (needCACHelp === "yes") {
 				needsCACSupport = true;
+				accountStatus = "pending";
+				warningMessage =
+					"Your account is pending. Our support team will contact you regarding CAC registration assistance.";
+			} else if (needCACHelp === "no" || needCACHelp === "No") {
+				accountStatus = "pending";
+				warningMessage =
+					"Please do well to complete your CAC registration so that your business will be safe from legal fines.";
 			}
 		} else {
 			if (!CACNumber) {
@@ -238,30 +293,94 @@ const completeVendorRegistration = async (req, res) => {
 					message: "CAC number is required for verified businesses",
 				});
 			}
+
+			accountStatus = "active";
 		}
 
-		if (!req.file) {
-			return res.status(400).json({
-				success: false,
-				message: "NIN ID document is required",
-			});
+		let storeDetailsData = {
+			storeName,
+			storeType,
+			isVerifiedBusiness: isBusinessVerified,
+			CACNumber: CACNumber || null,
+			servicesOffered,
+			ninID: ninIDUrl,
+			status: accountStatus,
+			needsCACSupport,
+		};
+
+		if (servicesOffered === "preOrderMeals") {
+			if (!preorderPeriods || preorderPeriods.length === 0) {
+				return res.status(400).json({
+					success: false,
+					message:
+						"At least one preorder period (orderingTime, preparationTime, and period) is required for pre-order services",
+				});
+			}
+
+			for (const pp of preorderPeriods) {
+				if (!pp.orderingTime || !pp.preparationTime || !pp.period) {
+					return res.status(400).json({
+						success: false,
+						message:
+							"Each preorder period must include orderingTime, preparationTime, and period",
+					});
+				}
+
+				if (!["breakfast", "lunch", "dinner"].includes(pp.period)) {
+					return res.status(400).json({
+						success: false,
+						message: `Invalid period: ${pp.period}. Must be one of 'breakfast', 'lunch', or 'dinner'`,
+					});
+				}
+			}
+
+			storeDetailsData.preorderPeriods = preorderPeriods;
+		} else if (
+			servicesOffered === "InstantMeals" ||
+			servicesOffered === "hybridMeals"
+		) {
+			if (!timePeriod || timePeriod.length === 0) {
+				return res.status(400).json({
+					success: false,
+					message:
+						"At least one time period is required for instant/hybrid meal services",
+				});
+			}
+
+			const validDays = [
+				"sunday",
+				"monday",
+				"tuesday",
+				"wednesday",
+				"thursday",
+				"friday",
+				"saturday",
+			];
+
+			for (const tp of timePeriod) {
+				if (!tp.day || !tp.openingHour || !tp.closingHour) {
+					return res.status(400).json({
+						success: false,
+						message:
+							"Each time period must include day, openingHour, and closingHour",
+					});
+				}
+
+				if (!validDays.includes(tp.day.toLowerCase())) {
+					return res.status(400).json({
+						success: false,
+						message: `Invalid day: ${tp.day}. Must be one of: ${validDays.join(", ")}`,
+					});
+				}
+			}
+
+			storeDetailsData.timePeriod = timePeriod.map((tp) => ({
+				day: tp.day.toLowerCase(),
+				openingHour: tp.openingHour,
+				closingHour: tp.closingHour,
+			}));
 		}
-
-		const ninIDUrl = req.file.path;
-
-		// Save store details
-		vendor.storeDetails = [
-			{
-				storeName,
-				storeType,
-				isVerifiedBusiness: isBusinessVerified,
-				CACNumber: CACNumber || null,
-				servicesOffered,
-				ninID: ninIDUrl,
-				status: "active",
-				needsCACSupport,
-			},
-		];
+		vendor.storeDetails = [storeDetailsData];
 
 		if (vendor.balance == null) {
 			vendor.balance = 0;
@@ -269,30 +388,34 @@ const completeVendorRegistration = async (req, res) => {
 
 		await vendor.save();
 
-		// Response
-		if (needsCACSupport) {
+		const responseData = {
+			vendorId: vendor._id,
+			storeName,
+			storeType,
+			servicesOffered,
+			status: accountStatus,
+		};
+		if (servicesOffered === "preOrderMeals") {
+			responseData.preorderPeriods = storeDetailsData.preorderPeriods;
+		} else if (storeDetailsData.timePeriod) {
+			responseData.timePeriod = storeDetailsData.timePeriod;
+		}
+
+		if (accountStatus === "pending") {
 			return res.status(200).json({
 				success: true,
-				message:
-					"Store details saved successfully. Our support team will contact you shortly regarding CAC registration assistance.",
-				requiresSupport: true,
-				data: {
-					vendorId: vendor._id,
-					storeName,
-					status: "pending",
-				},
+				message: `Vendor registration completed successfully. ${warningMessage}`,
+				accountStatus: "pending",
+				needsCACSupport,
+				data: responseData,
 			});
 		}
 
 		res.status(200).json({
 			success: true,
 			message: "Vendor registration completed successfully",
-			data: {
-				storeName,
-				storeType,
-				servicesOffered,
-				status: "active",
-			},
+			accountStatus: "active",
+			data: responseData,
 		});
 	} catch (error) {
 		console.error("Error completing vendor registration:", error);
@@ -303,7 +426,6 @@ const completeVendorRegistration = async (req, res) => {
 		});
 	}
 };
-
 module.exports = {
 	completeVendorRegistration,
 	getPopularVendors,
