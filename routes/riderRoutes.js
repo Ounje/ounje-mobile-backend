@@ -119,7 +119,11 @@ router.post(
 	"/complete-registration",
 	authMiddleware,
 	roleGuard(["rider"]),
-	riderUpload.single("document"),
+	riderUpload.fields([
+		{ name: "driversLicense", maxCount: 1 },
+		{ name: "nin", maxCount: 1 },
+		{ name: "guarantorNin", maxCount: 1 },
+	]),
 	completeRiderRegistration,
 );
 /**

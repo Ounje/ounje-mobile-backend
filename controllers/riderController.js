@@ -67,9 +67,7 @@ const riderLeaderBoard = async (req, res) => {
 
 const completeRiderRegistration = async (req, res) => {
 	try {
-		const { modeOfDelivery, guarantorName, guarantorPhone, guarantorNin } =
-			req.body;
-
+		const { modeOfDelivery, guarantorName, guarantorPhone } = req.body;
 		const riderId = req.user.id;
 
 		const rider = await Rider.findById(riderId);
@@ -87,11 +85,11 @@ const completeRiderRegistration = async (req, res) => {
 			});
 		}
 
-		if (!modeOfDelivery || !guarantorName || !guarantorPhone || !guarantorNin) {
+		if (!modeOfDelivery || !guarantorName || !guarantorPhone) {
 			return res.status(400).json({
 				success: false,
 				message:
-					"All fields are required: modeOfDelivery, guarantorName, guarantorPhone, guarantorNin",
+					"All fields are required: modeOfDelivery, guarantorName, guarantorPhone",
 			});
 		}
 
@@ -102,33 +100,49 @@ const completeRiderRegistration = async (req, res) => {
 			});
 		}
 
+		// Check for guarantor NIN file - REQUIRED for all riders
+		if (!req.files || !req.files.guarantorNin || !req.files.guarantorNin[0]) {
+			return res.status(400).json({
+				success: false,
+				message: "Guarantor NIN document is required",
+			});
+		}
+
+		const guarantorNinUrl = req.files.guarantorNin[0].path;
+
 		let driversLicense = null;
 		let nin = null;
 
 		if (modeOfDelivery === "Motorcycle") {
-			if (!req.file || !req.file.path) {
+			// Motorcycle riders need driver's license
+			if (
+				!req.files ||
+				!req.files.driversLicense ||
+				!req.files.driversLicense[0]
+			) {
 				return res.status(400).json({
 					success: false,
 					message: "Drivers license document is required for Motorcycle riders",
 				});
 			}
-			driversLicense = req.file.path;
+			driversLicense = req.files.driversLicense[0].path;
 		}
 
 		if (modeOfDelivery === "Bicycle") {
-			if (!req.file || !req.file.path) {
+			// Bicycle riders need NIN
+			if (!req.files || !req.files.nin || !req.files.nin[0]) {
 				return res.status(400).json({
 					success: false,
 					message: "NIN document is required for Bicycle riders",
 				});
 			}
-			nin = req.file.path;
+			nin = req.files.nin[0].path;
 		}
 
 		const guarantor = {
 			guarantorName,
 			guarantorPhone: Number(guarantorPhone),
-			guarantorNin,
+			guarantorNin: guarantorNinUrl,
 		};
 
 		rider.modeOfDelivery = modeOfDelivery;
@@ -153,10 +167,12 @@ const completeRiderRegistration = async (req, res) => {
 				modeOfDelivery: rider.modeOfDelivery,
 				guarantor: {
 					guarantorName: guarantor.guarantorName,
+					guarantorPhone: guarantor.guarantorPhone,
 				},
 				documentsUploaded: {
 					driversLicense: !!driversLicense,
 					nin: !!nin,
+					guarantorNin: true,
 				},
 			},
 		});
