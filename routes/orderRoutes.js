@@ -96,10 +96,10 @@ router.get("/", authMiddleware, roleGuard(["customer"]), getMyOrders);
    SELLER ROUTES
 ====================== */
 
-// View orders for seller
+// View orders for logged-in vendor
 /**
  * @swagger
- * /api/orders/seller:
+ * /api/orders/vendor:
  *   get:
  *     summary: Get all orders for logged-in vendor
  *     tags: [Orders]
@@ -110,7 +110,7 @@ router.get("/", authMiddleware, roleGuard(["customer"]), getMyOrders);
  *         description: List of vendor orders
  */
 router.get(
-	"/seller",
+	"/vendor",
 	authMiddleware,
 	roleGuard(["vendor"]),
 	async (req, res) => {
