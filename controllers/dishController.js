@@ -348,6 +348,10 @@ const getAllCombos = async (req, res) => {
 		const total = await Combo.countDocuments();
 		const combos = await Combo.find()
 			.populate("vendor", " img description averageRating totalOrders")
+			.populate({
+				path: "selections.items.item",
+				select: "name img description price"
+			})
 			.sort({ createdAt: -1 })
 			.skip(skip)
 			.limit(limit);
@@ -371,6 +375,10 @@ const getMyCombos = async (req, res) => {
 		const skip = (page - 1) * limit;
 		const total = await Combo.countDocuments({ vendor: req.user.id });
 		const combos = await Combo.find({ vendor: req.user.id })
+			.populate({
+				path: "selections.items.item",
+				select: "name img description price"
+			})
 			.sort({ createdAt: -1 })
 			.skip(skip)
 			.limit(limit);
@@ -389,10 +397,15 @@ const getMyCombos = async (req, res) => {
 
 const getComboById = async (req, res) => {
 	try {
-		const combo = await Combo.findById(req.params.comboId).populate(
-			"vendor",
-			" img description averageRating totalOrders location",
-		);
+		const combo = await Combo.findById(req.params.comboId)
+			.populate(
+				"vendor",
+				" img description averageRating totalOrders location",
+			)
+			.populate({
+				path: "selections.items.item",
+				select: "name img description price"
+			});
 		if (!combo)
 			return res
 				.status(404)
@@ -412,6 +425,10 @@ const getVendorCombos = async (req, res) => {
 
 		const combos = await Combo.find({ vendor: req.params.vendorId })
 			.populate("vendor", " img description averageRating totalOrders")
+			.populate({
+				path: "selections.items.item",
+				select: "name img description price"
+			})
 			.sort({ createdAt: -1 })
 			.skip(skip)
 			.limit(limit);
