@@ -27,7 +27,10 @@ class VendorService {
                         },
                     },
                 });
-                return { status: "success", source: "location-based", results: vendors.length, data: vendors };
+
+                if (vendors.length > 0) {
+                    return { status: "success", source: "location-based", results: vendors.length, data: vendors };
+                }
             }
 
             const allVendors = await Vendor.find({ isAvailable: { $ne: false } }).limit(20);
