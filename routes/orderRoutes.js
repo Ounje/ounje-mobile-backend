@@ -7,15 +7,15 @@ const Vendor = require("../models/Vendor");
 
 
 const {
-  createOrder,
-  getMyOrders,
-  getOrderById,
-  updateOrderStatus,
-  sendDeliveryOtp,
-  verifyDeliveryOtp,
-  acceptOrder,
-  pickUpOrder,
-  completeDelivery,
+	createOrder,
+	getMyOrders,
+	getOrderById,
+	updateOrderStatus,
+	sendDeliveryOtp,
+	verifyDeliveryOtp,
+	acceptOrder,
+	pickUpOrder,
+	completeDelivery,
 } = require("../controllers/orderController");
 
 const router = express.Router();
@@ -92,6 +92,39 @@ router.post("/", authMiddleware, roleGuard(["customer"]), createOrder);
  */
 router.get("/", authMiddleware, roleGuard(["customer"]), getMyOrders);
 
+/* ======================
+   SELLER ROUTES
+====================== */
+
+// View orders for logged-in vendor
+/**
+ * @swagger
+ * /api/orders/vendor:
+ *   get:
+ *     summary: Get all orders for logged-in vendor
+ *     tags: [Orders]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: List of vendor orders
+ */
+router.get(
+	"/vendor",
+	authMiddleware,
+	roleGuard(["vendor"]),
+	async (req, res) => {
+		try {
+			const orders = await Order.find({ vendor: req.user.id })
+				.populate("customer", "name phone")
+				.populate("items.item");
+			res.json(orders);
+		} catch (err) {
+			res.status(500).json({ error: err.message });
+		}
+	},
+);
+
 // Get a specific order by ID (customer)
 /**
  * @swagger
@@ -146,38 +179,7 @@ router.get("/:id", authMiddleware, roleGuard(["customer"]), getOrderById);
  */
 router.put("/:id", authMiddleware, roleGuard(["customer"]), updateOrderStatus);
 
-/* ======================
-   SELLER ROUTES
-====================== */
 
-// View orders for seller
-/**
- * @swagger
- * /api/orders/seller:
- *   get:
- *     summary: Get all orders for logged-in vendor
- *     tags: [Orders]
- *     security:
- *       - bearerAuth: []
- *     responses:
- *       200:
- *         description: List of vendor orders
- */
-router.get(
-	"/seller",
-	authMiddleware,
-	roleGuard(["vendor"]),
-	async (req, res) => {
-		try {
-			const orders = await Order.find({ vendor: req.user.id })
-				.populate("customer", "name phone")
-				.populate("items.item");
-			res.json(orders);
-		} catch (err) {
-			res.status(500).json({ error: err.message });
-		}
-	},
-);
 
 // Update order status (confirm/cancel) (seller)
 /**
@@ -317,51 +319,51 @@ router.put("/accept/:orderId", authMiddleware, roleGuard(["rider"]), acceptOrder
 // 			if (status && !["out_for_delivery", "delivered"].includes(status))
 // 				return res.status(400).json({ error: "Invalid rider status" });
 
-			// When rider picks up (out_for_delivery) -> send OTP to customer
-			// if (status === "out_for_delivery") {
-			// 	order.status = status;
-			// 	if (riderLocation?.lat && riderLocation?.lng) {
-			// 		order.riderLocation = {
-			// 			lat: riderLocation.lat,
-			// 			lng: riderLocation.lng,
-			// 			updatedAt: new Date(),
-			// 		};
-			// 	}
-			// 	await order.save();
+// When rider picks up (out_for_delivery) -> send OTP to customer
+// if (status === "out_for_delivery") {
+// 	order.status = status;
+// 	if (riderLocation?.lat && riderLocation?.lng) {
+// 		order.riderLocation = {
+// 			lat: riderLocation.lat,
+// 			lng: riderLocation.lng,
+// 			updatedAt: new Date(),
+// 		};
+// 	}
+// 	await order.save();
 
-			// 	try {
-			// 		await sendDeliveryOtp(order);
-			// 	} catch (e) {
-			// 		console.error("Failed to send delivery OTP:", e.message);
-			// 	}
+// 	try {
+// 		await sendDeliveryOtp(order);
+// 	} catch (e) {
+// 		console.error("Failed to send delivery OTP:", e.message);
+// 	}
 
-			// 	return res.json({
-			// 		message: "OTP sent to customer and order updated",
-			// 		order,
-			// 	});
-			// }
+// 	return res.json({
+// 		message: "OTP sent to customer and order updated",
+// 		order,
+// 	});
+// }
 
-			// When delivered -> verify OTP (required) then complete order and trigger payouts
-			// if (status === "delivered") {
-			// 	if (!otp)
-			// 		return res
-			// 			.status(400)
-			// 			.json({ error: "OTP required to confirm delivery" });
+// When delivered -> verify OTP (required) then complete order and trigger payouts
+// if (status === "delivered") {
+// 	if (!otp)
+// 		return res
+// 			.status(400)
+// 			.json({ error: "OTP required to confirm delivery" });
 
-			// 	const verified = await verifyDeliveryOtp(order, otp, req.user.id);
-			// 	if (!verified.success) {
-			// 		return res.status(400).json({ error: "Invalid OTP" });
-			// 	}
+// 	const verified = await verifyDeliveryOtp(order, otp, req.user.id);
+// 	if (!verified.success) {
+// 		return res.status(400).json({ error: "Invalid OTP" });
+// 	}
 
-				// Refresh order after verification
-			// 	const updated = await Order.findById(req.params.id);
-			// 	return res.json({
-			// 		message: "Order marked delivered and payouts triggered",
-			// 		order: updated,
-			// 	});
-			// }
+// Refresh order after verification
+// 	const updated = await Order.findById(req.params.id);
+// 	return res.json({
+// 		message: "Order marked delivered and payouts triggered",
+// 		order: updated,
+// 	});
+// }
 
-			// Fallback: generic update
+// Fallback: generic update
 // 			if (status) order.status = status;
 // 			if (riderLocation?.lat && riderLocation?.lng) {
 // 				order.riderLocation = {

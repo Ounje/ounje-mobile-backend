@@ -369,6 +369,32 @@ const refresh = async (req, res) => {
 	}
 };
 
+const checkUserExist = async (req, res) => {
+	try {
+		let { email, phone } = req.body;
+		if (!email && !phone) {
+			return res.status(400).json({ error: "Email or Phone is required" });
+		}
+
+		let user = null;
+		if (email) {
+			user = await User.findOne({ email });
+		} else if (phone) {
+			const normalizedPhone = normalizePhone(phone);
+			user = await User.findOne({ phone: normalizedPhone });
+		}
+
+		if (user) {
+			return res.status(200).json({ exists: true, message: "User exists" });
+		}
+
+		return res.status(200).json({ exists: false, message: "User does not exist" });
+	} catch (err) {
+		console.error("Check User Exist Error:", err);
+		res.status(500).json({ error: err.message });
+	}
+};
+
 module.exports = {
 	register,
 	login,
@@ -378,4 +404,5 @@ module.exports = {
 	verifyPhoneOtp,
 	logOut,
 	refresh,
+	checkUserExist,
 };

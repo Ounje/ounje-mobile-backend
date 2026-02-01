@@ -10,6 +10,7 @@ const {
 	verifyPhoneOtp,
 	logOut,
 	refresh,
+	checkUserExist,
 } = require("../controllers/authController");
 
 const {
@@ -251,5 +252,39 @@ router.post("/logout", logOut);
  *         description: Invalid refresh token
  */
 router.post("/refresh", refresh);
+
+/**
+ * @swagger
+ * /api/auth/check-user:
+ *   post:
+ *     summary: Check if User Exists
+ *     tags: [Auth]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               email:
+ *                 type: string
+ *               phone:
+ *                 type: string
+ *     responses:
+ *       200:
+ *         description: Check result
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 exists:
+ *                   type: boolean
+ *                 message:
+ *                   type: string
+ *       400:
+ *         description: Missing fields
+ */
+router.post("/check-user", checkUserExist);
 
 module.exports = router;
