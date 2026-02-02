@@ -189,8 +189,9 @@ const getRiderProfile = async (req, res) => {
 	try {
 		const riderId = req.user.id;
 		const rider = await Rider.findById(riderId).select(
-			"name phone modeOfDelivery Guarantor bankDetails",
+			"name phone modeOfDelivery Guarantor bankDetails driversLicense nin operatingArea",
 		);
+
 		if (!rider) {
 			return res.status(404).json({
 				success: false,
@@ -198,13 +199,99 @@ const getRiderProfile = async (req, res) => {
 			});
 		}
 
-		res.json({ success: true, data: rider });
+		// Determine if setup is complete based on backend data
+		let setupComplete = false;
+		let missingFields = [];
+
+		// Check basic fields
+		if (!rider.modeOfDelivery) {
+			missingFields.push("modeOfDelivery");
+		}
+
+		if (!rider.Guarantor || rider.Guarantor.length === 0) {
+			missingFields.push("Guarantor information");
+		} else {
+			// Check if guarantor has all required fields
+			const guarantor = rider.Guarantor[0];
+			if (!guarantor.guarantorName) {
+				missingFields.push("guarantorName");
+			}
+			if (!guarantor.guarantorPhone) {
+				missingFields.push("guarantorPhone");
+			}
+			if (!guarantor.guarantorNin) {
+				missingFields.push("guarantorNin document");
+			}
+		}
+
+		// Check mode-specific documents
+		if (rider.modeOfDelivery === "Motorcycle") {
+			if (!rider.driversLicense) {
+				missingFields.push("driversLicense document");
+			}
+		} else if (rider.modeOfDelivery === "Bicycle") {
+			if (!rider.nin) {
+				missingFields.push("nin document");
+			}
+		}
+
+		// Check operating area
+		if (!rider.operatingArea || rider.operatingArea.length === 0) {
+			missingFields.push("operatingArea");
+		}
+
+		// Check bank details
+		if (
+			!rider.bankDetails ||
+			!rider.bankDetails.accountNumber ||
+			!rider.bankDetails.bankCode ||
+			!rider.bankDetails.accountName
+		) {
+			missingFields.push("bankDetails");
+		}
+
+		// Setup is complete only if no fields are missing
+		setupComplete = missingFields.length === 0;
+
+		// Prepare response data
+		const responseData = {
+			name: rider.name,
+			phone: rider.phone,
+			modeOfDelivery: rider.modeOfDelivery,
+			operatingArea: rider.operatingArea || [],
+			Guarantor: rider.Guarantor,
+			bankDetails: rider.bankDetails,
+			setupComplete,
+		};
+
+		// Include missing fields info if setup is not complete
+		if (!setupComplete) {
+			responseData.missingFields = missingFields;
+		}
+
+		// Include document upload status
+		responseData.documentsUploaded = {
+			driversLicense: !!rider.driversLicense,
+			nin: !!rider.nin,
+			guarantorNin:
+				rider.Guarantor && rider.Guarantor.length > 0
+					? !!rider.Guarantor[0].guarantorNin
+					: false,
+		};
+
+		res.json({
+			success: true,
+			data: responseData,
+		});
 	} catch (err) {
 		console.error("Get Rider Profile Error:", err);
-		res.status(500).json({ success: false, error: err.message });
+		res.status(500).json({
+			success: false,
+			message: "An error occurred while fetching rider profile",
+			error: err.message,
+		});
 	}
 };
-
 module.exports = {
 	completeRiderRegistration,
 	registerRider,
