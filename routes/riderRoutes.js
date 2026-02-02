@@ -152,6 +152,18 @@ router.get("/leaderboard", riderLeaderBoard);
 router.get("/profile", authMiddleware, roleGuard(["rider"]), getRiderProfile);
 
 // Rider Wallet & Earnings
+/**
+ * @swagger
+ * /api/riders/wallet:
+ *   get:
+ *     summary: Get rider wallet balance and earnings
+ *     tags: [Riders]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Wallet balance and earnings stats
+ */
 router.get("/wallet", authMiddleware, roleGuard(["rider"]), getRiderWallet);
 
 module.exports = router;

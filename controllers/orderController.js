@@ -175,7 +175,8 @@ exports.completeDelivery = async (req, res) => {
 
 exports.getAvailableRiderRequests = async (req, res) => {
 	try {
-		const orders = await orderService.getAvailableRiderRequests();
+		const riderId = req.user.id;
+		const orders = await orderService.getAvailableRiderRequests(riderId);
 		res.status(200).json(orders);
 	} catch (error) {
 		logger.error(`GET_RIDER_REQUESTS_ERROR: ${error.message}`);

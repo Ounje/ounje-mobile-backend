@@ -324,14 +324,20 @@ const completeDelivery = async (orderId, riderId, otp) => {
 
 // --- Rider Dashboard Queries ---
 
-const getAvailableRiderRequests = async () => {
+const getAvailableRiderRequests = async (riderId) => {
+    // 1. Get the rider's operating areas
+    const rider = await Rider.findById(riderId);
+    if (!rider) throw new Error("Rider not found");
+
+    // 2. Find orders: Pending + No Rider + In Rider's Zone
     return await Order.find({
         status: ORDER_STATUS.PENDING,
         rider: null,
+        zone: { $in: rider.operatingArea },
     })
         .populate("vendor", "name address location")
-        .populate("customer", "name location")
-        .sort({ createdAt: -1 });
+        .populate("customer", "name location phone") // Added phone for context if needed
+        .sort({ createdAt: -1 }); // Newest first
 };
 
 const getCurrentRiderOrder = async (riderId) => {

@@ -512,7 +512,7 @@ const getDailyEarnings = async (userId, userType, date = new Date()) => {
       $match: {
         accountId: account._id,
         entryType: "CREDIT",
-        reason: "ORDER_EARNING",
+        reason: { $in: ["ORDER_EARNING", "ORDER_COMPLETED"] },
         createdAt: { $gte: startOfDay, $lte: endOfDay }
       }
     },

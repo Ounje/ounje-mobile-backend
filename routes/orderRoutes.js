@@ -28,6 +28,27 @@ const router = express.Router();
 ====================== */
 
 // Create new order (customer)
+// View available orders (confirmed, unassigned)
+/**
+ * @swagger
+ * /api/orders/available:
+ *   get:
+ *     summary: Get available orders for rider (match zone)
+ *     tags: [Orders]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: List of available orders
+ */
+router.get(
+	"/available",
+	authMiddleware,
+	roleGuard(["rider"]),
+	getAvailableRiderRequests
+);
+
+// Create new order (customer)
 /**
  * @swagger
  * tags:
@@ -254,13 +275,36 @@ router.put(
    RIDER DASHBOARD ROUTES
 ====================== */
 
-// 1. Get New Delivery Requests
-router.get("/rider/requests", authMiddleware, roleGuard(["rider"]), getAvailableRiderRequests);
+
 
 // 2. Get Ongoing Ride
+/**
+ * @swagger
+ * /api/orders/rider/ongoing:
+ *   get:
+ *     summary: Get current active order for rider
+ *     tags: [Orders]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Active order details
+ */
 router.get("/rider/ongoing", authMiddleware, roleGuard(["rider"]), getCurrentRiderOrder);
 
 // 3. Get Completed Rides Today
+/**
+ * @swagger
+ * /api/orders/rider/completed-today:
+ *   get:
+ *     summary: Get rider's completed orders for today
+ *     tags: [Orders]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Count and list of completed orders
+ */
 router.get("/rider/completed-today", authMiddleware, roleGuard(["rider"]), getRiderCompletedOrdersToday);
 
 
@@ -268,43 +312,7 @@ router.get("/rider/completed-today", authMiddleware, roleGuard(["rider"]), getRi
    RIDER ROUTES
 ====================== */
 
-// View available orders (confirmed, unassigned)
-/**
- * @swagger
- * /api/orders/available:
- *   get:
- *     summary: Get available orders for rider (match zone)
- *     tags: [Orders]
- *     security:
- *       - bearerAuth: []
- *     responses:
- *       200:
- *         description: List of available orders
- */
-router.get(
-	"/available",
-	authMiddleware,
-	roleGuard(["rider"]),
-	async (req, res) => {
-		try {
-			// Get the rider's operating areas (Max 2 zones)
-			const rider = await Rider.findById(req.user.id);
 
-			// ONLY find orders that match the rider's zones
-			const orders = await Order.find({
-				status: "pending", // or "confirmed"
-				rider: null,
-				zone: { $in: rider.operatingArea }, // Filter by the Rider's 2 zones
-			})
-				.populate("vendor", "name deliveryAddress")
-				.populate("customer", "name deliveryAddress");
-
-			res.json(orders);
-		} catch (err) {
-			res.status(500).json({ error: err.message });
-		}
-	},
-);
 
 // Claim an order (rider)
 /**
