@@ -11,7 +11,7 @@ const orderSchema = new mongoose.Schema({
 	},
 	vendor: {
 		type: mongoose.Schema.Types.ObjectId,
-		ref: "Vendor",
+		ref: "vendor",
 		required: true,
 	},
 	items: [
@@ -58,18 +58,24 @@ const orderSchema = new mongoose.Schema({
 	rider: { type: mongoose.Schema.Types.ObjectId, ref: "rider" },
 	status: {
 		type: String,
-		enum: ["CONFIRMING", "PACKAGING", "RIDING", "DELIVERED", "CANCELLED"
+		enum: ["CONFIRMING", "PACKAGING", "RIDING", "DELIVERED", "CANCELLED"],
+		default: "CONFIRMING",
+	},
+	subStatus: {
+		type: String,
+		enum: [
+			"CONFIRMING",
+			"CONFIRMED",
+			"PACKAGING",
+			"PACKAGED",
+			"LOOKING_FOR_RIDER",
+			"RIDER_ASSIGNED",
+			"PICKED_UP",
+			"ON_THE_WAY",
+			"DELIVERED",
 		],
 		default: "CONFIRMING",
 	},
-	subStatus: { 
-    type: String, 
-    enum: [
-      "CONFIRMING", "CONFIRMED", "PACKAGING", "PACKAGED", 
-      "LOOKING_FOR_RIDER", "RIDER_ASSIGNED", "PICKED_UP", 
-      "ON_THE_WAY", "DELIVERED"
-    ],
-    default: "CONFIRMING" }, 
 	deliveryAddress: {
 		type: String,
 	},

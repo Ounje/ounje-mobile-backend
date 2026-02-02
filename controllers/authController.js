@@ -253,8 +253,8 @@ const requestPhoneOtp = async (req, res) => {
 
 		phone = normalizePhone(phone);
 
-		const exists = await User.findOne({ phone });
-		if (exists) return res.status(400).json({ error: "Phone already in use" });
+		//const exists = await User.findOne({ phone });
+		//if (exists) return res.status(400).json({ error: "Phone already in use" });
 
 		let { success, reference, error } = await requestSmsOtp(phone);
 		if (!success) return res.status(500).json({ error });
@@ -388,7 +388,9 @@ const checkUserExist = async (req, res) => {
 			return res.status(200).json({ exists: true, message: "User exists" });
 		}
 
-		return res.status(200).json({ exists: false, message: "User does not exist" });
+		return res
+			.status(200)
+			.json({ exists: false, message: "User does not exist" });
 	} catch (err) {
 		console.error("Check User Exist Error:", err);
 		res.status(500).json({ error: err.message });

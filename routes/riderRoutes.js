@@ -9,6 +9,7 @@ const {
 	updateBankDetails,
 	riderLeaderBoard,
 	completeRiderRegistration,
+	getRiderProfile,
 } = require("../controllers/riderController");
 
 // FIX 3: Endpoint corrected to '/location' since the server.js prefix is '/api/riders'
@@ -146,5 +147,7 @@ router.post(
  *         description: Leaderboard data
  */
 router.get("/leaderboard", riderLeaderBoard);
+
+router.get("/profile", authMiddleware, roleGuard(["rider"]), getRiderProfile);
 
 module.exports = router;

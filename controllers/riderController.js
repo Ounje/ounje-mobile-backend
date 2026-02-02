@@ -185,10 +185,30 @@ const completeRiderRegistration = async (req, res) => {
 		});
 	}
 };
+const getRiderProfile = async (req, res) => {
+	try {
+		const riderId = req.user.id;
+		const rider = await Rider.findById(riderId).select(
+			"name phone modeOfDelivery Guarantor bankDetails",
+		);
+		if (!rider) {
+			return res.status(404).json({
+				success: false,
+				message: "Rider not found",
+			});
+		}
+
+		res.json({ success: true, data: rider });
+	} catch (err) {
+		console.error("Get Rider Profile Error:", err);
+		res.status(500).json({ success: false, error: err.message });
+	}
+};
 
 module.exports = {
 	completeRiderRegistration,
 	registerRider,
 	updateBankDetails,
 	riderLeaderBoard,
+	getRiderProfile,
 };
