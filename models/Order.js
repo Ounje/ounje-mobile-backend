@@ -2,6 +2,7 @@ const mongoose = require("mongoose");
 const Plate = require("./Plate");
 const FoodItem = require("./FoodItem");
 const Dish = require("./Combo");
+const { ORDER_STATUS, ORDER_SUB_STATUS } = require("../utilis/constants");
 
 const orderSchema = new mongoose.Schema({
 	customer: {
@@ -58,23 +59,13 @@ const orderSchema = new mongoose.Schema({
 	rider: { type: mongoose.Schema.Types.ObjectId, ref: "rider" },
 	status: {
 		type: String,
-		enum: ["CONFIRMING", "PACKAGING", "RIDING", "DELIVERED", "CANCELLED"],
-		default: "CONFIRMING",
+		enum: Object.values(ORDER_STATUS),
+		default: ORDER_STATUS.CONFIRMING,
 	},
 	subStatus: {
 		type: String,
-		enum: [
-			"CONFIRMING",
-			"CONFIRMED",
-			"PACKAGING",
-			"PACKAGED",
-			"LOOKING_FOR_RIDER",
-			"RIDER_ASSIGNED",
-			"PICKED_UP",
-			"ON_THE_WAY",
-			"DELIVERED",
-		],
-		default: "CONFIRMING",
+		enum: Object.values(ORDER_SUB_STATUS),
+		default: ORDER_SUB_STATUS.CONFIRMING,
 	},
 	deliveryAddress: {
 		type: String,
@@ -98,4 +89,14 @@ const orderSchema = new mongoose.Schema({
 	},
 });
 
+orderSchema.set("toJSON", {
+	virtuals: true,
+	versionKey: false,
+	transform: function (doc, ret) {
+		delete ret._id;
+	},
+});
+
 module.exports = mongoose.model("Order", orderSchema);
+
+
