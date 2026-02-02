@@ -20,6 +20,16 @@ const userSchema = new mongoose.Schema(
 	{ timestamps: true, ...options },
 );
 
+
+userSchema.set("toJSON", {
+	virtuals: true,
+	versionKey: false,
+	transform: function (doc, ret) {
+		delete ret._id;
+	},
+});
+
 userSchema.index({ location: "2dsphere" });
 
 module.exports = mongoose.model("User", userSchema);
+

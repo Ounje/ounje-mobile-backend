@@ -338,10 +338,10 @@ const creditVendorFromOrder = async (order, commission = 0.1) => {
     vendorNet,
     "ORDER_EARNING",
     order._id,
-    { 
-      gross: vendorGross, 
+    {
+      gross: vendorGross,
       commission: vendorCommission,
-      commissionRate: commission 
+      commissionRate: commission
     }
   );
 
@@ -439,7 +439,7 @@ const releaseRiderFee = async (userId, orderId) => {
   session.startTransaction();
   try {
     const account = await LedgerAccount.findOne({ userId, type: "RIDER" });
-    
+
     // Find the original hold entry to get the amount
     const holdEntry = await LedgerEntry.findOne({ orderId, accountId: account._id, reason: "DELIVERY_FEE_HOLD" });
     if (!holdEntry) throw new Error("No held funds found for this order");
@@ -448,7 +448,7 @@ const releaseRiderFee = async (userId, orderId) => {
 
     account.holdBalance -= amount;
     account.availableBalance += amount;
-    
+
     await LedgerEntry.create([{
       accountId: account._id,
       amount,
@@ -469,6 +469,39 @@ const releaseRiderFee = async (userId, orderId) => {
   }
 };
 
+/**
+ * Get total earnings for a specific date (default: today)
+ */
+const getDailyEarnings = async (userId, userType, date = new Date()) => {
+  const account = await LedgerAccount.findOne({ userId, type: userType });
+  if (!account) return 0;
+
+  const startOfDay = new Date(date);
+  startOfDay.setHours(0, 0, 0, 0);
+
+  const endOfDay = new Date(date);
+  endOfDay.setHours(23, 59, 59, 999);
+
+  const result = await LedgerEntry.aggregate([
+    {
+      $match: {
+        accountId: account._id,
+        entryType: "CREDIT",
+        reason: "ORDER_EARNING",
+        createdAt: { $gte: startOfDay, $lte: endOfDay }
+      }
+    },
+    {
+      $group: {
+        _id: null,
+        total: { $sum: "$amount" }
+      }
+    }
+  ]);
+
+  return result.length > 0 ? result[0].total : 0;
+};
+
 module.exports = {
   ensureAccount,
   creditAccount,
@@ -483,4 +516,5 @@ module.exports = {
   getAccountStatement,
   holdRiderFee,
   releaseRiderFee,
+  getDailyEarnings,
 };

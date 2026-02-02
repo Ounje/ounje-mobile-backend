@@ -1,63 +1,56 @@
-const payoutService = require("../services/payout.service");
-const ratingService = require("../services/rating.service");
-const Rider = require("../models/Rider");
+const riderService = require("../services/rider.service");
+const logger = require("../utilis/logger");
 
-const registerRider = async (req, res) => {
-	const { name, selectedZones } = req.body; // e.g., ["Ikeja", "Yaba"]
+const getRiderWallet = async (req, res) => {
+	try {
+		const riderId = req.user.id;
+		const walletData = await riderService.getRiderDashboard(riderId);
 
-	// Validation: Check if they picked more than 2
-	if (selectedZones.length > 2) {
-		return res.status(400).json({
+		res.status(200).json({
+			success: true,
+			...walletData,
+		});
+
+	} catch (err) {
+		logger.error(`Get Rider Wallet Error: ${err.message}`);
+		res.status(500).json({
 			success: false,
-			message: "You can only select a maximum of 2 delivery zones.",
+			message: "Error fetching wallet info",
+			error: err.message,
 		});
 	}
+};
 
-	// Save to database (MongoDB/PostgreSQL)
-	// await Rider.create({ name, zones: selectedZones });
-
-	res.status(201).json({
-		message: "Rider registered successfully!" + selectedZones.join(", "),
-	});
+const registerRider = async (req, res) => {
+	try {
+		const result = await riderService.registerRider(req.body);
+		res.status(201).json(result);
+	} catch (error) {
+		logger.error(`Register Rider Error: ${error.message}`);
+		res.status(400).json({
+			success: false,
+			message: error.message
+		});
+	}
 };
 
 const updateBankDetails = async (req, res) => {
 	try {
 		const riderId = req.user.id;
-		const { accountNumber, bankCode, accountName } = req.body;
-
-		if (!accountNumber || !bankCode || !accountName) {
-			return res
-				.status(400)
-				.json({ error: "accountNumber, bankCode, accountName required" });
-		}
-
-		const RiderModel = require("../models/Rider");
-		const rider = await RiderModel.findByIdAndUpdate(
-			riderId,
-			{ bankDetails: { accountNumber, bankCode, accountName } },
-			{ new: true },
-		);
-
-		// Trigger retry of pending payouts
-		const retryResults = await payoutService.processPendingPayoutsForUser(
-			rider._id,
-			"RIDER",
-		);
-
-		res.json({ rider, retryResults });
+		const result = await riderService.updateBankDetails(riderId, req.body);
+		res.json(result);
 	} catch (err) {
-		console.error("Update bank details failed:", err.message);
+		logger.error(`Update bank details failed: ${err.message}`);
 		res.status(500).json({ error: err.message });
 	}
 };
 
 const riderLeaderBoard = async (req, res) => {
 	try {
-		const result = await ratingService.getRiderLeaderboard();
+		const result = await riderService.getRiderLeaderboard();
 		res.status(200).json(result);
 	} catch (err) {
-		console.error("Rider Leaderboard Error:", err);
+		logger.error(`Rider Leaderboard Error: ${err.message}`);
 		res.status(500).json({
 			success: false,
 			error: err.message,
@@ -67,117 +60,17 @@ const riderLeaderBoard = async (req, res) => {
 
 const completeRiderRegistration = async (req, res) => {
 	try {
-		const { modeOfDelivery, guarantorName, guarantorPhone } = req.body;
 		const riderId = req.user.id;
-
-		const rider = await Rider.findById(riderId);
-		if (!rider) {
-			return res.status(404).json({
-				success: false,
-				message: "Rider not found",
-			});
-		}
-
-		if (rider.Guarantor && rider.Guarantor.length > 0) {
-			return res.status(400).json({
-				success: false,
-				message: "Registration already completed. Guarantor already exists.",
-			});
-		}
-
-		if (!modeOfDelivery || !guarantorName || !guarantorPhone) {
-			return res.status(400).json({
-				success: false,
-				message:
-					"All fields are required: modeOfDelivery, guarantorName, guarantorPhone",
-			});
-		}
-
-		if (!["Bicycle", "Motorcycle"].includes(modeOfDelivery)) {
-			return res.status(400).json({
-				success: false,
-				message: "Invalid mode of delivery. Must be 'Bicycle' or 'Motorcycle'",
-			});
-		}
-
-		// Check for guarantor NIN file - REQUIRED for all riders
-		if (!req.files || !req.files.guarantorNin || !req.files.guarantorNin[0]) {
-			return res.status(400).json({
-				success: false,
-				message: "Guarantor NIN document is required",
-			});
-		}
-
-		const guarantorNinUrl = req.files.guarantorNin[0].path;
-
-		let driversLicense = null;
-		let nin = null;
-
-		if (modeOfDelivery === "Motorcycle") {
-			// Motorcycle riders need driver's license
-			if (
-				!req.files ||
-				!req.files.driversLicense ||
-				!req.files.driversLicense[0]
-			) {
-				return res.status(400).json({
-					success: false,
-					message: "Drivers license document is required for Motorcycle riders",
-				});
-			}
-			driversLicense = req.files.driversLicense[0].path;
-		}
-
-		if (modeOfDelivery === "Bicycle") {
-			// Bicycle riders need NIN
-			if (!req.files || !req.files.nin || !req.files.nin[0]) {
-				return res.status(400).json({
-					success: false,
-					message: "NIN document is required for Bicycle riders",
-				});
-			}
-			nin = req.files.nin[0].path;
-		}
-
-		const guarantor = {
-			guarantorName,
-			guarantorPhone: Number(guarantorPhone),
-			guarantorNin: guarantorNinUrl,
-		};
-
-		rider.modeOfDelivery = modeOfDelivery;
-		rider.Guarantor = [guarantor];
-
-		if (driversLicense) {
-			rider.driversLicense = driversLicense;
-		}
-
-		if (nin) {
-			rider.nin = nin;
-		}
-
-		await rider.save();
+		// Pass req.files as well
+		const result = await riderService.completeRiderRegistration(riderId, req.body, req.files);
 
 		return res.status(200).json({
 			success: true,
 			message: "Rider registration completed successfully",
-			data: {
-				riderId: rider._id,
-				name: rider.name,
-				modeOfDelivery: rider.modeOfDelivery,
-				guarantor: {
-					guarantorName: guarantor.guarantorName,
-					guarantorPhone: guarantor.guarantorPhone,
-				},
-				documentsUploaded: {
-					driversLicense: !!driversLicense,
-					nin: !!nin,
-					guarantorNin: true,
-				},
-			},
+			data: result,
 		});
 	} catch (err) {
-		console.error("Complete Rider Registration Error:", err);
+		logger.error(`Complete Rider Registration Error: ${err.message}`);
 		return res.status(500).json({
 			success: false,
 			message: "An error occurred while completing registration",
@@ -185,117 +78,33 @@ const completeRiderRegistration = async (req, res) => {
 		});
 	}
 };
+
 const getRiderProfile = async (req, res) => {
 	try {
 		const riderId = req.user.id;
-		const rider = await Rider.findById(riderId).select(
-			"name phone modeOfDelivery Guarantor bankDetails driversLicense nin operatingArea",
-		);
-
-		if (!rider) {
-			return res.status(404).json({
-				success: false,
-				message: "Rider not found",
-			});
-		}
-
-		// Determine if setup is complete based on backend data
-		let setupComplete = false;
-		let missingFields = [];
-
-		// Check basic fields
-		if (!rider.modeOfDelivery) {
-			missingFields.push("modeOfDelivery");
-		}
-
-		if (!rider.Guarantor || rider.Guarantor.length === 0) {
-			missingFields.push("Guarantor information");
-		} else {
-			// Check if guarantor has all required fields
-			const guarantor = rider.Guarantor[0];
-			if (!guarantor.guarantorName) {
-				missingFields.push("guarantorName");
-			}
-			if (!guarantor.guarantorPhone) {
-				missingFields.push("guarantorPhone");
-			}
-			if (!guarantor.guarantorNin) {
-				missingFields.push("guarantorNin document");
-			}
-		}
-
-		// Check mode-specific documents
-		if (rider.modeOfDelivery === "Motorcycle") {
-			if (!rider.driversLicense) {
-				missingFields.push("driversLicense document");
-			}
-		} else if (rider.modeOfDelivery === "Bicycle") {
-			if (!rider.nin) {
-				missingFields.push("nin document");
-			}
-		}
-
-		// Check operating area
-		if (!rider.operatingArea || rider.operatingArea.length === 0) {
-			missingFields.push("operatingArea");
-		}
-
-		// Check bank details
-		if (
-			!rider.bankDetails ||
-			!rider.bankDetails.accountNumber ||
-			!rider.bankDetails.bankCode ||
-			!rider.bankDetails.accountName
-		) {
-			missingFields.push("bankDetails");
-		}
-
-		// Setup is complete only if no fields are missing
-		setupComplete = missingFields.length === 0;
-
-		// Prepare response data
-		const responseData = {
-			name: rider.name,
-			phone: rider.phone,
-			modeOfDelivery: rider.modeOfDelivery,
-			operatingArea: rider.operatingArea || [],
-			Guarantor: rider.Guarantor,
-			bankDetails: rider.bankDetails,
-			setupComplete,
-		};
-
-		// Include missing fields info if setup is not complete
-		if (!setupComplete) {
-			responseData.missingFields = missingFields;
-		}
-
-		// Include document upload status
-		responseData.documentsUploaded = {
-			driversLicense: !!rider.driversLicense,
-			nin: !!rider.nin,
-			guarantorNin:
-				rider.Guarantor && rider.Guarantor.length > 0
-					? !!rider.Guarantor[0].guarantorNin
-					: false,
-		};
+		const data = await riderService.getRiderProfile(riderId);
 
 		res.json({
 			success: true,
-			data: responseData,
+			data,
 		});
 	} catch (err) {
-		console.error("Get Rider Profile Error:", err);
-		res.status(500).json({
+		logger.error(`Get Rider Profile Error: ${err.message}`);
+		// Handle 404 specifically if needed, or generic 500
+		const status = err.message === "Rider not found" ? 404 : 500;
+		res.status(status).json({
 			success: false,
 			message: "An error occurred while fetching rider profile",
 			error: err.message,
 		});
 	}
 };
+
 module.exports = {
 	completeRiderRegistration,
 	registerRider,
 	updateBankDetails,
 	riderLeaderBoard,
 	getRiderProfile,
+	getRiderWallet,
 };
