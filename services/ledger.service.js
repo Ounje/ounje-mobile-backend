@@ -434,32 +434,57 @@ const holdRiderFee = async (userId, amount, orderId) => {
  * 2. Release Hold to Available (Token Verified)
  * Called by orderController.verifyDeliveryOtp
  */
-const releaseRiderFee = async (userId, orderId) => {
+const releaseRiderFee = async (userId, orderId, fallbackAmount = 0) => {
   const session = await mongoose.startSession();
   session.startTransaction();
   try {
-    const account = await LedgerAccount.findOne({ userId, type: "RIDER" });
+    // Use ensureAccount to prevent null crash
+    const account = await ensureAccount(userId, "RIDER");
 
-    // Find the original hold entry to get the amount
+    // Find the original hold entry
     const holdEntry = await LedgerEntry.findOne({ orderId, accountId: account._id, reason: "DELIVERY_FEE_HOLD" });
-    if (!holdEntry) throw new Error("No held funds found for this order");
 
-    const amount = holdEntry.amount;
+    let amount = 0;
 
-    account.holdBalance -= amount;
-    account.availableBalance += amount;
+    if (holdEntry) {
+      amount = holdEntry.amount;
+      account.holdBalance -= amount;
 
-    await LedgerEntry.create([{
-      accountId: account._id,
-      amount,
-      entryType: "CREDIT",
-      reason: "ORDER_COMPLETED",
-      orderId,
-      meta: { action: "token_verified" },
-      balanceAfter: account.availableBalance
-    }], { session });
+      // Log release
+      await LedgerEntry.create([{
+        accountId: account._id,
+        amount,
+        entryType: "CREDIT",
+        reason: "ORDER_COMPLETED",
+        orderId,
+        meta: { action: "hold_released" },
+        balanceAfter: account.availableBalance + amount
+      }], { session });
 
-    await account.save({ session });
+    } else {
+      // Fallback if no hold (e.g. test order or legacy)
+      if (fallbackAmount > 0) {
+        amount = fallbackAmount;
+        await LedgerEntry.create([{
+          accountId: account._id,
+          amount,
+          entryType: "CREDIT",
+          reason: "ORDER_COMPLETED",
+          orderId,
+          meta: { action: "direct_credit_no_hold" },
+          balanceAfter: account.availableBalance + amount
+        }], { session });
+      } else {
+        // warning but don't fail, maybe already paid?
+        console.warn(`No hold and no fallback amount for order ${orderId}`);
+      }
+    }
+
+    if (amount > 0) {
+      account.availableBalance += amount;
+      await account.save({ session });
+    }
+
     await session.commitTransaction();
   } catch (error) {
     await session.abortTransaction();

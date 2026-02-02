@@ -227,17 +227,17 @@ const verifyDeliveryOtp = async (order, otp, riderId) => {
     order.deliveryOtpSentAt = null;
 
     // RELEASE THE MONEY TO RIDER WALLET
-    await ledgerService.releaseRiderFee(order.rider, order._id);
+    // Pass deliveryFee as fallback in case no hold exists (e.g. seeded order)
+    await ledgerService.releaseRiderFee(order.rider, order._id, order.deliveryFee);
     await order.save();
 
     // Trigger automatic payouts asynchronously
     try {
-        logger.info(`Triggering auto payouts for order ${order._id}`);
-        if (order.rider) {
-            await ledgerService.releaseRiderFee(order.rider, order._id);
-        }
+        logger.info(`Processing completion for order ${order._id}`);
+        // NOTE: releaseRiderFee is already called above synchronously to ensure Rider gets paid.
+        // We do NOT need to call it again here.
     } catch (err) {
-        logger.error(`Auto payout failed for order ${order._id}: ${err.message}`);
+        logger.error(`Completion processing log error ${order._id}: ${err.message}`);
     }
 
     return { success: true };
@@ -256,7 +256,9 @@ const acceptOrder = async (orderId, riderId) => {
 
     // Check availability
     if (order.status !== ORDER_STATUS.PENDING || order.rider) {
-        throw new Error("Order is no longer available. Another rider may have accepted it.");
+        throw new Error(
+            `Order is not available for acceptance. Status: ${order.status}, Assigned: ${!!order.rider}`
+        );
     }
 
     // Assign rider

@@ -232,7 +232,16 @@ router.put(
 			if (!["confirmed", "cancelled"].includes(status))
 				return res.status(400).json({ error: "Invalid status" });
 
-			order.status = status;
+			if (status === "confirmed") {
+				// Vendor accepted -> Waiting for Rider
+				order.status = "PENDING"; // ORDER_STATUS.PENDING
+				order.subStatus = "LOOKING_FOR_RIDER"; // ORDER_SUB_STATUS.LOOKING_FOR_RIDER
+			} else if (status === "cancelled") {
+				order.status = "CANCELLED";
+			} else {
+				order.status = status;
+			}
+
 			await order.save();
 			res.json(order);
 		} catch (err) {
@@ -518,6 +527,7 @@ router.get(
 			}
 
 			if (new Date() > new Date(order.deliveryOtpExpiresAt)) {
+				logger.warn(`OTP expired for order ${order._id} requested by customer ${req.user.id}`);
 				return res.status(410).json({ error: "OTP expired" });
 			}
 
@@ -530,6 +540,38 @@ router.get(
 			res.status(500).json({ error: err.message });
 		}
 	},
+);
+
+// Regenerate Delivery OTP
+/**
+ * @swagger
+ * /api/orders/{id}/delivery-otp:
+ *   post:
+ *     summary: Regenerate delivery OTP (Customer)
+ *     tags: [Orders]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: New OTP generated
+ *       400:
+ *         description: Order completed/cancelled
+ *       403:
+ *         description: Unauthorized
+ *       404:
+ *         description: Order not found
+ */
+router.post(
+	"/:id/delivery-otp",
+	authMiddleware,
+	roleGuard(["customer"]),
+	require("../controllers/orderController").regenerateDeliveryOtp
 );
 
 module.exports = router;
