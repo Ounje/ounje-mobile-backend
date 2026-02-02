@@ -101,6 +101,8 @@ io.on("connection", (socket) => {
 });
 
 // Middleware
+const errorHandler = require("./middleware/errorHandler");
+app.use(errorHandler);
 
 app.get("/", (req, res) => res.send("Food Service API running 🚀"));
 

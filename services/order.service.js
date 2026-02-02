@@ -11,6 +11,7 @@ const { sendPushNotification } = require("./notification.service");
 const ledgerService = require("./ledger.service");
 const { ORDER_STATUS, ORDER_SUB_STATUS } = require("../utilis/constants");
 const logger = require("../utilis/logger");
+const mongoose = require("mongoose");
 
 // --- Helpers ---
 
@@ -59,6 +60,10 @@ const createOrder = async (userId, data) => {
     // ... (unchanged logic) ...
     const { items, vendorId, deliveryAddress } = data;
 
+    if (!mongoose.isValidObjectId(vendorId)) {
+        throw new Error(`Invalid Vendor ID: ${vendorId}`);
+    }
+
     if (!items || items.length === 0) {
         throw new Error("No items in the order.");
     }
@@ -83,6 +88,11 @@ const createOrder = async (userId, data) => {
 
     for (const item of items) {
         const { itemId, itemType, quantity = 1, notes } = item;
+
+        if (!mongoose.isValidObjectId(itemId)) {
+            throw new Error(`Invalid Item ID: ${itemId}`);
+        }
+
         if (!itemId || !itemType || !models[itemType]) continue;
 
         const ProductModel = models[itemType];
@@ -241,73 +251,73 @@ const verifyDeliveryOtp = async (order, otp, riderId) => {
 
 
 const acceptOrder = async (orderId, riderId) => {
-	const order = await Order.findById(orderId);
-	if (!order) throw new Error("Order not found");
+    const order = await Order.findById(orderId);
+    if (!order) throw new Error("Order not found");
 
-	// Check availability
-	if (order.status !== ORDER_STATUS.PENDING || order.rider) {
-		throw new Error("Order is no longer available. Another rider may have accepted it.");
-	}
+    // Check availability
+    if (order.status !== ORDER_STATUS.PENDING || order.rider) {
+        throw new Error("Order is no longer available. Another rider may have accepted it.");
+    }
 
-	// Assign rider
-	order.rider = riderId;
-	order.status = ORDER_STATUS.RIDING;
-	order.subStatus = ORDER_SUB_STATUS.RIDER_ASSIGNED;
-	await order.save();
+    // Assign rider
+    order.rider = riderId;
+    order.status = ORDER_STATUS.RIDING;
+    order.subStatus = ORDER_SUB_STATUS.RIDER_ASSIGNED;
+    await order.save();
 
-	// Notify Customer
-	if (global.io) {
-		global.io.to(order.customer.toString()).emit("orderUpdate", {
-			orderId: order._id,
-			status: order.status,
-			message: "A rider has accepted your order and is on the way!",
-		});
+    // Notify Customer
+    if (global.io) {
+        global.io.to(order.customer.toString()).emit("orderUpdate", {
+            orderId: order._id,
+            status: order.status,
+            message: "A rider has accepted your order and is on the way!",
+        });
         logger.info(`Rider ${riderId} accepted Order ${orderId}`);
-	}
+    }
 
-	return order;
+    return order;
 };
 
 const pickUpOrder = async (orderId, riderId) => {
-	const order = await Order.findById(orderId);
-	if (!order) throw new Error("Order not found");
+    const order = await Order.findById(orderId);
+    if (!order) throw new Error("Order not found");
 
-	if (order.rider.toString() !== riderId) {
-		throw new Error("You are not the assigned rider for this order");
-	}
+    if (order.rider.toString() !== riderId) {
+        throw new Error("You are not the assigned rider for this order");
+    }
 
-	order.status = ORDER_STATUS.RIDING;
-	order.subStatus = ORDER_SUB_STATUS.PICKED_UP;
-	await order.save();
+    order.status = ORDER_STATUS.RIDING;
+    order.subStatus = ORDER_SUB_STATUS.PICKED_UP;
+    await order.save();
 
-	// Send OTP to customer
-	await sendDeliveryOtp(order);
+    // Send OTP to customer
+    await sendDeliveryOtp(order);
 
-	return order;
+    return order;
 };
 
 const completeDelivery = async (orderId, riderId, otp) => {
-	const order = await Order.findById(orderId);
-	if (!order) throw new Error("Order not found");
+    const order = await Order.findById(orderId);
+    if (!order) throw new Error("Order not found");
 
-	if (order.rider.toString() !== riderId) {
-		throw new Error("Not assigned to you");
-	}
+    if (order.rider.toString() !== riderId) {
+        throw new Error("Not assigned to you");
+    }
 
-	await verifyDeliveryOtp(order, otp, riderId);
+    await verifyDeliveryOtp(order, otp, riderId);
 
-	// Real-time update
-	if (global.io) {
-		global.io.to(order.customer.toString()).emit("orderUpdate", {
-			orderId: order._id,
-			status: ORDER_STATUS.DELIVERED,
-			subStatus: ORDER_SUB_STATUS.DELIVERED,
-			message: "Delivery confirmed! Enjoy your meal.",
-		});
+    // Real-time update
+    if (global.io) {
+        global.io.to(order.customer.toString()).emit("orderUpdate", {
+            orderId: order._id,
+            status: ORDER_STATUS.DELIVERED,
+            subStatus: ORDER_SUB_STATUS.DELIVERED,
+            message: "Delivery confirmed! Enjoy your meal.",
+        });
         logger.info(`Order ${orderId} delivered by Rider ${riderId}`);
-	}
+    }
 
-	return order;
+    return order;
 };
 
 // --- Rider Dashboard Queries ---
