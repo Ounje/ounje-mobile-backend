@@ -2,6 +2,7 @@ const Vendor = require("../models/Vendor");
 const FoodItem = require("../models/FoodItem");
 const Combo = require("../models/Combo");
 const { FOOD_ENUMS } = require("../utilis/foodEnums");
+const { paginate } = require("../utilis/paginate");
 
 const createFoodItem = async (req, res) => {
 	try {
@@ -152,26 +153,17 @@ const deleteFoodItem = async (req, res) => {
 
 const getAllFoodItems = async (req, res) => {
 	try {
-		const page = parseInt(req.query.page) || 1;
-		const limit = parseInt(req.query.limit) || 10;
-		const skip = (page - 1) * limit;
-		const total = await FoodItem.countDocuments({ isAvailable: true });
-		const foodItems = await FoodItem.find({ isAvailable: true })
-			.populate(
-				"vendor",
-				"storeDetails img description averageRating totalOrders",
-			)
-			.sort({ createdAt: -1 })
-			.skip(skip)
-			.limit(limit);
-		res.status(200).json({
-			success: true,
-			count: foodItems.length,
-			total,
-			page,
-			pages: Math.ceil(total / limit),
-			data: foodItems,
-		});
+		const filter = { isAvailable: true };
+        
+        // Define what we want to "join" from the Vendor model
+        const populate = { 
+            path: "vendor", 
+            select: "storeDetails img description averageRating totalOrders" 
+        };
+
+        const result = await paginate(FoodItem, req.query, populate, filter);
+        
+        res.status(200).json(result);
 	} catch (err) {
 		res.status(500).json({ success: false, error: err.message });
 	}
@@ -195,24 +187,14 @@ const getFoodItemById = async (req, res) => {
 
 const getMyFoodItems = async (req, res) => {
 	try {
-		const page = parseInt(req.query.page) || 1;
-		const limit = parseInt(req.query.limit) || 10;
-		const skip = (page - 1) * limit;
-		const total = await FoodItem.countDocuments({ vendor: req.user.id });
-		const foodItems = await FoodItem.find({ vendor: req.user.id })
-			.sort({ createdAt: -1 })
-			.skip(skip)
-			.limit(limit);
-		res.status(200).json({
-			success: true,
-			count: foodItems.length,
-			total,
-			page,
-			pages: Math.ceil(total / limit),
-			data: foodItems,
-		});
-	} catch (err) {
-		res.status(500).json({ success: false, error: err.message });
+		// Create a filter so the utility only finds THIS vendor's food
+        const filter = { vendor: req.user.id };
+
+        const result = await paginate(FoodItem, req.query, null, filter);
+        
+        res.status(200).json(result);
+    } catch (err) {
+        res.status(500).json({ success: false, error: err.message });
 	}
 };
 
@@ -342,27 +324,16 @@ const deleteCombo = async (req, res) => {
 
 const getAllCombos = async (req, res) => {
 	try {
-		const page = parseInt(req.query.page) || 1;
-		const limit = parseInt(req.query.limit) || 10;
-		const skip = (page - 1) * limit;
-		const total = await Combo.countDocuments();
-		const combos = await Combo.find()
-			.populate("vendor", " img description averageRating totalOrders")
-			.populate({
-				path: "selections.items.item",
-				select: "name img description price"
-			})
-			.sort({ createdAt: -1 })
-			.skip(skip)
-			.limit(limit);
-		res.status(200).json({
-			success: true,
-			count: combos.length,
-			total,
-			page,
-			pages: Math.ceil(total / limit),
-			data: combos,
-		});
+		const populateOptions = [
+            { path: "vendor", select: "img description averageRating totalOrders" },
+            { 
+                path: "selections.items.item", 
+                select: "name img description price" 
+            }
+        ];
+
+		const result = await paginate(Combo, req.query, populateOptions);
+		res.status(200).json(result);
 	} catch (error) {
 		res.status(500).json({ success: false, message: error.message });
 	}
@@ -370,29 +341,17 @@ const getAllCombos = async (req, res) => {
 
 const getMyCombos = async (req, res) => {
 	try {
-		const page = parseInt(req.query.page) || 1;
-		const limit = parseInt(req.query.limit) || 10;
-		const skip = (page - 1) * limit;
-		const total = await Combo.countDocuments({ vendor: req.user.id });
-		const combos = await Combo.find({ vendor: req.user.id })
-			.populate({
-				path: "selections.items.item",
-				select: "name img description price"
-			})
-			.sort({ createdAt: -1 })
-			.skip(skip)
-			.limit(limit);
-		res.status(200).json({
-			success: true,
-			count: combos.length,
-			total,
-			page,
-			pages: Math.ceil(total / limit),
-			data: combos,
-		});
-	} catch (error) {
-		res.status(500).json({ success: false, message: error.message });
-	}
+        const filter = { vendor: req.user.id };
+        const populateOptions = {
+            path: "selections.items.item",
+            select: "name img description price"
+        };
+
+        const result = await paginate(Combo, req.query, populateOptions, filter);
+        res.status(200).json(result);
+    } catch (error) {
+        res.status(500).json({ success: false, message: error.message });
+    }
 };
 
 const getComboById = async (req, res) => {
@@ -417,33 +376,20 @@ const getComboById = async (req, res) => {
 };
 const getVendorCombos = async (req, res) => {
 	try {
-		const page = parseInt(req.query.page) || 1;
-		const limit = parseInt(req.query.limit) || 10;
-		const skip = (page - 1) * limit;
+		const filter = { vendor: req.params.vendorId };
+        const populateOptions = [
+            { path: "vendor", select: "img description averageRating totalOrders" },
+            { 
+                path: "selections.items.item", 
+                select: "name img description price" 
+            }
+        ];
 
-		const total = await Combo.countDocuments({ vendor: req.params.vendorId });
-
-		const combos = await Combo.find({ vendor: req.params.vendorId })
-			.populate("vendor", " img description averageRating totalOrders")
-			.populate({
-				path: "selections.items.item",
-				select: "name img description price"
-			})
-			.sort({ createdAt: -1 })
-			.skip(skip)
-			.limit(limit);
-
-		res.status(200).json({
-			success: true,
-			count: combos.length,
-			total,
-			page,
-			pages: Math.ceil(total / limit),
-			data: combos,
-		});
-	} catch (error) {
-		res.status(500).json({ success: false, message: error.message });
-	}
+        const result = await paginate(Combo, req.query, populateOptions, filter);
+        res.status(200).json(result);
+    } catch (error) {
+        res.status(500).json({ success: false, message: error.message });
+    }
 };
 module.exports = {
 	createFoodItem,

@@ -1,5 +1,7 @@
 const vendorService = require("../services/vendor.service");
 const mongoose = require("mongoose"); // needed only for ObjectId validation in userGetVendor (or move validation to service)
+const Vendor = require("../models/Vendor");
+const paginate = require("../utilis/paginate");
 
 // Get popular vendors
 const getPopularVendors = async (req, res) => {
@@ -23,6 +25,18 @@ const getVendor = async (req, res) => {
 			return res.status(404).json({ message: err.message });
 		res.status(500).json({ message: err.message });
 	}
+};
+
+const getVendors = async (req, res) => {
+    try {
+        // No filter needed here because we want to see all vendors
+        // No populate needed yet, unless you want to see their menu items immediately
+        const result = await paginate(Vendor, req.query);
+        
+        res.status(200).json(result);
+    } catch (err) {
+        res.status(500).json({ message: err.message });
+    }
 };
 
 //Customer side
@@ -185,4 +199,5 @@ module.exports = {
 	getNearbyVendors,
 	updateVendorProfileImage,
 	deleteVendorProfileImage,
+	getVendors,
 };

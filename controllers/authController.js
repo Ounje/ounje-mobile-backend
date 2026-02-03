@@ -13,6 +13,7 @@ const {
 } = require("../utilis/generateToken");
 const { requestSmsOtp, verifySmsOtp } = require("../utilis/kudiSmsHelper");
 const { getCoordsFromAddress } = require("../utilis/delivery");
+const { syncUserToKitchen } = require("../utilis/kitchenSync");
 
 const generateOtp = () => Math.floor(1000 + Math.random() * 9000).toString();
 const normalizePhone = require("../utilis/phoneNormalizer");
@@ -90,6 +91,31 @@ const register = async (req, res) => {
 			user = new Rider({ ...userProps, operatingArea });
 
 		await user.save();
+
+		// === START KITCHEN SYNC ===
+		// Only sync if the role is 'customer' or 'vendor'
+		if (role === "customer" || role === "vendor") {
+			let mirrorData = {
+				_id: user._id,
+				email: user.email,
+				phone: user.phone,
+			};
+
+			if (role === "customer") {
+				// Split "John Doe" into ["John", "Doe"]
+				const nameParts = user.name.trim().split(" ");
+				mirrorData.firstName = nameParts[0];
+				mirrorData.lastName =
+					nameParts.length > 1 ? nameParts.slice(1).join(" ") : "Customer";
+			} else {
+				// For vendors
+				mirrorData.businessName = user.name;
+				mirrorData.ownerName = user.name; // Placeholder for ownerName
+			}
+
+			syncUserToKitchen(role, mirrorData);
+		}
+		// === END KITCHEN SYNC ===
 
 		const accessToken = generateAccessToken({ id: user._id, role: user.role });
 		const refreshToken = generateRefreshToken({
@@ -253,8 +279,8 @@ const requestPhoneOtp = async (req, res) => {
 
 		phone = normalizePhone(phone);
 
-		//const exists = await User.findOne({ phone });
-		//if (exists) return res.status(400).json({ error: "Phone already in use" });
+		const exists = await User.findOne({ phone });
+		if (exists) return res.status(400).json({ error: "Phone already in use" });
 
 		let { success, reference, error } = await requestSmsOtp(phone);
 		if (!success) return res.status(500).json({ error });
