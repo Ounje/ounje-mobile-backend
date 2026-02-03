@@ -4,7 +4,7 @@ const options = { discriminatorKey: "role", collection: "users" };
 const userSchema = new mongoose.Schema(
 	{
 		name: { type: String, required: true },
-		email: { type: String, unique: true, required: true },
+		email: { type: String, unique: true },
 		address: { type: String, required: true }, // For Google Pricing Algorithm
 		location: {
 			type: { type: String, enum: ["Point"], default: "Point" },
@@ -17,9 +17,19 @@ const userSchema = new mongoose.Schema(
 			default: null,
 		},
 	},
-	{ timestamps: true, ...options }
+	{ timestamps: true, ...options },
 );
+
+
+userSchema.set("toJSON", {
+	virtuals: true,
+	versionKey: false,
+	transform: function (doc, ret) {
+		delete ret._id;
+	},
+});
 
 userSchema.index({ location: "2dsphere" });
 
 module.exports = mongoose.model("User", userSchema);
+

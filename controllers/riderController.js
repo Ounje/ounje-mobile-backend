@@ -1,117 +1,56 @@
-const payoutService = require("../services/payout.service");
-const Rating = require("../models/Rating");
+const riderService = require("../services/rider.service");
+const logger = require("../utilis/logger");
 
-const registerRider = async (req, res) => {
-	const { name, selectedZones } = req.body; // e.g., ["Ikeja", "Yaba"]
+const getRiderWallet = async (req, res) => {
+	try {
+		const riderId = req.user.id;
+		const walletData = await riderService.getRiderDashboard(riderId);
 
-	// Validation: Check if they picked more than 2
-	if (selectedZones.length > 2) {
-		return res.status(400).json({
+		res.status(200).json({
+			success: true,
+			...walletData,
+		});
+
+	} catch (err) {
+		logger.error(`Get Rider Wallet Error: ${err.message}`);
+		res.status(500).json({
 			success: false,
-			message: "You can only select a maximum of 2 delivery zones.",
+			message: "Error fetching wallet info",
+			error: err.message,
 		});
 	}
+};
 
-	// Save to database (MongoDB/PostgreSQL)
-	// await Rider.create({ name, zones: selectedZones });
-
-	res.status(201).json({
-		message: "Rider registered successfully!" + selectedZones.join(", "),
-	});
+const registerRider = async (req, res) => {
+	try {
+		const result = await riderService.registerRider(req.body);
+		res.status(201).json(result);
+	} catch (error) {
+		logger.error(`Register Rider Error: ${error.message}`);
+		res.status(400).json({
+			success: false,
+			message: error.message
+		});
+	}
 };
 
 const updateBankDetails = async (req, res) => {
 	try {
 		const riderId = req.user.id;
-		const { accountNumber, bankCode, accountName } = req.body;
-
-		if (!accountNumber || !bankCode || !accountName) {
-			return res
-				.status(400)
-				.json({ error: "accountNumber, bankCode, accountName required" });
-		}
-
-		const RiderModel = require("../models/Rider");
-		const rider = await RiderModel.findByIdAndUpdate(
-			riderId,
-			{ bankDetails: { accountNumber, bankCode, accountName } },
-			{ new: true },
-		);
-
-		// Trigger retry of pending payouts
-		const retryResults = await payoutService.processPendingPayoutsForUser(
-			rider._id,
-			"RIDER",
-		);
-
-		res.json({ rider, retryResults });
+		const result = await riderService.updateBankDetails(riderId, req.body);
+		res.json(result);
 	} catch (err) {
-		console.error("Update bank details failed:", err.message);
+		logger.error(`Update bank details failed: ${err.message}`);
 		res.status(500).json({ error: err.message });
 	}
 };
 
 const riderLeaderBoard = async (req, res) => {
 	try {
-		let { page = 1, limit = 10 } = req.query;
-		page = Number(page);
-		limit = Number(limit);
-
-		const fourteenDaysAgo = new Date();
-		fourteenDaysAgo.setDate(fourteenDaysAgo.getDate() - 14);
-
-		const skip = (page - 1) * limit;
-
-		const leaderboard = await Rating.aggregate([
-			// Only rider ratings in the last 14 days
-			{
-				$match: {
-					targetType: "Rider",
-					createdAt: { $gte: fourteenDaysAgo },
-				},
-			},
-			// Group by rider
-			{
-				$group: {
-					_id: "$target",
-					averageRating: { $avg: "$rating" },
-					totalRatings: { $sum: 1 },
-				},
-			},
-			// Sort by rating then number of ratings
-			{
-				$sort: { averageRating: -1, totalRatings: -1 },
-			},
-			// Pagination
-			{ $skip: skip },
-			{ $limit: limit },
-			// Join with Rider collection
-			{
-				$lookup: {
-					from: "riders",
-					localField: "_id",
-					foreignField: "_id",
-					as: "rider",
-				},
-			},
-			{ $unwind: "$rider" },
-			// Only pick necessary fields
-			{
-				$project: {
-					rider: { _id: 1, name: 1 },
-					averageRating: { $round: ["$averageRating", 2] },
-					totalRatings: 1,
-				},
-			},
-		]);
-
-		res.status(200).json({
-			success: true,
-			count: leaderboard.length,
-			data: leaderboard,
-		});
+		const result = await riderService.getRiderLeaderboard();
+		res.status(200).json(result);
 	} catch (err) {
-		console.error("Rider Leaderboard Error:", err);
+		logger.error(`Rider Leaderboard Error: ${err.message}`);
 		res.status(500).json({
 			success: false,
 			error: err.message,
@@ -119,4 +58,53 @@ const riderLeaderBoard = async (req, res) => {
 	}
 };
 
-module.exports = { registerRider, updateBankDetails, riderLeaderBoard };
+const completeRiderRegistration = async (req, res) => {
+	try {
+		const riderId = req.user.id;
+		// Pass req.files as well
+		const result = await riderService.completeRiderRegistration(riderId, req.body, req.files);
+
+		return res.status(200).json({
+			success: true,
+			message: "Rider registration completed successfully",
+			data: result,
+		});
+	} catch (err) {
+		logger.error(`Complete Rider Registration Error: ${err.message}`);
+		return res.status(500).json({
+			success: false,
+			message: "An error occurred while completing registration",
+			error: err.message,
+		});
+	}
+};
+
+const getRiderProfile = async (req, res) => {
+	try {
+		const riderId = req.user.id;
+		const data = await riderService.getRiderProfile(riderId);
+
+		res.json({
+			success: true,
+			data,
+		});
+	} catch (err) {
+		logger.error(`Get Rider Profile Error: ${err.message}`);
+		// Handle 404 specifically if needed, or generic 500
+		const status = err.message === "Rider not found" ? 404 : 500;
+		res.status(status).json({
+			success: false,
+			message: "An error occurred while fetching rider profile",
+			error: err.message,
+		});
+	}
+};
+
+module.exports = {
+	completeRiderRegistration,
+	registerRider,
+	updateBankDetails,
+	riderLeaderBoard,
+	getRiderProfile,
+	getRiderWallet,
+};

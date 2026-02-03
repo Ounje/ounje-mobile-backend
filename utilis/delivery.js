@@ -21,7 +21,7 @@ const MIN_DISTANCE_FEE = 200; // [cite: 27]
 
 const identifyZone = (address) => {
     const zones = ["Ikeja", "Yaba", "Surulere", "Lekki", "Victoria Island", "Ajah"];
-    
+
     // Convert address to lowercase to make searching easier
     const lowercaseAddress = address.toLowerCase();
 
@@ -42,15 +42,33 @@ async function calculateOunjeFee(vendorAddr, customerAddr, surge = 1.0) {
             },
         });
 
+        if (
+            !response.data ||
+            !response.data.rows ||
+            !response.data.rows[0] ||
+            !response.data.rows[0].elements ||
+            !response.data.rows[0].elements[0]
+        ) {
+            console.error("Pricing Error: Invalid response structure from Google Maps");
+            return null;
+        }
+
+        const element = response.data.rows[0].elements[0];
+
+        if (element.status !== "OK") {
+            console.error(`Pricing Error: Google Maps Returned Status - ${element.status}`);
+            return null;
+        }
+
         // Get distance in KM [cite: 17, 20]
-        const distanceKm = response.data.rows[0].elements[0].distance.value / 1000;
+        const distanceKm = element.distance.value / 1000;
 
         // 1. Find the correct Tier [cite: 11, 12]
         const tier = TIERS.find(t => distanceKm <= t.max) || TIERS[TIERS.length - 1];
 
         // 2. Calculate Extra Distance Fee [cite: 17]
         let extraDistanceFee = (distanceKm - tier.start) * PER_KM_RATE;
-        
+
         // 3. Apply Minimum Distance Fee for very short trips [cite: 25, 27]
         if (distanceKm < 0.5 && extraDistanceFee < MIN_DISTANCE_FEE) {
             extraDistanceFee = MIN_DISTANCE_FEE;
@@ -63,8 +81,8 @@ async function calculateOunjeFee(vendorAddr, customerAddr, surge = 1.0) {
         return Math.ceil(totalFee / 10) * 10;
 
     } catch (error) {
-        console.error("Pricing Error:", error);
-        return null;
+        console.error("Pricing Error:", error.message);
+        return null; // Return null so the service can handle it gracefully
     }
 }
 

@@ -26,4 +26,13 @@ const plateSchema = new mongoose.Schema(
 	{ timestamps: true },
 );
 
+plateSchema.set("toJSON", {
+	virtuals: true,
+	versionKey: false,
+	transform: function (doc, ret) {
+		delete ret._id;
+	},
+});
+
 module.exports = mongoose.model("Plate", plateSchema);
+

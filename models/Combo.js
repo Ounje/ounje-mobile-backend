@@ -6,20 +6,25 @@ const mongoose = require("mongoose");
 
 // Schema for individual items within a selection
 const SelectionItemSchema = new mongoose.Schema({
-	name: { type: String, required: true },
+	item: {
+		type: mongoose.Schema.Types.ObjectId,
+		ref: "FoodItem",
+		required: true,
+	},
 	price: {
 		type: Number,
-		required: true,
-		min: [0.01, "Price must be greater than zero"],
+		default: 0,
+		min: [0, "Price must be greater than or equal to zero"],
 	},
 	isAvailable: { type: Boolean, default: true },
 });
 
 // Schema for selection groups (e.g., base, sides, extras)
 const SelectionGroupSchema = new mongoose.Schema({
-	category: { type: String, required: true }, // e.g., "rice", "protein", "extras"
+	key: { type: String, required: true }, // e.g., "base", "sides"
 	label: { type: String, required: true }, // e.g., "Rice Selection", "Protein Selection"
 	required: { type: Boolean, default: false },
+	maxSelection: { type: Number, default: 1 },
 	items: [SelectionItemSchema],
 });
 
@@ -28,10 +33,7 @@ const ComboSchema = new mongoose.Schema(
 		comboName: { type: String, required: true },
 		description: { type: String },
 		basePrice: { type: Number, required: true }, // Base price of the combo
-		selections: {
-			type: Map,
-			of: SelectionGroupSchema,
-		}, // Dynamic keys like "base", "sides", "extras"
+		selections: [SelectionGroupSchema], // Changed from Map to Array for better population support
 		vendor: {
 			type: mongoose.Schema.Types.ObjectId,
 			ref: "vendor",
@@ -42,14 +44,20 @@ const ComboSchema = new mongoose.Schema(
 		deliveryTime: { type: String },
 		ordersCount: { type: Number, default: 0 },
 		//isAvailable: { type: Boolean, default: true },
-		ratingAverage: { type: Number, default: 0 },
+		averageRating: { type: Number, default: 0 },
 		ratingCount: { type: Number, default: 0 },
 		likes: [{ type: mongoose.Schema.Types.ObjectId, ref: "customer" }],
 	},
 	{ timestamps: true },
 );
 
-ComboSchema.set("toJSON", { virtuals: true });
+ComboSchema.set("toJSON", {
+	virtuals: true,
+	versionKey: false,
+	transform: function (doc, ret) {
+		delete ret._id;
+	},
+});
 ComboSchema.set("toObject", { virtuals: true });
 
 module.exports = mongoose.model("Combo", ComboSchema);

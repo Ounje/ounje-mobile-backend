@@ -1,14 +1,12 @@
 const jwt = require("jsonwebtoken");
-const nodemailer = require("nodemailer");
 const { v4: uuidv4 } = require("uuid");
-
 const User = require("../models/User");
 const Customer = require("../models/Customer");
 const Vendor = require("../models/Vendor");
 const Rider = require("../models/Rider");
 const OtpVerification = require("../models/OtpVerification");
 const RefreshToken = require("../models/RefreshToken");
-
+const { sendWelcomeEmail, sendOtpEmail } = require("../utilis/email.utils");
 const {
 	generateAccessToken,
 	generateRefreshToken,
@@ -17,15 +15,8 @@ const { requestSmsOtp, verifySmsOtp } = require("../utilis/kudiSmsHelper");
 const { getCoordsFromAddress } = require("../utilis/delivery");
 const { syncUserToKitchen } = require("../utilis/kitchenSync");
 
-const transporter = nodemailer.createTransport({
-	service: "gmail",
-	auth: {
-		user: process.env.EMAIL_USER,
-		pass: process.env.EMAIL_PASS,
-	},
-});
-
 const generateOtp = () => Math.floor(1000 + Math.random() * 9000).toString();
+const normalizePhone = require("../utilis/phoneNormalizer");
 
 const register = async (req, res) => {
 	try {
@@ -47,25 +38,33 @@ const register = async (req, res) => {
 					.json({ error: "Phone OTP required for vendor/rider" });
 			finalPhone = decoded.phone;
 		} else if (role === "customer") {
+			// Customer can use either phone or email
 			finalPhone = decoded.phone || phone;
 			finalEmail = decoded.email || email;
 		} else {
 			return res.status(400).json({ error: "Invalid role" });
 		}
 
-		if (!name || (!finalEmail && !finalPhone))
-			return res.status(400).json({ error: "Missing required fields" });
+		if (!name) return res.status(400).json({ error: "Name is required" });
 
-		if ((role === "vendor" || role === "rider") && !finalPhone)
-			return res
-				.status(400)
-				.json({ error: "Phone number required for vendor/rider" });
+		if (role === "vendor" || role === "rider") {
+			if (!finalPhone)
+				return res
+					.status(400)
+					.json({ error: "Phone number required for vendor/rider" });
+		} else if (role === "customer") {
+			if (!finalEmail && !finalPhone)
+				return res
+					.status(400)
+					.json({ error: "Email or phone required for customer" });
+		}
 
 		if (finalEmail) {
 			const existingEmail = await User.findOne({ email: finalEmail });
 			if (existingEmail)
 				return res.status(400).json({ error: "Email already exists" });
 		}
+
 		if (finalPhone) {
 			const existingPhone = await User.findOne({ phone: finalPhone });
 			if (existingPhone)
@@ -79,7 +78,7 @@ const register = async (req, res) => {
 
 		const userProps = {
 			name,
-			email: finalEmail,
+			email: finalEmail || undefined,
 			phone: finalPhone,
 			address: location,
 			location: coordinates,
@@ -129,6 +128,12 @@ const register = async (req, res) => {
 			ip: req.ip,
 		});
 
+		if (role === "customer" && finalEmail) {
+			sendWelcomeEmail(finalEmail, name).catch((err) =>
+				console.error("Welcome email failed:", err),
+			);
+		}
+
 		res.status(201).json({
 			success: true,
 			accessToken,
@@ -165,12 +170,7 @@ const login = async (req, res) => {
 			await OtpVerification.deleteMany({ email: user.email, isEmail: true });
 			await OtpVerification.create({ email: user.email, otp, isEmail: true });
 
-			await transporter.sendMail({
-				from: process.env.EMAIL_USER,
-				to: user.email,
-				subject: "Login Verification OTP",
-				html: `<p>Your login OTP:</p><h2>${otp}</h2>`,
-			});
+			await sendOtpEmail(user.email, otp, "login");
 
 			return res.json({ message: `OTP sent to email: ${user.email}` });
 		}
@@ -214,12 +214,7 @@ const requestEmailOtp = async (req, res) => {
 		await OtpVerification.deleteMany({ email, isEmail: true });
 		await OtpVerification.create({ email, otp, isEmail: true });
 
-		await transporter.sendMail({
-			from: process.env.EMAIL_USER,
-			to: email,
-			subject: "Email Verification OTP",
-			html: `<p>Your code:</p><h2>${otp}</h2>`,
-		});
+		await sendOtpEmail(email, otp, "verification");
 
 		res.json({ success: true, message: "OTP sent to email" });
 	} catch (err) {
@@ -278,11 +273,13 @@ const verifyEmailOtp = async (req, res) => {
 
 const requestPhoneOtp = async (req, res) => {
 	try {
-		const { phone } = req.body;
+		let { phone } = req.body;
 		if (!phone) return res.status(400).json({ error: "Phone required" });
 
-		const exists = await User.findOne({ phone });
-		if (exists) return res.status(400).json({ error: "Phone already in use" });
+		phone = normalizePhone(phone);
+
+		//const exists = await User.findOne({ phone });
+		//if (exists) return res.status(400).json({ error: "Phone already in use" });
 
 		let { success, reference, error } = await requestSmsOtp(phone);
 		if (!success) return res.status(500).json({ error });
@@ -309,14 +306,8 @@ const verifyPhoneOtp = async (req, res) => {
 		if (!phone || !otp || !reference)
 			return res.status(400).json({ error: "Phone, OTP, reference required" });
 
-		const normalizePhone = (phone) => {
-			phone = phone.trim();
-			if (phone.startsWith("0")) phone = phone.slice(1);
-			if (phone.startsWith("234")) phone = phone.slice(3);
-			return phone;
-		};
-
 		phone = normalizePhone(phone);
+
 		const record = await OtpVerification.findOne({
 			phone,
 			reference,
@@ -403,6 +394,34 @@ const refresh = async (req, res) => {
 	}
 };
 
+const checkUserExist = async (req, res) => {
+	try {
+		let { email, phone } = req.body;
+		if (!email && !phone) {
+			return res.status(400).json({ error: "Email or Phone is required" });
+		}
+
+		let user = null;
+		if (email) {
+			user = await User.findOne({ email });
+		} else if (phone) {
+			const normalizedPhone = normalizePhone(phone);
+			user = await User.findOne({ phone: normalizedPhone });
+		}
+
+		if (user) {
+			return res.status(200).json({ exists: true, message: "User exists" });
+		}
+
+		return res
+			.status(200)
+			.json({ exists: false, message: "User does not exist" });
+	} catch (err) {
+		console.error("Check User Exist Error:", err);
+		res.status(500).json({ error: err.message });
+	}
+};
+
 module.exports = {
 	register,
 	login,
@@ -412,4 +431,5 @@ module.exports = {
 	verifyPhoneOtp,
 	logOut,
 	refresh,
+	checkUserExist,
 };

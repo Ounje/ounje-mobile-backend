@@ -4,6 +4,36 @@ const router = express.Router();
 const { calculateOunjeFee } = require('../utilis/delivery'); 
 
 // Define the route using router.get instead of app.get
+/**
+ * @swagger
+ * tags:
+ *   name: Delivery
+ *   description: Delivery Fee Calculation
+ */
+
+/**
+ * @swagger
+ * /api/delivery/quote:
+ *   get:
+ *     summary: Get delivery quote
+ *     tags: [Delivery]
+ *     parameters:
+ *       - in: query
+ *         name: vendor
+ *         required: true
+ *         schema:
+ *           type: string
+ *           description: Vendor address
+ *       - in: query
+ *         name: customer
+ *         required: true
+ *         schema:
+ *           type: string
+ *           description: Customer address
+ *     responses:
+ *       200:
+ *         description: Delivery quote
+ */
 router.get('/quote', async (req, res) => {
     try {
         const { vendor, customer } = req.query;

@@ -347,10 +347,11 @@ const getAllCombos = async (req, res) => {
 		const skip = (page - 1) * limit;
 		const total = await Combo.countDocuments();
 		const combos = await Combo.find()
-			.populate(
-				"vendor",
-				"storeDetails img description averageRating totalOrders",
-			)
+			.populate("vendor", " img description averageRating totalOrders")
+			.populate({
+				path: "selections.items.item",
+				select: "name img description price"
+			})
 			.sort({ createdAt: -1 })
 			.skip(skip)
 			.limit(limit);
@@ -374,6 +375,10 @@ const getMyCombos = async (req, res) => {
 		const skip = (page - 1) * limit;
 		const total = await Combo.countDocuments({ vendor: req.user.id });
 		const combos = await Combo.find({ vendor: req.user.id })
+			.populate({
+				path: "selections.items.item",
+				select: "name img description price"
+			})
 			.sort({ createdAt: -1 })
 			.skip(skip)
 			.limit(limit);
@@ -392,10 +397,15 @@ const getMyCombos = async (req, res) => {
 
 const getComboById = async (req, res) => {
 	try {
-		const combo = await Combo.findById(req.params.comboId).populate(
-			"vendor",
-			"storeDetails img description averageRating totalOrders location",
-		);
+		const combo = await Combo.findById(req.params.comboId)
+			.populate(
+				"vendor",
+				" img description averageRating totalOrders location",
+			)
+			.populate({
+				path: "selections.items.item",
+				select: "name img description price"
+			});
 		if (!combo)
 			return res
 				.status(404)
@@ -407,45 +417,34 @@ const getComboById = async (req, res) => {
 };
 const getVendorCombos = async (req, res) => {
 	try {
-		const vendorId = req.params.vendorId;
-
-		const vendor = await Vendor.findById(vendorId);
-		if (!vendor || !vendor.storeDetails || vendor.storeDetails.length === 0) {
-			return res.status(404).json({
-				success: false,
-				message: "Vendor not found or profile incomplete",
-			});
-		}
-
 		const page = parseInt(req.query.page) || 1;
 		const limit = parseInt(req.query.limit) || 10;
 		const skip = (page - 1) * limit;
 
-		const combos = await Combo.find({ vendor: vendorId })
+		const total = await Combo.countDocuments({ vendor: req.params.vendorId });
+
+		const combos = await Combo.find({ vendor: req.params.vendorId })
+			.populate("vendor", " img description averageRating totalOrders")
+			.populate({
+				path: "selections.items.item",
+				select: "name img description price"
+			})
 			.sort({ createdAt: -1 })
 			.skip(skip)
 			.limit(limit);
 
-		const totalCombos = await Combo.countDocuments({ vendor: vendorId });
-
 		res.status(200).json({
 			success: true,
-			data: {
-				vendorId: vendor._id,
-				combos: {
-					count: combos.length,
-					total: totalCombos,
-					page,
-					pages: Math.ceil(totalCombos / limit),
-					data: combos,
-				},
-			},
+			count: combos.length,
+			total,
+			page,
+			pages: Math.ceil(total / limit),
+			data: combos,
 		});
 	} catch (error) {
 		res.status(500).json({ success: false, message: error.message });
 	}
 };
-
 module.exports = {
 	createFoodItem,
 	updateFoodItem,
