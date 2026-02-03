@@ -7,6 +7,8 @@ const {
 	updateBankDetails,
 	getNearbyVendors,
 	completeVendorRegistration,
+	updateVendorProfileImage,
+	deleteVendorProfileImage,
 } = require("../controllers/vendorController");
 const { authMiddleware, roleGuard } = require("../middleware/auth");
 
@@ -178,6 +180,21 @@ router.post(
 	roleGuard(["vendor"]),
 	NINStorage.single("ninID"),
 	completeVendorRegistration,
+);
+
+router.put(
+	"/profile/upload/image",
+	authMiddleware,
+	roleGuard(["vendor"]),
+	vendorImageUpload.single("profileImage"),
+	updateVendorProfileImage,
+);
+
+router.delete(
+	"/profile/delete/image",
+	authMiddleware,
+	roleGuard(["vendor"]),
+	deleteVendorProfileImage,
 );
 
 module.exports = router;

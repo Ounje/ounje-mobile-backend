@@ -9,7 +9,8 @@ const payoutService = require("../services/payout.service");
 const Customer = require("../models/Customer");
 const { sendPushNotification } = require("../services/notification.service");
 const Rider = require("../models/Rider");
-const ledgerService = require("../services/ledger.service"); 
+const ledgerService = require("../services/ledger.service");
+const { notificationService } = require("../services/notification.service");
 
 // Helper: generate secure numeric OTP of given length
 const generateNumericOtp = (length = 6) => {
@@ -42,14 +43,12 @@ exports.createOrder = async (req, res) => {
 		// 3. Calculate Fee (Check for null!)
 		const fee = await calculateOunjeFee(vendor.address, deliveryAddress);
 		if (fee === null) {
-			return res
-				.status(400)
-				.json({
-					message: "Google Maps could not calculate distance. Check addresses.",
-				});
+			return res.status(400).json({
+				message: "Google Maps could not calculate distance. Check addresses.",
+			});
 		}
 
-		let itemsTotalPrice = 0; // Renamed for clarity
+		let itemsTotalPrice = 0;
 		const orderItems = [];
 		const models = { FoodItem, Dish: Combo, Plate };
 
@@ -73,7 +72,7 @@ exports.createOrder = async (req, res) => {
 			}
 		}
 
-		// 4. Create Order (FIXED: using itemsTotalPrice + fee)
+		// 4. Create Order
 		const order = await Order.create({
 			customer: userId,
 			vendor: vendorId,
@@ -81,15 +80,29 @@ exports.createOrder = async (req, res) => {
 			totalPrice: itemsTotalPrice + fee,
 			deliveryFee: fee,
 			deliveryAddress,
-			status: "CONFIRMING",    
-      subStatus: "CONFIRMING",
+			status: "CONFIRMING",
+			subStatus: "CONFIRMING",
 			zone: orderZone,
+		});
+
+		// 🔔 NOTIFY CUSTOMER: Order created, pending payment
+		await notificationService.createNotification({
+			recipient: userId,
+			recipientModel: "customer",
+			type: "order_created",
+			title: "Order Created",
+			message: `Your order has been created. Total: ${order.totalPrice} NGN. Please complete payment.`,
+			data: {
+				orderId: order._id,
+				totalPrice: order.totalPrice,
+			},
+			priority: "high",
+			actionUrl: `/orders/${order._id}/payment`,
 		});
 
 		return res.status(201).json({ success: true, order });
 	} catch (error) {
 		console.error("CRITICAL ERROR:", error);
-		// This return ensures Postman STOPS loading and shows the error
 		return res
 			.status(500)
 			.json({ message: "Order failed", error: error.message });
@@ -126,7 +139,6 @@ exports.getOrderById = async (req, res) => {
 			? order.customer._id.toString()
 			: order.customer.toString();
 
-		// Ensure only the owner can access their order
 		if (orderCustomerId !== req.user.id.toString()) {
 			return res.status(403).json({ message: "Unauthorized" });
 		}
@@ -142,42 +154,31 @@ exports.getOrderById = async (req, res) => {
 
 exports.updateOrderStatus = async (req, res) => {
 	try {
-		// Note: I'm using req.params.id to match your route /:id
 		const { id } = req.params;
 		const { status, subStatus } = req.body;
 
-		const order = await Order.findById(id).populate("customer");
+		const order = await Order.findById(id).populate("customer vendor");
 		if (!order) return res.status(404).json({ message: "Order not found" });
 
-		// Update Database
+		const oldStatus = order.status;
 		order.status = status;
 		order.subStatus = subStatus || "";
 		await order.save();
 
 		// Send Real-Time Update to the specific Customer
 		if (global.io) {
-			// order.customer is the ID of the user who made the order
 			global.io.to(order.customer.toString()).emit("orderUpdate", {
 				orderId: order._id,
 				status: order.status,
 				subStatus: order.subStatus,
 			});
-			console.log(
-				`Real-time update sent to Customer ${order.customer}: ${status}`,
-			);
 		}
 
-		// Firebase (Push Notification if app is closed/in pocket)
-		if (order.customer && order.customer.fcmToken) {
-			const title = `Order Update: ${status}`;
-			const body = subStatus || `Your order is now ${status}`;
-
-			await sendPushNotification(order.customer.fcmToken, title, body);
-		}
+		// 🔔 NOTIFY BASED ON STATUS CHANGES
+		await handleStatusNotifications(order, oldStatus, status, subStatus);
 
 		if (status === "Rider Enroute" && subStatus === "Looking for Rider") {
 			const vendor = await Vendor.findById(order.vendor);
-			// Start searching for riders!
 			await findNearbyRiders(vendor.location, order._id);
 		}
 
@@ -189,11 +190,136 @@ exports.updateOrderStatus = async (req, res) => {
 	}
 };
 
-/**
- * Send delivery OTP to the customer (in-app). Generates a secure code, stores it briefly,
- * emits it via socket.io to the customer and returns success.
- * Accepts an Order document (already loaded) and returns { success }
- */
+//  HANDLE STATUS CHANGE NOTIFICATIONS
+async function handleStatusNotifications(order, oldStatus, newStatus) {
+	try {
+		// Payment Confirmed
+		if (newStatus === "PENDING" && oldStatus === "CONFIRMING") {
+			//  NOTIFY VENDOR: New Order!
+			await notificationService.createNotification({
+				recipient: order.vendor._id,
+				recipientModel: "vendor",
+				type: "new_order",
+				title: "New Order Received!",
+				message: `You have a new order for ${order.totalPrice} NGN`,
+				data: {
+					orderId: order._id,
+					totalPrice: order.totalPrice,
+					itemCount: order.items.length,
+				},
+				priority: "high",
+				actionUrl: `/vendor/orders/${order._id}`,
+			});
+
+			//  NOTIFY CUSTOMER: Payment Confirmed
+			await notificationService.createNotification({
+				recipient: order.customer._id,
+				recipientModel: "customer",
+				type: "payment_confirmed",
+				title: "Payment Confirmed!",
+				message:
+					"Your payment has been confirmed. Vendor is preparing your order.",
+				data: {
+					orderId: order._id,
+				},
+				priority: "medium",
+			});
+		}
+
+		// Vendor Preparing Food
+		if (newStatus === "PREPARING") {
+			await notificationService.createNotification({
+				recipient: order.customer._id,
+				recipientModel: "customer",
+				type: "order_preparing",
+				title: "Order Being Prepared",
+				message: "The vendor is preparing your order!",
+				data: {
+					orderId: order._id,
+				},
+				priority: "medium",
+			});
+		}
+
+		// Order Ready
+		if (newStatus === "READY") {
+			await notificationService.createNotification({
+				recipient: order.customer._id,
+				recipientModel: "customer",
+				type: "order_ready",
+				title: "Order Ready!",
+				message: "Your order is ready! Looking for a rider...",
+				data: {
+					orderId: order._id,
+				},
+				priority: "high",
+			});
+		}
+
+		// Order Delivered
+		if (newStatus === "DELIVERED") {
+			//  NOTIFY CUSTOMER: Delivered
+			await notificationService.createNotification({
+				recipient: order.customer._id,
+				recipientModel: "customer",
+				type: "order_delivered",
+				title: "Order Delivered!",
+				message: "Your order has been delivered. Enjoy your meal!",
+				data: {
+					orderId: order._id,
+				},
+				priority: "high",
+				actionUrl: `/orders/${order._id}/review`,
+			});
+
+			//  NOTIFY VENDOR: Order Completed
+			await notificationService.createNotification({
+				recipient: order.vendor._id,
+				recipientModel: "vendor",
+				type: "order_completed",
+				title: "Order Completed",
+				message: `Order for ${order.totalPrice} NGN has been delivered successfully.`,
+				data: {
+					orderId: order._id,
+					totalPrice: order.totalPrice,
+				},
+				priority: "low",
+			});
+		}
+
+		// Order Cancelled
+		if (newStatus === "CANCELLED") {
+			//  NOTIFY CUSTOMER
+			await notificationService.createNotification({
+				recipient: order.customer._id,
+				recipientModel: "customer",
+				type: "order_cancelled",
+				title: "Order Cancelled",
+				message: "Your order has been cancelled.",
+				data: {
+					orderId: order._id,
+				},
+				priority: "high",
+			});
+
+			//  NOTIFY VENDOR
+			await notificationService.createNotification({
+				recipient: order.vendor._id,
+				recipientModel: "vendor",
+				type: "order_cancelled",
+				title: "Order Cancelled",
+				message: `An order has been cancelled.`,
+				data: {
+					orderId: order._id,
+				},
+				priority: "medium",
+			});
+		}
+	} catch (error) {
+		console.error("Error sending status notifications:", error);
+	}
+}
+
 exports.sendDeliveryOtp = async (order) => {
 	if (!order) throw new Error("Order required");
 	const customer = await Customer.findById(order.customer);
@@ -203,16 +329,16 @@ exports.sendDeliveryOtp = async (order) => {
 		parseInt(process.env.DELIVERY_OTP_LENGTH || 6),
 	);
 	const otpHash = hashOtp(otp);
-	const duration = parseInt(process.env.DELIVERY_OTP_DURATION || 5); // minutes
+	const duration = parseInt(process.env.DELIVERY_OTP_DURATION || 5);
 
-	order.deliveryOtpCode = otp; // short-lived plaintext for app delivery
+	order.deliveryOtpCode = otp;
 	console.log("Generated OTP for order", order._id, "OTP:", otp);
 	order.deliveryOtpHash = otpHash;
 	order.deliveryOtpSentAt = new Date();
 	order.deliveryOtpExpiresAt = new Date(Date.now() + duration * 60 * 1000);
 	await order.save();
 
-	// Emit via socket.io so customer app can receive immediately if connected
+	// Emit via socket.io
 	try {
 		if (global.io) {
 			global.io.emit("delivery-otp", {
@@ -226,20 +352,30 @@ exports.sendDeliveryOtp = async (order) => {
 		console.error("Failed to emit delivery OTP via socket.io:", err.message);
 	}
 
+	//  NOTIFY CUSTOMER: OTP Sent
+	await notificationService.createNotification({
+		recipient: order.customer,
+		recipientModel: "customer",
+		type: "delivery_otp",
+		title: "Delivery OTP",
+		message: `Your delivery OTP is: ${otp}. Valid for ${duration} minutes.`,
+		data: {
+			orderId: order._id,
+			otp,
+			expiresAt: order.deliveryOtpExpiresAt,
+		},
+		priority: "urgent",
+	});
+
 	return { success: true };
 };
 
-/**
- * Verify OTP entered by rider and complete order + trigger payouts
- * Returns { success: true } on success
- */
 exports.verifyDeliveryOtp = async (order, otp, riderId) => {
 	if (!order) throw new Error("Order required");
 	if (!otp) return { success: false, error: "OTP required" };
 	if (!order.deliveryOtpHash || !order.deliveryOtpExpiresAt)
 		return { success: false, error: "No OTP session found for this order" };
 
-	// Expiry check
 	if (new Date() > new Date(order.deliveryOtpExpiresAt))
 		return { success: false, error: "OTP expired" };
 
@@ -252,17 +388,14 @@ exports.verifyDeliveryOtp = async (order, otp, riderId) => {
 	order.deliveryConfirmedAt = new Date();
 	order.deliveryConfirmedBy = riderId;
 
-	// Clear OTP fields (one-time use)
 	order.deliveryOtpCode = null;
 	order.deliveryOtpHash = null;
 	order.deliveryOtpExpiresAt = null;
 	order.deliveryOtpSentAt = null;
 
-	// RELEASE THE MONEY TO RIDER WALLET
 	await ledgerService.releaseRiderFee(order.rider, order._id);
 	await order.save();
 
-	// Trigger automatic payouts asynchronously; don't block on it fully
 	try {
 		console.log("Triggering auto payouts for order", order._id);
 		if (order.rider) {
@@ -275,144 +408,205 @@ exports.verifyDeliveryOtp = async (order, otp, riderId) => {
 	return { success: true };
 };
 
-// Rider accepts a pending order
 exports.acceptOrder = async (req, res) => {
-  try {
-    const { orderId } = req.params;
-    const riderId = req.user.id; // From your auth middleware
+	try {
+		const { orderId } = req.params;
+		const riderId = req.user.id;
 
-    // 1. Fetch the order
-    const order = await Order.findById(orderId);
-    if (!order) return res.status(404).json({ success: false, message: "Order not found" });
+		const order = await Order.findById(orderId).populate("customer vendor");
+		if (!order)
+			return res
+				.status(404)
+				.json({ success: false, message: "Order not found" });
 
-    // 2. Check if the order is still available (must be 'pending')
-    // and hasn't been assigned to another rider yet.
-    if (order.status !== "pending" || order.rider) {
-      return res.status(400).json({ 
-        success: false, 
-        message: "Order is no longer available. Another rider may have accepted it." 
-      });
-    }
+		if (order.status !== "pending" || order.rider) {
+			return res.status(400).json({
+				success: false,
+				message:
+					"Order is no longer available. Another rider may have accepted it.",
+			});
+		}
 
-    // 3. Assign the riderId and update status
-    // Using 'assigned' as per your Schema's enum
-    order.rider = riderId;
-    order.status = "RIDING"; 
-    order.subStatus = "RIDER_ASSIGNED";
-    
-    await order.save();
+		order.rider = riderId;
+		order.status = "RIDING";
+		order.subStatus = "RIDER_ASSIGNED";
 
-    // 4. Real-time notification to the Customer that a rider is coming
-    if (global.io) {
-      global.io.to(order.customer.toString()).emit('orderUpdate', {
-        orderId: order._id,
-        status: order.status,
-        message: "A rider has accepted your order and is on the way!"
-      });
-    }
+		await order.save();
 
-    return res.status(200).json({ 
-      success: true, 
-      message: "Order accepted successfully", 
-      order 
-    });
+		if (global.io) {
+			global.io.to(order.customer.toString()).emit("orderUpdate", {
+				orderId: order._id,
+				status: order.status,
+				message: "A rider has accepted your order and is on the way!",
+			});
+		}
 
-  } catch (error) {
-    console.error("ACCEPT_ORDER_ERROR:", error);
-    return res.status(500).json({ success: false, message: "Failed to accept order", error: error.message });
-  }
+		await notificationService.createNotification({
+			recipient: order.customer._id,
+			recipientModel: "customer",
+			type: "rider_assigned",
+			title: "Rider Assigned!",
+			message: "A rider has accepted your order and is heading to the vendor.",
+			data: {
+				orderId: order._id,
+				riderId,
+			},
+			priority: "high",
+		});
+
+		await notificationService.createNotification({
+			recipient: order.vendor._id,
+			recipientModel: "vendor",
+			type: "rider_assigned",
+			title: "Rider Assigned",
+			message: "A rider has been assigned to pick up the order.",
+			data: {
+				orderId: order._id,
+				riderId,
+			},
+			priority: "medium",
+		});
+
+		return res.status(200).json({
+			success: true,
+			message: "Order accepted successfully",
+			order,
+		});
+	} catch (error) {
+		console.error("ACCEPT_ORDER_ERROR:", error);
+		return res.status(500).json({
+			success: false,
+			message: "Failed to accept order",
+			error: error.message,
+		});
+	}
 };
 
 exports.pickUpOrder = async (req, res) => {
-  try {
-    const { orderId } = req.params;
-    const riderId = req.user.id;
+	try {
+		const { orderId } = req.params;
+		const riderId = req.user.id;
 
-    const order = await Order.findById(orderId);
+		const order = await Order.findById(orderId).populate("customer vendor");
 
-    if (!order) return res.status(404).json({ message: "Order not found" });
+		if (!order) return res.status(404).json({ message: "Order not found" });
 
-    // Security: Only the assigned rider can pick up this order
-    if (order.rider.toString() !== riderId) {
-      return res.status(403).json({ message: "You are not the assigned rider for this order" });
-    }
+		if (order.rider.toString() !== riderId) {
+			return res.status(403).json({
+				message: "You are not the assigned rider for this order",
+			});
+		}
 
-    // Update status to 'out_for_delivery' (matching your Schema)
-    order.status = "RIDING";
-    order.subStatus = "PICKED_UP";
-    await order.save();
+		order.status = "RIDING";
+		order.subStatus = "PICKED_UP";
+		await order.save();
 
-    // TRIGGER: Send the OTP to the customer now that food is moving
-    // We call your existing helper function
-    await exports.sendDeliveryOtp(order);
+		await exports.sendDeliveryOtp(order);
 
-    res.status(200).json({ 
-      success: true, 
-      message: "Order picked up! OTP sent to customer.", 
-      order 
-    });
-  } catch (error) {
-    res.status(500).json({ message: "Pickup failed", error: error.message });
-  }
+		await notificationService.createNotification({
+			recipient: order.customer._id,
+			recipientModel: "customer",
+			type: "order_picked_up",
+			title: "Order Picked Up!",
+			message: "Your order has been picked up and is on the way to you!",
+			data: {
+				orderId: order._id,
+			},
+			priority: "high",
+		});
+
+		await notificationService.createNotification({
+			recipient: order.vendor._id,
+			recipientModel: "vendor",
+			type: "order_picked_up",
+			title: "Order Picked Up",
+			message: "The rider has picked up the order.",
+			data: {
+				orderId: order._id,
+			},
+			priority: "low",
+		});
+
+		res.status(200).json({
+			success: true,
+			message: "Order picked up! OTP sent to customer.",
+			order,
+		});
+	} catch (error) {
+		res.status(500).json({ message: "Pickup failed", error: error.message });
+	}
 };
 
-// Rider enters the OTP to complete the delivery
 exports.completeDelivery = async (req, res) => {
-  try {
-    const { orderId } = req.params;
-    const { otp } = req.body;
-    const riderId = req.user.id;
+	try {
+		const { orderId } = req.params;
+		const { otp } = req.body;
+		const riderId = req.user.id;
 
-    const order = await Order.findById(orderId);
-    if (!order) return res.status(404).json({ message: "Order not found" });
+		const order = await Order.findById(orderId).populate(
+			"customer vendor rider",
+		);
+		if (!order) return res.status(404).json({ message: "Order not found" });
 
-    // Verify this is the right rider
-    if (order.rider.toString() !== riderId) {
-      return res.status(403).json({ message: "Not assigned to you" });
-    }
+		if (order.rider._id.toString() !== riderId) {
+			return res.status(403).json({ message: "Not assigned to you" });
+		}
 
-    // Use your existing helper to check OTP and release funds
-    const result = await exports.verifyDeliveryOtp(order, otp, riderId);
+		const result = await exports.verifyDeliveryOtp(order, otp, riderId);
 
-    if (!result.success) {
-      return res.status(400).json({ message: result.error || "Invalid OTP" });
-    }
+		if (!result.success) {
+			return res.status(400).json({ message: result.error || "Invalid OTP" });
+		}
 
-    // REAL-TIME UPDATE: Tell the customer the food is officially delivered
-    if (global.io) {
-      global.io.to(order.customer.toString()).emit('orderUpdate', {
-        orderId: order._id,
-        status: "DELIVERED",
-        subStatus: "DELIVERED",
-        message: "Delivery confirmed! Enjoy your meal."
-      });
-    }
+		if (global.io) {
+			global.io.to(order.customer.toString()).emit("orderUpdate", {
+				orderId: order._id,
+				status: "DELIVERED",
+				subStatus: "DELIVERED",
+				message: "Delivery confirmed! Enjoy your meal.",
+			});
+		}
 
-    res.status(200).json({ 
-      success: true, 
-      message: "Delivery completed successfully!", 
-      order 
-    });
-  } catch (error) {
-    res.status(500).json({ message: "Delivery completion failed", error: error.message });
-  }
+		await notificationService.createNotification({
+			recipient: riderId,
+			recipientModel: "rider",
+			type: "delivery_completed",
+			title: "Delivery Completed!",
+			message:
+				"You have successfully completed the delivery. Payment released.",
+			data: {
+				orderId: order._id,
+				deliveryFee: order.deliveryFee,
+			},
+			priority: "high",
+		});
+
+		res.status(200).json({
+			success: true,
+			message: "Delivery completed successfully!",
+			order,
+		});
+	} catch (error) {
+		res.status(500).json({
+			message: "Delivery completion failed",
+			error: error.message,
+		});
+	}
 };
 
 const findNearbyRiders = async (vendorLocation, orderId) => {
 	try {
-		// 1. Find all available riders within 3km (3000 meters)
 		const nearbyRiders = await Rider.find({
 			isOnline: true,
 			isAvailable: true,
 			lastKnownLocation: {
 				$near: {
-					$geometry: vendorLocation, // The Vendor's [lng, lat]
+					$geometry: vendorLocation,
 					$maxDistance: 3000,
 				},
 			},
 		});
 
-		// 2. Broadcast to these specific riders via Socket.io
 		if (global.io && nearbyRiders.length > 0) {
 			nearbyRiders.forEach((rider) => {
 				global.io.to(rider._id.toString()).emit("newOrderAvailable", {
@@ -421,6 +615,22 @@ const findNearbyRiders = async (vendorLocation, orderId) => {
 				});
 			});
 			console.log(`Pings sent to ${nearbyRiders.length} riders.`);
+		}
+
+		for (const rider of nearbyRiders) {
+			await notificationService.createNotification({
+				recipient: rider._id,
+				recipientModel: "rider",
+				type: "new_delivery",
+				title: "New Delivery Available!",
+				message: "A new delivery order is available nearby.",
+				data: {
+					orderId,
+					distance: "Within 3km",
+				},
+				priority: "high",
+				actionUrl: `/rider/orders/${orderId}`,
+			});
 		}
 
 		return nearbyRiders;
