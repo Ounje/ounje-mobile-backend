@@ -93,8 +93,8 @@ const register = async (req, res) => {
 		await user.save();
 
 		// === START KITCHEN SYNC ===
-        // Only sync if the role is 'customer' or 'vendor'
-        if (role === "customer" || role === "vendor") {
+		// Only sync if the role is 'customer' or 'vendor'
+		if (role === "customer" || role === "vendor") {
 			let mirrorData = {
 				_id: user._id,
 				email: user.email,
@@ -105,7 +105,8 @@ const register = async (req, res) => {
 				// Split "John Doe" into ["John", "Doe"]
 				const nameParts = user.name.trim().split(" ");
 				mirrorData.firstName = nameParts[0];
-				mirrorData.lastName = nameParts.length > 1 ? nameParts.slice(1).join(" ") : "Customer";
+				mirrorData.lastName =
+					nameParts.length > 1 ? nameParts.slice(1).join(" ") : "Customer";
 			} else {
 				// For vendors
 				mirrorData.businessName = user.name;
@@ -114,7 +115,7 @@ const register = async (req, res) => {
 
 			syncUserToKitchen(role, mirrorData);
 		}
-        // === END KITCHEN SYNC ===
+		// === END KITCHEN SYNC ===
 
 		const accessToken = generateAccessToken({ id: user._id, role: user.role });
 		const refreshToken = generateRefreshToken({
@@ -278,8 +279,8 @@ const requestPhoneOtp = async (req, res) => {
 
 		phone = normalizePhone(phone);
 
-		//const exists = await User.findOne({ phone });
-		//if (exists) return res.status(400).json({ error: "Phone already in use" });
+		const exists = await User.findOne({ phone });
+		if (exists) return res.status(400).json({ error: "Phone already in use" });
 
 		let { success, reference, error } = await requestSmsOtp(phone);
 		if (!success) return res.status(500).json({ error });
