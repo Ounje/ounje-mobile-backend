@@ -9,7 +9,8 @@ const payoutService = require("../services/payout.service");
 const Customer = require("../models/Customer");
 const { sendPushNotification } = require("../services/notification.service");
 const Rider = require("../models/Rider");
-const ledgerService = require("../services/ledger.service"); 
+const ledgerService = require("../services/ledger.service");
+const { syncOrderToKitchen } = require("../utilis/kitchenSync");
 
 // Helper: generate secure numeric OTP of given length
 const generateNumericOtp = (length = 6) => {
@@ -74,25 +75,63 @@ exports.createOrder = async (req, res) => {
 		}
 
 		// 4. Create Order (FIXED: using itemsTotalPrice + fee)
-		const order = await Order.create({
-			customer: userId,
-			vendor: vendorId,
-			items: orderItems,
-			totalPrice: itemsTotalPrice + fee,
-			deliveryFee: fee,
-			deliveryAddress,
-			status: "CONFIRMING",    
-      subStatus: "CONFIRMING",
-			zone: orderZone,
-		});
+        const order = await Order.create({
+            customer: userId,
+            vendor: vendorId,
+            items: orderItems,
+            totalPrice: itemsTotalPrice + fee,
+            deliveryFee: fee,
+            deliveryAddress,
+            status: "CONFIRMING",    
+            subStatus: "CONFIRMING",
+            zone: orderZone,
+        });
 
-		return res.status(201).json({ success: true, order });
+        // === START KITCHEN SYNC ===
+        try {
+            // Address Parsing: Handles "123 Main St, City, State"
+            const addressParts = deliveryAddress.split(',').map(part => part.trim());
+            
+            // Logic: Take the last part as State, second to last as City. 
+            // Fallback to "Pending" if the string is too short.
+            const state = addressParts.length >= 2 ? addressParts[addressParts.length - 1] : "Pending";
+            const city = addressParts.length >= 2 ? addressParts[addressParts.length - 2] : state;
+
+            const kitchenPayload = {
+                orderNumber: order._id.toString().substring(18).toUpperCase(),
+                mobileOrderId: order._id, 
+                customer: order.customer,
+                vendor: order.vendor,
+                items: order.items.map(item => ({
+                    name: item.itemType, 
+                    quantity: item.quantity,
+                    price: item.price,
+                    notes: item.notes || ""
+                })),
+                totalAmount: order.totalPrice,
+                deliveryFee: order.deliveryFee,
+                deliveryAddress: {
+                    street: deliveryAddress, 
+                    city: city,
+                    state: state
+                }
+            };
+
+            // Call the utility (fire-and-forget)
+            syncOrderToKitchen(kitchenPayload);
+            
+        } catch (syncErr) {
+            // We wrap this in a try/catch so that if the parsing fails, 
+            // the customer still gets their 'Success' response for the order.
+            console.error("Critical: Kitchen Sync data preparation failed:", syncErr.message);
+        }
+        // === END KITCHEN SYNC ===
+
+        return res.status(201).json({ success: true, order });
 	} catch (error) {
 		console.error("CRITICAL ERROR:", error);
 		// This return ensures Postman STOPS loading and shows the error
-		return res
-			.status(500)
-			.json({ message: "Order failed", error: error.message });
+		return res.status(500).json({ message: "Order failed", error: error.message });
 	}
 };
 

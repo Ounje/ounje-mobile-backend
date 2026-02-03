@@ -15,6 +15,7 @@ const {
 } = require("../utilis/generateToken");
 const { requestSmsOtp, verifySmsOtp } = require("../utilis/kudiSmsHelper");
 const { getCoordsFromAddress } = require("../utilis/delivery");
+const { syncUserToKitchen } = require("../utilis/kitchenSync");
 
 const transporter = nodemailer.createTransport({
 	service: "gmail",
@@ -91,6 +92,30 @@ const register = async (req, res) => {
 			user = new Rider({ ...userProps, operatingArea });
 
 		await user.save();
+
+		// === START KITCHEN SYNC ===
+        // Only sync if the role is 'customer' or 'vendor'
+        if (role === "customer" || role === "vendor") {
+			let mirrorData = {
+				_id: user._id,
+				email: user.email,
+				phone: user.phone,
+			};
+
+			if (role === "customer") {
+				// Split "John Doe" into ["John", "Doe"]
+				const nameParts = user.name.trim().split(" ");
+				mirrorData.firstName = nameParts[0];
+				mirrorData.lastName = nameParts.length > 1 ? nameParts.slice(1).join(" ") : "Customer";
+			} else {
+				// For vendors
+				mirrorData.businessName = user.name;
+				mirrorData.ownerName = user.name; // Placeholder for ownerName
+			}
+
+			syncUserToKitchen(role, mirrorData);
+		}
+        // === END KITCHEN SYNC ===
 
 		const accessToken = generateAccessToken({ id: user._id, role: user.role });
 		const refreshToken = generateRefreshToken({
