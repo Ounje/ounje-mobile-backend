@@ -1,6 +1,7 @@
 const orderService = require("../services/order.service");
 const Order = require("../models/Order");
 const logger = require("../utilis/logger");
+const paginate = require("../utilis/paginate");
 
 // Create a new order
 exports.createOrder = async (req, res) => {
@@ -353,4 +354,30 @@ exports.getRiderCompletedOrdersToday = async (req, res) => {
 		console.error("GET_RIDER_COMPLETED_TODAY_ERROR:", error);
 		res.status(500).json({ message: "Error fetching completed orders", error: error.message });
 	}
+};
+
+exports.getMyOrders = async (req, res) => {
+    try {
+        // We inject the filter { customer: req.user.id } so users only see THEIR orders
+        const result = await paginate(Order, { ...req.query, customer: req.user.id }, [
+            { path: "vendor", select: "name" },
+            { path: "items.item" }
+        ]);
+
+        res.status(200).json(result);
+    } catch (error) {
+        logger.error(`GET_MY_ORDERS_ERROR: ${error.message}`);
+        res.status(500).json({ message: "Error fetching orders", error: error.message });
+    }
+};
+
+exports.getAvailableRiderRequests = async (req, res) => {
+    try {
+        // Riders only see orders looking for a rider
+        const result = await paginate(Order, { ...req.query, subStatus: "LOOKING_FOR_RIDER" });
+        res.status(200).json(result);
+    } catch (error) {
+        logger.error(`GET_RIDER_REQUESTS_ERROR: ${error.message}`);
+        res.status(500).json({ message: "Error fetching rider requests", error: error.message });
+    }
 };
