@@ -60,35 +60,6 @@ class VendorService {
 		return await Vendor.find().sort({ totalOrders: -1 });
 	}
 
-	async deactivateVendor(vendorId) {
-		const vendor = await Vendor.findById(vendorId);
-
-		if (!vendor) {
-			throw new Error("Vendor not found");
-		}
-
-		if (vendor.storeDetails && vendor.storeDetails.length > 0) {
-			vendor.storeDetails.forEach((store) => {
-				store.status = "deactivated";
-			});
-		}
-		vendor.isAvailable = false;
-
-		await vendor.save();
-
-		return {
-			success: true,
-			message:
-				"Vendor account has been deactivated. Contact support to reactivate.",
-			vendor: {
-				id: vendor._id,
-				storeName: vendor.storeDetails[0]?.storeName,
-				status: "deactivated",
-				isAvailable: false,
-			},
-		};
-	}
-
 	async getVendorProfile(vendorId) {
 		const vendor = await Vendor.findById(vendorId).populate("menu");
 		if (!vendor) throw new Error("Vendor not found");
@@ -418,12 +389,12 @@ class VendorService {
 			success: true,
 			message: "Profile image updated successfully",
 			imageUrl: file.path,
-			vendor: {
-				id: vendor._id,
-				name: vendor.name,
-				img: vendor.img,
-				storeName: vendor.storeDetails?.[0]?.storeName,
-			},
+			// vendor: {
+			// 	id: vendor._id,
+			// 	name: vendor.name,
+			// 	img: vendor.img,
+			// 	storeName: vendor.storeDetails?.[0]?.storeName,
+			// },
 		};
 	}
 
