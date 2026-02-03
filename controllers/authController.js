@@ -6,7 +6,7 @@ const Vendor = require("../models/Vendor");
 const Rider = require("../models/Rider");
 const OtpVerification = require("../models/OtpVerification");
 const RefreshToken = require("../models/RefreshToken");
-const { sendWelcomeEmail, sendOtpEmail } = require("../utilis/email.utils");
+const emailService = require("../services/email/EmailService");
 const {
 	generateAccessToken,
 	generateRefreshToken,
@@ -104,7 +104,7 @@ const register = async (req, res) => {
 		});
 
 		if (role === "customer" && finalEmail) {
-			sendWelcomeEmail(finalEmail, name).catch((err) =>
+			emailService.sendWelcomeEmail(finalEmail, name).catch((err) =>
 				console.error("Welcome email failed:", err),
 			);
 		}
@@ -145,7 +145,7 @@ const login = async (req, res) => {
 			await OtpVerification.deleteMany({ email: user.email, isEmail: true });
 			await OtpVerification.create({ email: user.email, otp, isEmail: true });
 
-			await sendOtpEmail(user.email, otp, "login");
+			await emailService.sendOtpEmail(user.email, otp, "login");
 
 			return res.json({ message: `OTP sent to email: ${user.email}` });
 		}
@@ -189,7 +189,7 @@ const requestEmailOtp = async (req, res) => {
 		await OtpVerification.deleteMany({ email, isEmail: true });
 		await OtpVerification.create({ email, otp, isEmail: true });
 
-		await sendOtpEmail(email, otp, "verification");
+		await emailService.sendOtpEmail(email, otp, "verification");
 
 		res.json({ success: true, message: "OTP sent to email" });
 	} catch (err) {

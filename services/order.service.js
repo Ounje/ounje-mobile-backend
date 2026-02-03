@@ -251,19 +251,30 @@ const verifyDeliveryOtp = async (order, otp, riderId) => {
 
 
 const acceptOrder = async (orderId, riderId) => {
-    const order = await Order.findById(orderId);
-    if (!order) throw new Error("Order not found");
+    // Atomic update to prevent race conditions
+    const order = await Order.findOneAndUpdate(
+        {
+            _id: orderId,
+            status: ORDER_STATUS.PENDING,
+            rider: null
+        },
+        {
+            $set: {
+                rider: riderId,
+                status: ORDER_STATUS.RIDING,
+                subStatus: ORDER_SUB_STATUS.RIDER_ASSIGNED
+            }
+        },
+        { new: true }
+    );
 
-    // Check availability
-    if (order.status !== ORDER_STATUS.PENDING || order.rider) {
+    if (!order) {
+        // Double check if it was just because of status or if it doesn't exist
+        const existingOrder = await Order.findById(orderId);
+        if (!existingOrder) throw new Error("Order not found");
+
         throw new Error("Order is no longer available. Another rider may have accepted it.");
     }
-
-    // Assign rider
-    order.rider = riderId;
-    order.status = ORDER_STATUS.RIDING;
-    order.subStatus = ORDER_SUB_STATUS.RIDER_ASSIGNED;
-    await order.save();
 
     // Notify Customer
     if (global.io) {
