@@ -1,5 +1,5 @@
 const express = require("express");
-const { NINStorage } = require("../config/cloudinary");
+const { NINStorage, vendorImageUpload } = require("../config/cloudinary");
 const {
 	getPopularVendors,
 	getVendor,
@@ -7,6 +7,8 @@ const {
 	updateBankDetails,
 	getNearbyVendors,
 	completeVendorRegistration,
+	updateVendorProfileImage,
+	deleteVendorProfileImage,
 } = require("../controllers/vendorController");
 const { authMiddleware, roleGuard } = require("../middleware/auth");
 
@@ -178,6 +180,21 @@ router.post(
 	roleGuard(["vendor"]),
 	NINStorage.single("ninID"),
 	completeVendorRegistration,
+);
+
+router.put(
+	"/profile/upload/image",
+	authMiddleware,
+	roleGuard(["vendor"]),
+	vendorImageUpload.single("img"),
+	updateVendorProfileImage,
+);
+
+router.delete(
+	"/profile/delete/image",
+	authMiddleware,
+	roleGuard(["vendor"]),
+	deleteVendorProfileImage,
 );
 
 module.exports = router;

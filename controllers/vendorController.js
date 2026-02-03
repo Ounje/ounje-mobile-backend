@@ -21,7 +21,8 @@ const getVendor = async (req, res) => {
 		const vendor = await vendorService.getVendorProfile(req.user.id);
 		res.json(vendor);
 	} catch (err) {
-		if (err.message === "Vendor not found") return res.status(404).json({ message: err.message });
+		if (err.message === "Vendor not found")
+			return res.status(404).json({ message: err.message });
 		res.status(500).json({ message: err.message });
 	}
 };
@@ -56,9 +57,12 @@ const userGetVendor = async (req, res) => {
 		res.status(200).json(vendor);
 	} catch (err) {
 		console.error("USER_GET_VENDOR_ERROR:", err);
-		if (err.message === "Vendor not found") return res.status(404).json({ message: err.message });
+		if (err.message === "Vendor not found")
+			return res.status(404).json({ message: err.message });
 
-		res.status(500).json({ message: "Internal Server Error", error: err.message });
+		res
+			.status(500)
+			.json({ message: "Internal Server Error", error: err.message });
 	}
 };
 
@@ -68,7 +72,8 @@ const updateBankDetails = async (req, res) => {
 		res.json(result);
 	} catch (err) {
 		console.error("Update bank details failed:", err.message);
-		if (err.message.includes("required")) return res.status(400).json({ error: err.message });
+		if (err.message.includes("required"))
+			return res.status(400).json({ error: err.message });
 		res.status(500).json({ error: err.message });
 	}
 };
@@ -107,7 +112,11 @@ const completeVendorRegistration = async (req, res) => {
 			// We'll let service handle validation mostly, but valid req.file handling is here.
 		}
 
-		const result = await vendorService.completeRegistration(req.user.id, data, fileUrl);
+		const result = await vendorService.completeRegistration(
+			req.user.id,
+			data,
+			fileUrl,
+		);
 
 		if (result.success === false) {
 			// Handle the specific "needs CAC" case which returns 400 usually
@@ -115,11 +124,13 @@ const completeVendorRegistration = async (req, res) => {
 		}
 
 		res.status(200).json(result);
-
 	} catch (error) {
 		console.error("Error completing vendor registration:", error);
 
-		if (error.message.includes("required") || error.message.includes("Invalid")) {
+		if (
+			error.message.includes("required") ||
+			error.message.includes("Invalid")
+		) {
 			return res.status(400).json({ success: false, message: error.message });
 		}
 		if (error.message === "Vendor not found") {
@@ -137,6 +148,48 @@ const completeVendorRegistration = async (req, res) => {
 	}
 };
 
+const updateVendorProfileImage = async (req, res) => {
+	try {
+		const vendorId = req.user.id;
+
+		if (!req.file) {
+			return res.status(400).json({
+				success: false,
+				message: "Profile image file is required",
+			});
+		}
+
+		const result = await vendorService.uploadAndUpdateVendorProfileImage(
+			vendorId,
+			req.file,
+		);
+
+		return res.status(200).json(result);
+	} catch (error) {
+		console.error("Update Vendor Profile Image Error:", error);
+		return res.status(500).json({
+			success: false,
+			message: error.message || "Error updating profile image",
+		});
+	}
+};
+
+const deleteVendorProfileImage = async (req, res) => {
+	try {
+		const vendorId = req.user.id;
+
+		const result = await vendorService.deleteVendorProfileImage(vendorId);
+
+		return res.status(200).json(result);
+	} catch (error) {
+		console.error("Delete Vendor Profile Image Error:", error);
+		return res.status(500).json({
+			success: false,
+			message: error.message || "Error deleting profile image",
+		});
+	}
+};
+
 module.exports = {
 	completeVendorRegistration,
 	getPopularVendors,
@@ -144,5 +197,7 @@ module.exports = {
 	userGetVendor,
 	updateBankDetails,
 	getNearbyVendors,
+	updateVendorProfileImage,
+	deleteVendorProfileImage,
 	getVendors,
 };

@@ -60,6 +60,23 @@ const NINStorage = new CloudinaryStorage({
 		transformation: [{ width: 800, quality: "auto" }],
 	},
 });
+
+const vendorStorage = new CloudinaryStorage({
+	cloudinary,
+	params: {
+		folder: "vendor-documents",
+		allowed_formats: ["jpg", "png", "jpeg", "webp"],
+		transformation: [{ width: 800, quality: "auto" }],
+	},
+});
+const newsBannerStorage = new CloudinaryStorage({
+	cloudinary,
+	params: {
+		folder: "news-banner",
+		allowed_formats: ["jpg", "png", "jpeg", "webp"],
+		transformation: [{ width: 800, quality: "auto" }],
+	},
+});
 const RiderDocumentStorage = new CloudinaryStorage({
 	cloudinary,
 	params: {
@@ -83,6 +100,8 @@ module.exports = {
 	comboUpload: multer({ storage: comboStorage }),
 	foodItemUpload: multer({ storage: foodItemsStorage }),
 	plateUpload: multer({ storage: platesStorage }),
+	vendorImageUpload: multer({ storage: vendorStorage }),
 	riderUpload: multer({ storage: RiderDocumentStorage }),
+	newsBannerUpload: multer({ storage: newsBannerStorage }),
 	deleteImage,
 };

@@ -11,7 +11,9 @@ exports.createOrder = async (req, res) => {
 		return res.status(201).json({ success: true, order });
 	} catch (error) {
 		logger.error(`CRITICAL ERROR: ${error.message}`);
-		return res.status(500).json({ message: "Order failed", error: error.message });
+		return res
+			.status(500)
+			.json({ message: "Order failed", error: error.message });
 	}
 };
 
@@ -24,7 +26,9 @@ exports.getMyOrders = async (req, res) => {
 		res.status(200).json(orders);
 	} catch (error) {
 		logger.error(`GET_MY_ORDERS_ERROR: ${error.message}`);
-		res.status(500).json({ message: "Error fetching orders", error: error.message });
+		res
+			.status(500)
+			.json({ message: "Error fetching orders", error: error.message });
 	}
 };
 
@@ -50,7 +54,9 @@ exports.getOrderById = async (req, res) => {
 		res.status(200).json(order);
 	} catch (error) {
 		logger.error(`GET_ORDER_BY_ID_ERROR: ${error.message}`);
-		res.status(500).json({ message: "Error fetching order", error: error.message });
+		res
+			.status(500)
+			.json({ message: "Error fetching order", error: error.message });
 	}
 };
 
@@ -62,14 +68,16 @@ exports.updateOrderStatus = async (req, res) => {
 		const order = await orderService.updateOrderStatus(id, status, subStatus);
 		res.status(200).json({ success: true, order });
 	} catch (error) {
-		res.status(500).json({ message: "Failed to update order", error: error.message });
+		res
+			.status(500)
+			.json({ message: "Failed to update order", error: error.message });
 	}
 };
 
 exports.sendDeliveryOtp = async (order) => {
-	// This is now just a wrapper or direct call, 
+	// This is now just a wrapper or direct call,
 	// but the routes might call the controller functions.
-	// However, sendDeliveryOtp WAS exported and used internally. 
+	// However, sendDeliveryOtp WAS exported and used internally.
 	// It's safer to defer to the service.
 	try {
 		return await orderService.sendDeliveryOtp(order);
@@ -96,11 +104,17 @@ exports.acceptOrder = async (req, res) => {
 		return res.status(200).json({
 			success: true,
 			message: "Order accepted successfully",
-			order
+			order,
 		});
 	} catch (error) {
 		logger.error(`ACCEPT_ORDER_ERROR: ${error.message}`);
-		return res.status(500).json({ success: false, message: "Failed to accept order", error: error.message });
+		return res
+			.status(500)
+			.json({
+				success: false,
+				message: "Failed to accept order",
+				error: error.message,
+			});
 	}
 };
 
@@ -114,7 +128,7 @@ exports.pickUpOrder = async (req, res) => {
 		res.status(200).json({
 			success: true,
 			message: "Order picked up! OTP sent to customer.",
-			order
+			order,
 		});
 	} catch (error) {
 		res.status(500).json({ message: "Pickup failed", error: error.message });
@@ -132,10 +146,12 @@ exports.completeDelivery = async (req, res) => {
 		res.status(200).json({
 			success: true,
 			message: "Delivery completed successfully!",
-			order
+			order,
 		});
 	} catch (error) {
-		res.status(500).json({ message: "Delivery completion failed", error: error.message });
+		res
+			.status(500)
+			.json({ message: "Delivery completion failed", error: error.message });
 	}
 };
 
@@ -145,7 +161,9 @@ exports.getAvailableRiderRequests = async (req, res) => {
 		res.status(200).json(orders);
 	} catch (error) {
 		logger.error(`GET_RIDER_REQUESTS_ERROR: ${error.message}`);
-		res.status(500).json({ message: "Error fetching rider requests", error: error.message });
+		res
+			.status(500)
+			.json({ message: "Error fetching rider requests", error: error.message });
 	}
 };
 
@@ -155,12 +173,16 @@ exports.getCurrentRiderOrder = async (req, res) => {
 		const order = await orderService.getCurrentRiderOrder(riderId);
 
 		if (!order) {
-			return res.status(200).json({ message: "No active ongoing ride", order: null });
+			return res
+				.status(200)
+				.json({ message: "No active ongoing ride", order: null });
 		}
 		res.status(200).json({ order });
 	} catch (error) {
 		logger.error(`GET_CURRENT_RIDER_ORDER_ERROR: ${error.message}`);
-		res.status(500).json({ message: "Error fetching ongoing order", error: error.message });
+		res
+			.status(500)
+			.json({ message: "Error fetching ongoing order", error: error.message });
 	}
 };
 
@@ -175,10 +197,14 @@ exports.getRiderCompletedOrdersToday = async (req, res) => {
 		});
 	} catch (error) {
 		logger.error(`GET_RIDER_COMPLETED_TODAY_ERROR: ${error.message}`);
-		res.status(500).json({ message: "Error fetching completed orders", error: error.message });
+		res
+			.status(500)
+			.json({
+				message: "Error fetching completed orders",
+				error: error.message,
+			});
 	}
 };
-
 
 // Create a new order
 exports.createOrder = async (req, res) => {
@@ -188,7 +214,9 @@ exports.createOrder = async (req, res) => {
 		return res.status(201).json({ success: true, order });
 	} catch (error) {
 		console.error("CRITICAL ERROR:", error);
-		return res.status(500).json({ message: "Order failed", error: error.message });
+		return res
+			.status(500)
+			.json({ message: "Order failed", error: error.message });
 	}
 };
 
@@ -201,7 +229,9 @@ exports.getMyOrders = async (req, res) => {
 		res.status(200).json(orders);
 	} catch (error) {
 		console.error("GET_MY_ORDERS_ERROR:", error);
-		res.status(500).json({ message: "Error fetching orders", error: error.message });
+		res
+			.status(500)
+			.json({ message: "Error fetching orders", error: error.message });
 	}
 };
 
@@ -227,7 +257,9 @@ exports.getOrderById = async (req, res) => {
 		res.status(200).json(order);
 	} catch (error) {
 		console.error("GET_ORDER_BY_ID_ERROR:", error);
-		res.status(500).json({ message: "Error fetching order", error: error.message });
+		res
+			.status(500)
+			.json({ message: "Error fetching order", error: error.message });
 	}
 };
 
@@ -239,14 +271,16 @@ exports.updateOrderStatus = async (req, res) => {
 		const order = await orderService.updateOrderStatus(id, status, subStatus);
 		res.status(200).json({ success: true, order });
 	} catch (error) {
-		res.status(500).json({ message: "Failed to update order", error: error.message });
+		res
+			.status(500)
+			.json({ message: "Failed to update order", error: error.message });
 	}
 };
 
 exports.sendDeliveryOtp = async (order) => {
-	// This is now just a wrapper or direct call, 
+	// This is now just a wrapper or direct call,
 	// but the routes might call the controller functions.
-	// However, sendDeliveryOtp WAS exported and used internally. 
+	// However, sendDeliveryOtp WAS exported and used internally.
 	// It's safer to defer to the service.
 	try {
 		return await orderService.sendDeliveryOtp(order);
@@ -273,11 +307,17 @@ exports.acceptOrder = async (req, res) => {
 		return res.status(200).json({
 			success: true,
 			message: "Order accepted successfully",
-			order
+			order,
 		});
 	} catch (error) {
 		console.error("ACCEPT_ORDER_ERROR:", error);
-		return res.status(500).json({ success: false, message: "Failed to accept order", error: error.message });
+		return res
+			.status(500)
+			.json({
+				success: false,
+				message: "Failed to accept order",
+				error: error.message,
+			});
 	}
 };
 
@@ -291,7 +331,7 @@ exports.pickUpOrder = async (req, res) => {
 		res.status(200).json({
 			success: true,
 			message: "Order picked up! OTP sent to customer.",
-			order
+			order,
 		});
 	} catch (error) {
 		res.status(500).json({ message: "Pickup failed", error: error.message });
@@ -309,10 +349,12 @@ exports.completeDelivery = async (req, res) => {
 		res.status(200).json({
 			success: true,
 			message: "Delivery completed successfully!",
-			order
+			order,
 		});
 	} catch (error) {
-		res.status(500).json({ message: "Delivery completion failed", error: error.message });
+		res
+			.status(500)
+			.json({ message: "Delivery completion failed", error: error.message });
 	}
 };
 
@@ -322,7 +364,9 @@ exports.getAvailableRiderRequests = async (req, res) => {
 		res.status(200).json(orders);
 	} catch (error) {
 		console.error("GET_RIDER_REQUESTS_ERROR:", error);
-		res.status(500).json({ message: "Error fetching rider requests", error: error.message });
+		res
+			.status(500)
+			.json({ message: "Error fetching rider requests", error: error.message });
 	}
 };
 
@@ -332,12 +376,16 @@ exports.getCurrentRiderOrder = async (req, res) => {
 		const order = await orderService.getCurrentRiderOrder(riderId);
 
 		if (!order) {
-			return res.status(200).json({ message: "No active ongoing ride", order: null });
+			return res
+				.status(200)
+				.json({ message: "No active ongoing ride", order: null });
 		}
 		res.status(200).json({ order });
 	} catch (error) {
 		console.error("GET_CURRENT_RIDER_ORDER_ERROR:", error);
-		res.status(500).json({ message: "Error fetching ongoing order", error: error.message });
+		res
+			.status(500)
+			.json({ message: "Error fetching ongoing order", error: error.message });
 	}
 };
 
@@ -352,7 +400,12 @@ exports.getRiderCompletedOrdersToday = async (req, res) => {
 		});
 	} catch (error) {
 		console.error("GET_RIDER_COMPLETED_TODAY_ERROR:", error);
-		res.status(500).json({ message: "Error fetching completed orders", error: error.message });
+		res
+			.status(500)
+			.json({
+				message: "Error fetching completed orders",
+				error: error.message,
+			});
 	}
 };
 
