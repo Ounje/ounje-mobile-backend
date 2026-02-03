@@ -40,4 +40,13 @@ const FoodItemSchema = new mongoose.Schema(
 	{ timestamps: true },
 );
 
+FoodItemSchema.set("toJSON", {
+	virtuals: true,
+	versionKey: false,
+	transform: function (doc, ret) {
+		delete ret._id;
+	},
+});
+
 module.exports = mongoose.model("FoodItem", FoodItemSchema);
+

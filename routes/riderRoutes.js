@@ -10,6 +10,7 @@ const {
 	riderLeaderBoard,
 	completeRiderRegistration,
 	getRiderProfile,
+	getRiderWallet,
 } = require("../controllers/riderController");
 
 // FIX 3: Endpoint corrected to '/location' since the server.js prefix is '/api/riders'
@@ -149,5 +150,8 @@ router.post(
 router.get("/leaderboard", riderLeaderBoard);
 
 router.get("/profile", authMiddleware, roleGuard(["rider"]), getRiderProfile);
+
+// Rider Wallet & Earnings
+router.get("/wallet", authMiddleware, roleGuard(["rider"]), getRiderWallet);
 
 module.exports = router;

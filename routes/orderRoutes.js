@@ -16,6 +16,9 @@ const {
 	acceptOrder,
 	pickUpOrder,
 	completeDelivery,
+	getAvailableRiderRequests,
+	getCurrentRiderOrder,
+	getRiderCompletedOrdersToday,
 } = require("../controllers/orderController");
 
 const router = express.Router();
@@ -237,6 +240,20 @@ router.put(
 		}
 	},
 );
+
+/* ======================
+   RIDER DASHBOARD ROUTES
+====================== */
+
+// 1. Get New Delivery Requests
+router.get("/rider/requests", authMiddleware, roleGuard(["rider"]), getAvailableRiderRequests);
+
+// 2. Get Ongoing Ride
+router.get("/rider/ongoing", authMiddleware, roleGuard(["rider"]), getCurrentRiderOrder);
+
+// 3. Get Completed Rides Today
+router.get("/rider/completed-today", authMiddleware, roleGuard(["rider"]), getRiderCompletedOrdersToday);
+
 
 /* ======================
    RIDER ROUTES

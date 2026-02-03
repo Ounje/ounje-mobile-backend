@@ -3,6 +3,9 @@ const mongoose = require("mongoose");
 const cors = require("cors");
 const http = require("http"); // Standard Node.js module
 require("dotenv").config();
+const httpLogger = require("./middleware/httpLogger");
+const logger = require("./utilis/logger");
+
 // Load all models early so Mongoose model registration is guaranteed
 require("./models");
 
@@ -29,6 +32,7 @@ const io = require("socket.io")(server, {
 	cors: { origin: "*" }, // Allows connections from your frontend
 });
 
+app.use(httpLogger); // HTTP Request Logging
 app.use(cors());
 app.use(express.json());
 app.set("trust proxy", 1);
@@ -53,17 +57,17 @@ app.use("/api/support", supportRoutes);
 app.use("/api/rating", ratingRouter);
 // app.use("/api/test", require("./tests/test01"));
 
-console.log(process.env.FRONTEND_URL);
+logger.info(`Frontend URL: ${process.env.FRONTEND_URL}`);
 
 io.on("connection", (socket) => {
 	// Make io reachable from controllers via `global.io` for simple emit (used for OTP push)
 	global.io = io;
-	console.log("A user connected:", socket.id);
+	logger.info(`A user connected: ${socket.id}`);
 
 	// The Frontend will call this as soon as the app opens
 	socket.on("join", (userId) => {
 		socket.join(userId);
-		console.log(`User ${userId} joined their private room`);
+		logger.info(`User ${userId} joined their private room`);
 	});
 
 	// 1. Listen for the 'update-location' signal from the Rider's App
@@ -87,22 +91,27 @@ io.on("connection", (socket) => {
 				lng: data.lng,
 			});
 		} catch (error) {
-			console.error("Database update failed:", error);
+			logger.error(`Database update failed: ${error.message}`);
 		}
 	});
 
 	socket.on("disconnect", () => {
-		console.log("User disconnected");
+		logger.info("User disconnected");
 	});
 });
 
 // Middleware
+const errorHandler = require("./middleware/errorHandler");
+app.use(errorHandler);
 
 app.get("/", (req, res) => res.send("Food Service API running 🚀"));
 
 const PORT = process.env.PORT || 5000;
 
 mongoose.connect(process.env.MONGO_DB_URI).then(() => {
-	console.log("✅ MongoDB connected");
-	server.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}`)); // CORRECT
+	logger.info("✅ MongoDB connected");
+	server.listen(PORT, () => logger.info(`🚀 Server running on port ${PORT}`)); // CORRECT
 });
+
+
+
