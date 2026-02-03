@@ -1,5 +1,5 @@
 const express = require("express");
-const { NINStorage } = require("../config/cloudinary");
+const { NINStorage, vendorImageUpload } = require("../config/cloudinary");
 const {
 	getPopularVendors,
 	getVendor,

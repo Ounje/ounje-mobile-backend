@@ -21,6 +21,7 @@ const payoutRoutes = require("./routes/payoutRoutes");
 const deliveryRoutes = require("./routes/deliveryRoutes");
 const supportRoutes = require("./routes/supportRoutes");
 const ratingRouter = require("./routes/ratingsRoutes");
+const newflashRouter = require("./routes/newflash.route");
 
 const app = express();
 
@@ -38,13 +39,14 @@ app.use(express.json());
 app.set("trust proxy", 1);
 
 // Swagger Documentation
-const swaggerUi = require('swagger-ui-express');
-const swaggerSpecs = require('./config/swagger');
-app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpecs));
+const swaggerUi = require("swagger-ui-express");
+const swaggerSpecs = require("./config/swagger");
+app.use("/api-docs", swaggerUi.serve, swaggerUi.setup(swaggerSpecs));
 //api routes
 app.use("/api/auth", authRoutes);
 //app.use("/api/food", dishRoutes);
 app.use("/api/dishes", dishRoutes);
+app.use("api/newsflash", newflashRouter);
 app.use("/api/orders", orderRoutes);
 app.use("/api/payments", paymentRoutes);
 app.use("/api/vendors", vendorRoutes);
@@ -112,6 +114,3 @@ mongoose.connect(process.env.MONGO_DB_URI).then(() => {
 	logger.info("✅ MongoDB connected");
 	server.listen(PORT, () => logger.info(`🚀 Server running on port ${PORT}`)); // CORRECT
 });
-
-
-
