@@ -105,13 +105,13 @@ VendorSchema.virtual("foodItems", {
 });
 
 VendorSchema.set("toObject", { virtuals: true });
-VendorSchema.set("toJSON", {
-	virtuals: true,
-	versionKey: false,
-	transform: function (doc, ret) {
-		delete ret._id;
-	},
-});
+// VendorSchema.set("toJSON", {
+// 	virtuals: true,
+// 	versionKey: false,
+// 	transform: function (doc, ret) {
+// 		delete ret._id;
+// 	},
+// });
 
 VendorSchema.index({ location: "2dsphere" });
 

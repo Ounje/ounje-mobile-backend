@@ -46,11 +46,11 @@ const createNewsFlash = async (data, file) => {
 };
 
 const getAllNewsFlash = async () => {
-	return await NewsFlash.find().sort({ createdAt: -1 });
+	return await Newsflash.find().sort({ createdAt: -1 });
 };
 
 const getNewsFlashById = async (id) => {
-	return await NewsFlash.findById(id);
+	return await Newsflash.findById(id);
 };
 
 const updateNewsFlash = async (id, data, file) => {
@@ -58,14 +58,14 @@ const updateNewsFlash = async (id, data, file) => {
 		data.imageUrl = file.path;
 	}
 
-	return await NewsFlash.findByIdAndUpdate(id, data, {
+	return await Newsflash.findByIdAndUpdate(id, data, {
 		new: true,
 		runValidators: true,
 	});
 };
 
 const deleteNewsFlash = async (id) => {
-	return await NewsFlash.findByIdAndDelete(id);
+	return await Newsflash.findByIdAndDelete(id);
 };
 
 module.exports = {

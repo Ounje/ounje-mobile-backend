@@ -1,5 +1,4 @@
-const Vendor = require("../models/Vendor");
-const Customer = require("../models/Customer");
+const { Vendor, Customer } = require("../models");
 const { deleteImage } = require("../config/cloudinary");
 const payoutService = require("./payout.service");
 

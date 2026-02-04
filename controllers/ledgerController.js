@@ -1,5 +1,5 @@
-const { LedgerAccount } = require("./models/LedgerAccount");
-const { LedgerEntry } = require("../models/LedgerEntry");
+const { LedgerAccount, LedgerEntry } = require("../models");
+const { paginate } = require("../utils/paginate");
 /**
  * Move funds from pending -> available when order completes
  */
@@ -56,13 +56,13 @@ async function settleOrderEarnings(accountId, amount, orderId) {
 }
 
 const getAccountHistory = async (req, res) => {
-    try {
-        const { accountId } = req.params;
-        const result = await paginate(LedgerEntry, { ...req.query, accountId });
-        res.status(200).json(result);
-    } catch (error) {
-        res.status(500).json({ error: error.message });
-    }
+  try {
+    const { accountId } = req.params;
+    const result = await paginate(LedgerEntry, { ...req.query, accountId });
+    res.status(200).json(result);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
 };
 
 module.exports = {

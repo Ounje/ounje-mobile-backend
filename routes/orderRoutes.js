@@ -1,9 +1,6 @@
 const express = require("express");
 const { authMiddleware, roleGuard } = require("../middleware/auth");
-const Combo = require("../models/Combo");
-const Order = require("../models/Order");
-const Rider = require("../models/Rider");
-const Vendor = require("../models/Vendor");
+const { Combo, Order, Rider, Vendor } = require("../models");
 
 
 const {

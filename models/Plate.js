@@ -1,4 +1,5 @@
 const mongoose = require("mongoose");
+const toJSON = require("./plugins/toJSON.plugin");
 
 const plateSchema = new mongoose.Schema(
 	{
@@ -26,12 +27,7 @@ const plateSchema = new mongoose.Schema(
 	{ timestamps: true },
 );
 
-plateSchema.set("toJSON", {
-	virtuals: true,
-	versionKey: false,
-	transform: function (doc, ret) {
-		delete ret._id;
-	},
-});
+plateSchema.plugin(toJSON);
+
 
 module.exports = mongoose.model("Plate", plateSchema);

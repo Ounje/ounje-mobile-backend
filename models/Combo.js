@@ -1,8 +1,9 @@
 const mongoose = require("mongoose");
+const toJSON = require("./plugins/toJSON.plugin");
 // const {
 // 	getCategoryValues,
 // 	getSubCategoryValues,
-// } = require("../utilis/foodEnums");
+// } = require("../utils/foodEnums");
 
 // Schema for individual items within a selection
 const SelectionItemSchema = new mongoose.Schema({
@@ -51,13 +52,8 @@ const ComboSchema = new mongoose.Schema(
 	{ timestamps: true },
 );
 
-ComboSchema.set("toJSON", {
-	virtuals: true,
-	versionKey: false,
-	transform: function (doc, ret) {
-		delete ret._id;
-	},
-});
+ComboSchema.plugin(toJSON);
+
 ComboSchema.set("toObject", { virtuals: true });
 
 module.exports = mongoose.model("Combo", ComboSchema);

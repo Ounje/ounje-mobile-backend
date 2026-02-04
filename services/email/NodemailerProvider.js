@@ -1,6 +1,6 @@
 const nodemailer = require("nodemailer");
 const EmailProvider = require("./EmailProvider");
-const logger = require("../../utilis/logger");
+const logger = require("../../utils/logger");
 
 class NodemailerProvider extends EmailProvider {
     constructor() {

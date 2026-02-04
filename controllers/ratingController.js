@@ -1,5 +1,6 @@
 const ratingService = require("../services/rating.service");
 const likeService = require("../services/like.service");
+const logger = require("../utils/logger");
 
 // Main handler for rating & likes
 const rateEntity = async ({ req, res, targetType }) => {
@@ -48,11 +49,11 @@ const rateEntity = async ({ req, res, targetType }) => {
 			data: result,
 		});
 	} catch (err) {
-		console.error(`Rate ${targetType} Error:`, err);
+		logger.error(`Rate ${targetType} Error: ${err.message}`);
 		const status = err.message.includes("not found")
 			? 404
 			: err.message.includes("Invalid") ||
-				  err.message.includes("Rating must be")
+				err.message.includes("Rating must be")
 				? 400
 				: err.message.includes("can only rate")
 					? 403
@@ -81,7 +82,7 @@ const getReviews = async (req, res) => {
 			...result,
 		});
 	} catch (err) {
-		console.error("Get Reviews Error:", err);
+		logger.error(`Get Reviews Error: ${err.message}`);
 		return res.status(500).json({
 			success: false,
 			message: "Error fetching reviews",
@@ -100,7 +101,7 @@ const deleteReview = async (req, res) => {
 			.status(200)
 			.json({ success: true, message: "Review deleted successfully" });
 	} catch (err) {
-		console.error("Delete Review Error:", err);
+		logger.error(`Delete Review Error: ${err.message}`);
 		const status = err.message.includes("not found")
 			? 404
 			: err.message.includes("only delete your own")

@@ -2,7 +2,7 @@ const mongoose = require("mongoose");
 const Plate = require("./Plate");
 const FoodItem = require("./FoodItem");
 const Dish = require("./Combo");
-const { ORDER_STATUS, ORDER_SUB_STATUS } = require("../utilis/constants");
+const { ORDER_STATUS, ORDER_SUB_STATUS } = require("../utils/constants");
 
 const orderSchema = new mongoose.Schema({
 	customer: {

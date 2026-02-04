@@ -1,11 +1,14 @@
 const mongoose = require("mongoose");
 const { Types } = mongoose;
-const Rating = require("../models/Rating");
-const Order = require("../models/Order");
-const FoodItem = require("../models/FoodItem");
-const Combo = require("../models/Combo");
-const Vendor = require("../models/Vendor");
-const Rider = require("../models/Rider");
+const {
+	Rating,
+	Order,
+	FoodItem,
+	Combo,
+	Vendor,
+	Rider,
+} = require("../models");
+const logger = require("../utils/logger");
 
 class RatingService {
 	constructor() {
@@ -29,10 +32,12 @@ class RatingService {
 	async rateEntity(customerId, targetType, targetId, { rating, comment }) {
 		const Model = this.models[targetType];
 		if (!Model) {
+			logger.error(`RatingService: Invalid target type ${targetType}`);
 			throw new Error(`Invalid target type: ${targetType}`);
 		}
 
 		if (!this.toObjectId(targetId)) {
+			logger.error(`RatingService: Invalid target ID ${targetId}`);
 			throw new Error("Invalid target ID");
 		}
 
@@ -55,6 +60,7 @@ class RatingService {
 
 		// Return updated stats
 		const updatedTarget = await Model.findById(targetId);
+		logger.info(`Entity rated: ${targetType} ${targetId} by Customer ${customerId}`);
 		return {
 			averageRating: updatedTarget.averageRating || 0,
 			totalRatings: updatedTarget.ratingCount || 0,
@@ -176,13 +182,25 @@ class RatingService {
 	}
 
 	async getReviews(targetType, targetId, { page = 1, limit = 10 }) {
-		if (!this.toObjectId(targetId)) throw new Error("Invalid target ID");
+		if (!this.toObjectId(targetId)) {
+			logger.error(`GetReviews: Invalid target ID ${targetId}`);
+			throw new Error("Invalid target ID");
+		}
 
 		const validTypes = Object.keys(this.models);
 		if (!validTypes.includes(targetType)) {
 			throw new Error(
 				`Invalid target type. Must be one of: ${validTypes.join(", ")}`,
 			);
+		}
+
+		const Model = this.models[targetType];
+		const targetEntity = await Model.findById(targetId).select(
+			"averageRating ratingCount",
+		);
+
+		if (!targetEntity) {
+			throw new Error(`${targetType} not found`);
 		}
 
 		page = parseInt(page);
@@ -200,13 +218,6 @@ class RatingService {
 			Rating.countDocuments(filter),
 		]);
 
-		const ratingSummary = await Rating.aggregate([
-			{ $match: { targetType, target: this.toObjectId(targetId) } },
-			{
-				$group: { _id: null, average: { $avg: "$rating" }, total: { $sum: 1 } },
-			},
-		]);
-
 		const breakdown = await Rating.aggregate([
 			{ $match: { targetType, target: this.toObjectId(targetId) } },
 			{ $group: { _id: "$rating", count: { $sum: 1 } } },
@@ -216,8 +227,8 @@ class RatingService {
 		return {
 			data: reviews,
 			summary: {
-				averageRating: ratingSummary[0]?.average || 0,
-				totalRatings: ratingSummary[0]?.total || 0,
+				averageRating: targetEntity.averageRating || 0,
+				totalRatings: targetEntity.ratingCount || 0,
 				ratingBreakdown: breakdown.reduce((acc, cur) => {
 					acc[`${cur._id}star`] = cur.count;
 					return acc;
@@ -254,6 +265,7 @@ class RatingService {
 				Model,
 			);
 		}
+		logger.info(`Review ${reviewId} deleted by User ${userId}`);
 	}
 	async getRiderLeaderboard() {
 		const fourteenDaysAgo = new Date();

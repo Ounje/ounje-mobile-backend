@@ -1,5 +1,5 @@
 const morgan = require("morgan");
-const logger = require("../utilis/logger");
+const logger = require("../utils/logger");
 
 const stream = {
     write: (message) => logger.http(message.trim()),

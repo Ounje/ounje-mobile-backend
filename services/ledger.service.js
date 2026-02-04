@@ -1,5 +1,4 @@
-const { LedgerEntry } = require("../models/LedgerEntry");
-const { LedgerAccount } = require("../models/LedgerAccount");
+const { LedgerEntry, LedgerAccount } = require("../models");
 const mongoose = require("mongoose");
 
 /**
