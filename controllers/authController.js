@@ -29,7 +29,12 @@ const register = asyncHandler(async (req, res) => {
 
 	if (!otpSession) throw new AppError("OTP session token is required", 400);
 
-	const decoded = jwt.verify(otpSession, process.env.JWT_SECRET);
+	let decoded;
+	try {
+		decoded = jwt.verify(otpSession, process.env.JWT_SECRET);
+	} catch (err) {
+		throw new AppError("Invalid or expired OTP session", 400);
+	}
 
 	let finalPhone = phone || null;
 	let finalEmail = email || null;
