@@ -166,6 +166,7 @@ router.post("/rider/:id", authMiddleware, roleGuard(["customer"]), rateRider);
  *         required: true
  *         schema:
  *           type: string
+ *           enum: [FoodItem, Combo, Vendor, Rider]
  *       - in: path
  *         name: targetId
  *         required: true
