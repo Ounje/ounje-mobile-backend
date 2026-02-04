@@ -1,6 +1,6 @@
-// routes/authRoutes.js
 const express = require("express");
 const router = express.Router();
+
 const {
 	register,
 	login,
@@ -24,7 +24,7 @@ const {
  * @swagger
  * tags:
  *   name: Auth
- *   description: Authentication and User Management
+ *   description: Authentication & OTP-based User Management
  */
 
 /**
@@ -39,16 +39,22 @@ const {
  *         application/json:
  *           schema:
  *             type: object
- *             required:
- *               - email
+ *             required: [email, role, flow]
  *             properties:
  *               email:
  *                 type: string
+ *                 example: user@example.com
+ *               role:
+ *                 type: string
+ *                 enum: [customer, vendor, rider]
+ *               flow:
+ *                 type: string
+ *                 enum: [signup, login]
  *     responses:
  *       200:
- *         description: OTP generated successfully
+ *         description: OTP sent to email
  *       400:
- *         description: Email already in use or missing
+ *         description: Email already registered or invalid role/flow
  */
 router.post("/request-otp", otpRequestLimiter, requestEmailOtp);
 
@@ -64,16 +70,22 @@ router.post("/request-otp", otpRequestLimiter, requestEmailOtp);
  *         application/json:
  *           schema:
  *             type: object
- *             required:
- *               - phone
+ *             required: [phone, role, flow]
  *             properties:
  *               phone:
  *                 type: string
+ *                 example: "+2348012345678"
+ *               role:
+ *                 type: string
+ *                 enum: [customer, vendor, rider]
+ *               flow:
+ *                 type: string
+ *                 enum: [signup, login]
  *     responses:
  *       200:
  *         description: OTP sent to phone
- *       400:
- *         description: Phone already in use or missing
+ *       404:
+ *         description: User not found (login flow)
  */
 router.post("/request-phone-otp", otpRequestLimiter, requestPhoneOtp);
 
@@ -89,17 +101,22 @@ router.post("/request-phone-otp", otpRequestLimiter, requestPhoneOtp);
  *         application/json:
  *           schema:
  *             type: object
- *             required:
- *               - email
- *               - otp
+ *             required: [email, otp, role, flow]
  *             properties:
  *               email:
  *                 type: string
  *               otp:
  *                 type: string
+ *                 example: "1234"
+ *               role:
+ *                 type: string
+ *                 enum: [customer, vendor, rider]
+ *               flow:
+ *                 type: string
+ *                 enum: [signup, login]
  *     responses:
  *       200:
- *         description: OTP verified. Returns user tokens or otpSession if user not found (for registration).
+ *         description: Returns otpSession (signup) or auth tokens (login)
  *       400:
  *         description: Invalid OTP or missing fields
  */
@@ -117,10 +134,7 @@ router.post("/verify-otp", otpVerifyLimiter, verifyEmailOtp);
  *         application/json:
  *           schema:
  *             type: object
- *             required:
- *               - phone
- *               - otp
- *               - reference
+ *             required: [phone, otp, reference, role, flow]
  *             properties:
  *               phone:
  *                 type: string
@@ -128,11 +142,17 @@ router.post("/verify-otp", otpVerifyLimiter, verifyEmailOtp);
  *                 type: string
  *               reference:
  *                 type: string
+ *               role:
+ *                 type: string
+ *                 enum: [customer, vendor, rider]
+ *               flow:
+ *                 type: string
+ *                 enum: [signup, login]
  *     responses:
  *       200:
- *         description: OTP verified. Returns user tokens or otpSession.
+ *         description: Returns otpSession (signup) or auth tokens (login)
  *       400:
- *         description: Invalid verification session or OTP
+ *         description: Invalid OTP or session
  */
 router.post("/verify-phone-otp", otpVerifyLimiter, verifyPhoneOtp);
 
@@ -140,8 +160,8 @@ router.post("/verify-phone-otp", otpVerifyLimiter, verifyPhoneOtp);
  * @swagger
  * /api/auth/login:
  *   post:
- *     summary: User Login
- *     description: Login with email or phone. Sends OTP for verification.
+ *     summary: Login (Email or Phone)
+ *     description: Sends OTP to email or phone for verification
  *     tags: [Auth]
  *     requestBody:
  *       required: true
@@ -149,17 +169,16 @@ router.post("/verify-phone-otp", otpVerifyLimiter, verifyPhoneOtp);
  *         application/json:
  *           schema:
  *             type: object
- *             required:
- *               - identifier
+ *             required: [identifier]
  *             properties:
  *               identifier:
  *                 type: string
- *                 description: Email or Phone number
+ *                 description: Email address or phone number
  *     responses:
  *       200:
- *         description: OTP sent to email or phone
+ *         description: OTP sent successfully
  *       400:
- *         description: Invalid credentials or missing fields
+ *         description: Invalid credentials
  */
 router.post("/login", loginLimiter, login);
 
@@ -167,7 +186,7 @@ router.post("/login", loginLimiter, login);
  * @swagger
  * /api/auth/register:
  *   post:
- *     summary: User Registration
+ *     summary: Complete Registration
  *     tags: [Auth]
  *     requestBody:
  *       required: true
@@ -175,11 +194,7 @@ router.post("/login", loginLimiter, login);
  *         application/json:
  *           schema:
  *             type: object
- *             required:
- *               - name
- *               - role
- *               - location
- *               - otpSession
+ *             required: [name, role, location, otpSession]
  *             properties:
  *               name:
  *                 type: string
@@ -188,21 +203,19 @@ router.post("/login", loginLimiter, login);
  *                 enum: [customer, vendor, rider]
  *               location:
  *                 type: string
+ *                 example: "Lekki Phase 1, Lagos"
  *               email:
  *                 type: string
  *               phone:
  *                 type: string
  *               otpSession:
  *                 type: string
- *                 description: JWT token received from verify-otp
- *               operatingArea:
- *                 type: string
- *                 description: Required if role is rider
+ *                 description: JWT returned from OTP verification
  *     responses:
  *       201:
- *         description: User created successfully
+ *         description: User registered successfully
  *       400:
- *         description: Missing required fields or user already exists
+ *         description: Validation error
  */
 router.post("/register", registerLimiter, register);
 
@@ -210,7 +223,7 @@ router.post("/register", registerLimiter, register);
  * @swagger
  * /api/auth/logout:
  *   post:
- *     summary: Logout
+ *     summary: Logout User
  *     tags: [Auth]
  *     requestBody:
  *       content:
@@ -238,16 +251,13 @@ router.post("/logout", logOut);
  *         application/json:
  *           schema:
  *             type: object
- *             required:
- *               - refreshToken
+ *             required: [refreshToken]
  *             properties:
  *               refreshToken:
  *                 type: string
  *     responses:
  *       200:
  *         description: New access token generated
- *       401:
- *         description: Refresh token required or user not found
  *       403:
  *         description: Invalid refresh token
  */
@@ -257,7 +267,7 @@ router.post("/refresh", refresh);
  * @swagger
  * /api/auth/check-user:
  *   post:
- *     summary: Check if User Exists
+ *     summary: Check if a user exists
  *     tags: [Auth]
  *     requestBody:
  *       required: true
@@ -272,18 +282,7 @@ router.post("/refresh", refresh);
  *                 type: string
  *     responses:
  *       200:
- *         description: Check result
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 exists:
- *                   type: boolean
- *                 message:
- *                   type: string
- *       400:
- *         description: Missing fields
+ *         description: Existence check result
  */
 router.post("/check-user", checkUserExist);
 
