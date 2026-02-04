@@ -158,7 +158,7 @@ router.get("/leaderboard", riderLeaderBoard);
 router.get("/operating-area", authMiddleware, getOperatingArea);
 
 /**
- * @route   PUT /api/riders/operating-area
+ * @route   PUT /api/riders/profile/operating-area
  * @desc    Update rider's operating area (max 2 zones)
  * @access  Private (Rider only)
  * @body    { zones: ["Zone1", "Zone2"] }
