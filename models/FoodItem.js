@@ -13,7 +13,7 @@ const FoodItemSchema = new mongoose.Schema(
 		description: { type: String },
 		vendor: {
 			type: mongoose.Schema.Types.ObjectId,
-			ref: "vendor",
+			ref: "Vendor",
 			required: true,
 		},
 		category: {
@@ -49,4 +49,3 @@ FoodItemSchema.set("toJSON", {
 });
 
 module.exports = mongoose.model("FoodItem", FoodItemSchema);
-

@@ -11,7 +11,7 @@ const plateSchema = new mongoose.Schema(
 		},
 		vendor: {
 			type: mongoose.Schema.Types.ObjectId,
-			ref: "vendor",
+			ref: "Vendor",
 			required: true,
 		},
 		price: { type: Number, required: true },
@@ -35,4 +35,3 @@ plateSchema.set("toJSON", {
 });
 
 module.exports = mongoose.model("Plate", plateSchema);
-

@@ -36,7 +36,7 @@ const ComboSchema = new mongoose.Schema(
 		selections: [SelectionGroupSchema], // Changed from Map to Array for better population support
 		vendor: {
 			type: mongoose.Schema.Types.ObjectId,
-			ref: "vendor",
+			ref: "Vendor",
 			required: true,
 		},
 		img: { type: String, required: true },

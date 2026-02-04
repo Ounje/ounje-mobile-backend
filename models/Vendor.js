@@ -113,7 +113,6 @@ VendorSchema.set("toJSON", {
 	},
 });
 
-
 VendorSchema.index({ location: "2dsphere" });
 
 const Vendor = User.discriminator("Vendor", VendorSchema);

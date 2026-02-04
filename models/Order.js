@@ -12,7 +12,7 @@ const orderSchema = new mongoose.Schema({
 	},
 	vendor: {
 		type: mongoose.Schema.Types.ObjectId,
-		ref: "vendor",
+		ref: "Vendor",
 		required: true,
 	},
 	items: [
@@ -98,5 +98,3 @@ orderSchema.set("toJSON", {
 });
 
 module.exports = mongoose.model("Order", orderSchema);
-
-
