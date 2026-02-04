@@ -52,24 +52,25 @@ const registerRider = async (data) => {
  * Update/Set Operating Area for Rider
  * Allows riders to select their operating zones (max 2)
  */
-const updateOperatingArea = async (riderId, operatingArea) => {
-	const { zones } = operatingArea;
 
-	if (!zones || !Array.isArray(zones)) {
-		throw new Error("Zones array is required");
+const updateOperatingArea = async (riderId, body) => {
+	const { operatingArea } = body;
+
+	if (!operatingArea || !Array.isArray(operatingArea)) {
+		throw new Error("Operating area must be an array of zones");
 	}
 
-	if (zones.length === 0) {
-		throw new Error("At least one zone must be selected");
+	if (operatingArea.length === 0) {
+		throw new Error("At least one delivery zone must be selected");
 	}
 
-	if (zones.length > 2) {
+	if (operatingArea.length > 2) {
 		throw new Error("You can only select a maximum of 2 delivery zones");
 	}
 
 	const rider = await Rider.findByIdAndUpdate(
 		riderId,
-		{ operatingArea: zones },
+		{ operatingArea },
 		{ new: true },
 	).select("name phone operatingArea");
 
@@ -77,7 +78,9 @@ const updateOperatingArea = async (riderId, operatingArea) => {
 		throw new Error("Rider not found");
 	}
 
-	logger.info(`Rider ${riderId} updated operating area: ${zones.join(", ")}`);
+	logger.info(
+		`Rider ${riderId} updated operating area: ${operatingArea.join(", ")}`,
+	);
 
 	return {
 		success: true,
@@ -193,7 +196,7 @@ const completeRiderRegistration = async (riderId, data, files) => {
 	// --- Save Data ---
 	const guarantor = {
 		guarantorName,
-		guarantorPhone: Number(guarantorPhone),
+		guarantorPhone,
 		guarantorNin: guarantorNinUrl,
 	};
 
