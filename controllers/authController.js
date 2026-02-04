@@ -18,6 +18,7 @@ const { getCoordsFromAddress } = require("../utils/delivery");
 const { syncUserToKitchen } = require("../utils/kitchenSync");
 const asyncHandler = require("../utils/asyncHandler");
 const AppError = require("../utils/AppError");
+const logger = require("../utils/logger");
 
 const generateOtp = () => Math.floor(1000 + Math.random() * 9000).toString();
 const normalizePhone = require("../utils/phoneNormalizer");
@@ -125,7 +126,7 @@ const register = asyncHandler(async (req, res) => {
 	if (role === "customer" && finalEmail) {
 		emailService
 			.sendWelcomeEmail(finalEmail, name)
-			.catch((err) => console.error("Welcome email failed:", err));
+			.catch((err) => logger.error(`Welcome email failed: ${err.message}`));
 	}
 
 	res.status(201).json({
@@ -140,6 +141,7 @@ const register = asyncHandler(async (req, res) => {
 			role: user.role,
 		},
 	});
+	logger.info(`User registered: ${user._id} (${role})`);
 });
 
 const login = asyncHandler(async (req, res) => {
@@ -160,6 +162,7 @@ const login = asyncHandler(async (req, res) => {
 
 		await emailService.sendOtpEmail(user.email, otp, "login");
 
+		logger.info(`Login OTP sent to email: ${user.email}`);
 		return res.json({ message: `OTP sent to email: ${user.email}` });
 	}
 
@@ -175,6 +178,7 @@ const login = asyncHandler(async (req, res) => {
 			isPhone: true,
 		});
 
+		logger.info(`Login OTP sent to phone: ${user.phone}`);
 		return res.json({
 			message: `OTP sent to phone: ${user.phone}`,
 			reference,

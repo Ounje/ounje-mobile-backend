@@ -8,6 +8,7 @@ const {
 	Vendor,
 	Rider,
 } = require("../models");
+const logger = require("../utils/logger");
 
 class RatingService {
 	constructor() {
@@ -31,10 +32,12 @@ class RatingService {
 	async rateEntity(customerId, targetType, targetId, { rating, comment }) {
 		const Model = this.models[targetType];
 		if (!Model) {
+			logger.error(`RatingService: Invalid target type ${targetType}`);
 			throw new Error(`Invalid target type: ${targetType}`);
 		}
 
 		if (!this.toObjectId(targetId)) {
+			logger.error(`RatingService: Invalid target ID ${targetId}`);
 			throw new Error("Invalid target ID");
 		}
 
@@ -57,6 +60,7 @@ class RatingService {
 
 		// Return updated stats
 		const updatedTarget = await Model.findById(targetId);
+		logger.info(`Entity rated: ${targetType} ${targetId} by Customer ${customerId}`);
 		return {
 			averageRating: updatedTarget.averageRating || 0,
 			totalRatings: updatedTarget.ratingCount || 0,
@@ -178,7 +182,10 @@ class RatingService {
 	}
 
 	async getReviews(targetType, targetId, { page = 1, limit = 10 }) {
-		if (!this.toObjectId(targetId)) throw new Error("Invalid target ID");
+		if (!this.toObjectId(targetId)) {
+			logger.error(`GetReviews: Invalid target ID ${targetId}`);
+			throw new Error("Invalid target ID");
+		}
 
 		const validTypes = Object.keys(this.models);
 		if (!validTypes.includes(targetType)) {
@@ -258,6 +265,7 @@ class RatingService {
 				Model,
 			);
 		}
+		logger.info(`Review ${reviewId} deleted by User ${userId}`);
 	}
 	async getRiderLeaderboard() {
 		const fourteenDaysAgo = new Date();

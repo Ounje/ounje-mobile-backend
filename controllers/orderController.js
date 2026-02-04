@@ -9,6 +9,7 @@ const AppError = require("../utils/AppError");
 exports.createOrder = asyncHandler(async (req, res) => {
 	const userId = req.user.id;
 	const order = await orderService.createOrder(userId, req.body);
+	logger.info(`Order created: ${order._id} by User ${userId}`);
 	return res.status(201).json({ success: true, order });
 });
 

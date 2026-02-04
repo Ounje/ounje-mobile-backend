@@ -24,6 +24,7 @@ const getRiderWallet = async (req, res) => {
 const registerRider = async (req, res) => {
 	try {
 		const result = await riderService.registerRider(req.body);
+		logger.info(`Rider registered: ${result.rider._id}`);
 		res.status(201).json(result);
 	} catch (error) {
 		logger.error(`Register Rider Error: ${error.message}`);
