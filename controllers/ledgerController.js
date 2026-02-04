@@ -1,6 +1,5 @@
-const { LedgerAccount } = require("../models/LedgerAccount");
+const { LedgerAccount, LedgerEntry } = require("../models");
 const { paginate } = require("../utilis/paginate");
-const { LedgerEntry } = require("../models/LedgerEntry");
 /**
  * Move funds from pending -> available when order completes
  */

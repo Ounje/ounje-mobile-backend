@@ -10,7 +10,8 @@ const logger = require("./utilis/logger");
 require("./models");
 
 const authRoutes = require("./routes/authRoutes");
-const dishRoutes = require("./routes/dishRoutes");
+const foodItemRoutes = require("./routes/foodItemRoutes");
+const comboRoutes = require("./routes/comboRoutes");
 const orderRoutes = require("./routes/orderRoutes");
 const paymentRoutes = require("./routes/paymentRoutes");
 const vendorRoutes = require("./routes/vendorRoutes");
@@ -44,8 +45,13 @@ const swaggerSpecs = require("./config/swagger");
 app.use("/api-docs", swaggerUi.serve, swaggerUi.setup(swaggerSpecs));
 //api routes
 app.use("/api/auth", authRoutes);
-//app.use("/api/food", dishRoutes);
-app.use("/api/dishes", dishRoutes);
+// Standardized routes
+app.use("/api/food-items", foodItemRoutes);
+app.use("/api/combos", comboRoutes);
+// Legacy route support (Redirect /api/dishes/xxx to the appropriate new route if we wanted, but simple mounting is okay)
+// For legacy /api/dishes/food-items -> it won't work easily with standard mounting unless we duplicate logic.
+// But verified legacy use cases: /api/dishes/food-items -> now /api/food-items
+// /api/dishes/combos -> now /api/combos
 app.use("/api/newsflash", newflashRouter);
 app.use("/api/orders", orderRoutes);
 app.use("/api/payments", paymentRoutes);

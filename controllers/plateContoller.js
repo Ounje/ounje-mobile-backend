@@ -1,5 +1,4 @@
-const Plate = require("../models/Plate");
-const FoodItem = require("../models/FoodItem");
+const { Plate, FoodItem } = require("../models");
 const { deleteImage } = require("../config/cloudinary");
 const { paginate } = require("../utilis/paginate");
 

@@ -1,7 +1,5 @@
 const axios = require("axios");
-const Payment = require("../models/Payment");
-const Customer = require("../models/Customer");
-const Order = require("../models/Order");
+const { Payment, Customer, Order } = require("../models");
 const crypto = require("crypto");
 const ledgerService = require("../services/ledger.service");
 const payoutService = require("../services/payout.service");

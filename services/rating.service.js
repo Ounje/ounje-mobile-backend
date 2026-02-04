@@ -1,11 +1,13 @@
 const mongoose = require("mongoose");
 const { Types } = mongoose;
-const Rating = require("../models/Rating");
-const Order = require("../models/Order");
-const FoodItem = require("../models/FoodItem");
-const Combo = require("../models/Combo");
-const Vendor = require("../models/Vendor");
-const Rider = require("../models/Rider");
+const {
+	Rating,
+	Order,
+	FoodItem,
+	Combo,
+	Vendor,
+	Rider,
+} = require("../models");
 
 class RatingService {
 	constructor() {

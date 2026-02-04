@@ -1,11 +1,13 @@
 const jwt = require("jsonwebtoken");
 const { v4: uuidv4 } = require("uuid");
-const User = require("../models/User");
-const Customer = require("../models/Customer");
-const Vendor = require("../models/Vendor");
-const Rider = require("../models/Rider");
-const OtpVerification = require("../models/OtpVerification");
-const RefreshToken = require("../models/RefreshToken");
+const {
+	User,
+	Customer,
+	Vendor,
+	Rider,
+	OtpVerification,
+	RefreshToken,
+} = require("../models");
 const emailService = require("../services/email/EmailService");
 const {
 	generateAccessToken,

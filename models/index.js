@@ -1,17 +1,43 @@
-// Central model loader — require this early (e.g., in server.js) to ensure all models are registered with Mongoose
-require("./User");
-require("./Vendor");
-require("./Rider");
-require("./Customer");
-require("./Order");
-require("./Payment");
-require("./Payout");
-require("./LedgerAccount");
-require("./LedgerEntry");
-require("./Plate");
-require("./Rating");
-require("./Combo");
-require("./FoodItem");
-require("./SupportTicket");
+const Admin = require("./Admin");
+const Combo = require("./Combo");
+const Customer = require("./Customer");
+const FoodItem = require("./FoodItem");
+const LedgerAccount = require("./LedgerAccount");
+const LedgerEntry = require("./LedgerEntry");
+const Order = require("./Order");
+const OtpVerification = require("./OtpVerification");
+const Payment = require("./Payment");
+const Payout = require("./Payout");
+const Plate = require("./Plate");
+const Rating = require("./Rating");
+const RefreshToken = require("./RefreshToken");
+const Rider = require("./Rider");
+const RiderEarnings = require("./RiderEarnings");
+const SupportTicket = require("./SupportTicket");
+const User = require("./User");
+const Vendor = require("./Vendor");
+const VendorSettlement = require("./VendorSettlement");
+const Newsflash = require("./newsflash");
 
-module.exports = true;
+module.exports = {
+    Admin,
+    Combo,
+    Customer,
+    FoodItem,
+    LedgerAccount,
+    LedgerEntry,
+    Order,
+    OtpVerification,
+    Payment,
+    Payout,
+    Plate,
+    Rating,
+    RefreshToken,
+    Rider,
+    RiderEarnings,
+    SupportTicket,
+    User,
+    Vendor,
+    VendorSettlement,
+    Newsflash,
+};

@@ -1,5 +1,5 @@
 const orderService = require("../services/order.service");
-const Order = require("../models/Order");
+const { Order } = require("../models");
 const logger = require("../utilis/logger");
 const { paginate } = require("../utilis/paginate");
 

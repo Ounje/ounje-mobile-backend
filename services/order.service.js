@@ -1,10 +1,12 @@
-const Order = require("../models/Order");
-const Vendor = require("../models/Vendor");
-const Combo = require("../models/Combo");
-const FoodItem = require("../models/FoodItem");
-const Plate = require("../models/Plate");
-const Customer = require("../models/Customer");
-const Rider = require("../models/Rider");
+const {
+    Order,
+    Vendor,
+    Combo,
+    FoodItem,
+    Plate,
+    Customer,
+    Rider,
+} = require("../models");
 const { calculateOunjeFee, identifyZone } = require("../utilis/delivery");
 const crypto = require("crypto");
 const { sendPushNotification } = require("./notification.service");

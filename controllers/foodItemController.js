@@ -1,6 +1,4 @@
-const Vendor = require("../models/Vendor");
-const FoodItem = require("../models/FoodItem");
-const Combo = require("../models/Combo");
+const { Vendor, FoodItem, Combo } = require("../models");
 const { FOOD_ENUMS } = require("../utilis/foodEnums");
 const { paginate } = require("../utilis/paginate");
 
@@ -154,16 +152,16 @@ const deleteFoodItem = async (req, res) => {
 const getAllFoodItems = async (req, res) => {
 	try {
 		const filter = { isAvailable: true };
-        
-        // Define what we want to "join" from the Vendor model
-        const populate = { 
-            path: "vendor", 
-            select: "storeDetails img description averageRating totalOrders" 
-        };
 
-        const result = await paginate(FoodItem, req.query, populate, filter);
-        
-        res.status(200).json(result);
+		// Define what we want to "join" from the Vendor model
+		const populate = {
+			path: "vendor",
+			select: "storeDetails img description averageRating totalOrders"
+		};
+
+		const result = await paginate(FoodItem, req.query, populate, filter);
+
+		res.status(200).json(result);
 	} catch (err) {
 		res.status(500).json({ success: false, error: err.message });
 	}
@@ -188,13 +186,13 @@ const getFoodItemById = async (req, res) => {
 const getMyFoodItems = async (req, res) => {
 	try {
 		// Create a filter so the utility only finds THIS vendor's food
-        const filter = { vendor: req.user.id };
+		const filter = { vendor: req.user.id };
 
-        const result = await paginate(FoodItem, req.query, null, filter);
-        
-        res.status(200).json(result);
-    } catch (err) {
-        res.status(500).json({ success: false, error: err.message });
+		const result = await paginate(FoodItem, req.query, null, filter);
+
+		res.status(200).json(result);
+	} catch (err) {
+		res.status(500).json({ success: false, error: err.message });
 	}
 };
 
@@ -325,12 +323,12 @@ const deleteCombo = async (req, res) => {
 const getAllCombos = async (req, res) => {
 	try {
 		const populateOptions = [
-            { path: "vendor", select: "img description averageRating totalOrders" },
-            { 
-                path: "selections.items.item", 
-                select: "name img description price" 
-            }
-        ];
+			{ path: "vendor", select: "img description averageRating totalOrders" },
+			{
+				path: "selections.items.item",
+				select: "name img description price"
+			}
+		];
 
 		const result = await paginate(Combo, req.query, populateOptions);
 		res.status(200).json(result);
@@ -341,17 +339,17 @@ const getAllCombos = async (req, res) => {
 
 const getMyCombos = async (req, res) => {
 	try {
-        const filter = { vendor: req.user.id };
-        const populateOptions = {
-            path: "selections.items.item",
-            select: "name img description price"
-        };
+		const filter = { vendor: req.user.id };
+		const populateOptions = {
+			path: "selections.items.item",
+			select: "name img description price"
+		};
 
-        const result = await paginate(Combo, req.query, populateOptions, filter);
-        res.status(200).json(result);
-    } catch (error) {
-        res.status(500).json({ success: false, message: error.message });
-    }
+		const result = await paginate(Combo, req.query, populateOptions, filter);
+		res.status(200).json(result);
+	} catch (error) {
+		res.status(500).json({ success: false, message: error.message });
+	}
 };
 
 const getComboById = async (req, res) => {
@@ -377,19 +375,19 @@ const getComboById = async (req, res) => {
 const getVendorCombos = async (req, res) => {
 	try {
 		const filter = { vendor: req.params.vendorId };
-        const populateOptions = [
-            { path: "vendor", select: "img description averageRating totalOrders" },
-            { 
-                path: "selections.items.item", 
-                select: "name img description price" 
-            }
-        ];
+		const populateOptions = [
+			{ path: "vendor", select: "img description averageRating totalOrders" },
+			{
+				path: "selections.items.item",
+				select: "name img description price"
+			}
+		];
 
-        const result = await paginate(Combo, req.query, populateOptions, filter);
-        res.status(200).json(result);
-    } catch (error) {
-        res.status(500).json({ success: false, message: error.message });
-    }
+		const result = await paginate(Combo, req.query, populateOptions, filter);
+		res.status(200).json(result);
+	} catch (error) {
+		res.status(500).json({ success: false, message: error.message });
+	}
 };
 module.exports = {
 	createFoodItem,

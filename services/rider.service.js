@@ -1,4 +1,4 @@
-const Rider = require("../models/Rider");
+const { Rider } = require("../models");
 const payoutService = require("./payout.service");
 const ratingService = require("./rating.service");
 const ledgerService = require("./ledger.service");
