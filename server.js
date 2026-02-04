@@ -22,6 +22,7 @@ const deliveryRoutes = require("./routes/deliveryRoutes");
 const supportRoutes = require("./routes/supportRoutes");
 const ratingRouter = require("./routes/ratingsRoutes");
 const newflashRouter = require("./routes/newflash.route");
+const notificationRouter = require("./routes/notification.router");
 
 const app = express();
 
@@ -33,6 +34,11 @@ const io = require("socket.io")(server, {
 	cors: { origin: "*" }, // Allows connections from your frontend
 });
 
+// ✅ FIX: Set global.io OUTSIDE the connection handler
+// This makes it available to all services (notification, order, etc.)
+global.io = io;
+logger.info("✅ Socket.IO initialized and available globally");
+
 app.use(httpLogger); // HTTP Request Logging
 app.use(cors());
 app.use(express.json());
@@ -42,6 +48,7 @@ app.set("trust proxy", 1);
 const swaggerUi = require("swagger-ui-express");
 const swaggerSpecs = require("./config/swagger");
 app.use("/api-docs", swaggerUi.serve, swaggerUi.setup(swaggerSpecs));
+
 //api routes
 app.use("/api/auth", authRoutes);
 //app.use("/api/food", dishRoutes);
@@ -57,13 +64,13 @@ app.use("/api/payouts", payoutRoutes);
 app.use("/api/delivery", deliveryRoutes);
 app.use("/api/support", supportRoutes);
 app.use("/api/rating", ratingRouter);
+app.use("/api/notifications", notificationRouter);
 // app.use("/api/test", require("./tests/test01"));
 
 logger.info(`Frontend URL: ${process.env.FRONTEND_URL}`);
 
+// Socket.IO Connection Handler
 io.on("connection", (socket) => {
-	// Make io reachable from controllers via `global.io` for simple emit (used for OTP push)
-	global.io = io;
 	logger.info(`A user connected: ${socket.id}`);
 
 	// The Frontend will call this as soon as the app opens
@@ -75,18 +82,23 @@ io.on("connection", (socket) => {
 	// 1. Listen for the 'update-location' signal from the Rider's App
 	socket.on("update-location", async (data) => {
 		try {
+			const Rider = require("./models/Rider");
+
 			// 2. SAVE to Database: This is where you apply the code
 			// We update the specific rider using their ID
-			await RiderModel.findByIdAndUpdate(data.riderId, {
+			await Rider.findByIdAndUpdate(data.riderId, {
 				lastKnownLocation: {
-					lat: data.lat,
-					lng: data.lng,
+					type: "Point",
+					coordinates: [data.lng, data.lat], // GeoJSON format: [longitude, latitude]
 				},
 				updatedAt: new Date(),
 			});
 
+			logger.info(
+				`Rider ${data.riderId} location updated: [${data.lng}, ${data.lat}]`,
+			);
+
 			// 3. BROADCAST: Send this same data to the Operations Dashboard
-			// This tells the dashboard to move the rider's icon on the map
 			io.emit("rider-moved", {
 				riderId: data.riderId,
 				lat: data.lat,
@@ -98,7 +110,7 @@ io.on("connection", (socket) => {
 	});
 
 	socket.on("disconnect", () => {
-		logger.info("User disconnected");
+		logger.info(`User disconnected: ${socket.id}`);
 	});
 });
 
@@ -112,5 +124,5 @@ const PORT = process.env.PORT || 5000;
 
 mongoose.connect(process.env.MONGO_DB_URI).then(() => {
 	logger.info("✅ MongoDB connected");
-	server.listen(PORT, () => logger.info(`🚀 Server running on port ${PORT}`)); // CORRECT
+	server.listen(PORT, () => logger.info(`🚀 Server running on port ${PORT}`));
 });

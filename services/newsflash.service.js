@@ -1,12 +1,48 @@
 const NewsFlash = require("../models/newsflash");
+const notificationService = require("./notification.service");
+const User = require("../models/User");
+const logger = require("../utilis/logger");
 
 const createNewsFlash = async (data, file) => {
 	const imageUrl = file ? file.path : null;
 
-	return await NewsFlash.create({
+	const newsflash = await NewsFlash.create({
 		...data,
 		imageUrl,
 	});
+
+	// Notify all active vendors about the newsflash
+	try {
+		const vendors = await User.find({
+			__t: "Vendor",
+			"storeDetails.status": "active", // Check if store is active
+		}).select("_id");
+
+		if (vendors.length > 0) {
+			logger.info(
+				`Sending newsflash notification to ${vendors.length} vendors`,
+			);
+
+			const notificationPromises = vendors.map((vendor) =>
+				notificationService
+					.notifyNewsFlash(vendor._id, newsflash)
+					.catch((err) => {
+						logger.error(
+							`Failed to notify vendor ${vendor._id}: ${err.message}`,
+						);
+					}),
+			);
+
+			await Promise.allSettled(notificationPromises);
+			logger.info(`Newsflash notifications sent to all active vendors`);
+		} else {
+			logger.warn("No active vendors found to notify about newsflash");
+		}
+	} catch (error) {
+		logger.error(`Failed to send newsflash notifications: ${error.message}`);
+	}
+
+	return newsflash;
 };
 
 const getAllNewsFlash = async () => {
