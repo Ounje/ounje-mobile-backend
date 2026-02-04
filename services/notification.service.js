@@ -54,7 +54,7 @@ class NotificationService {
 		};
 	}
 
-	// ✅ DEPRECATED: Use getUserNotifications instead
+	// DEPRECATED: Use getUserNotifications instead
 	// Keeping for backward compatibility
 	async getVendorNotifications(
 		vendorId,
