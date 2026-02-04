@@ -193,30 +193,115 @@ const login = asyncHandler(async (req, res) => {
 });
 
 const requestEmailOtp = asyncHandler(async (req, res) => {
-	const { email } = req.body;
+	const { email, role, flow } = req.body;
 	if (!email) throw new AppError("Email is required", 400);
+	if (!role) throw new AppError("Role is required", 400);
 
-	const exists = await User.findOne({ email });
-	if (exists) throw new AppError("Email already in use", 400);
+	// For signup, check if email exists in ANY role to prevent duplicate registrations
+	if (flow === "signup") {
+		const existingUser = await User.findOne({ email });
+		if (existingUser) {
+			throw new AppError("Email already registered", 400);
+		}
+	}
+
+	// For login, check for existing user in the SPECIFIC role
+	if (flow === "login") {
+		let existingUser = null;
+		if (role === "rider") {
+			existingUser = await Rider.findOne({ email });
+		} else if (role === "vendor") {
+			existingUser = await Vendor.findOne({ email });
+		} else if (role === "customer") {
+			existingUser = await Customer.findOne({ email });
+		} else {
+			throw new AppError("Invalid role", 400);
+		}
+
+		if (!existingUser) {
+			throw new AppError(`No ${role} account found with this email`, 404);
+		}
+	}
 
 	const otp = generateOtp();
 	await OtpVerification.deleteMany({ email, isEmail: true });
 	await OtpVerification.create({ email, otp, isEmail: true });
 
-	await emailService.sendOtpEmail(email, otp, "verification");
+	await emailService.sendOtpEmail(
+		email,
+		otp,
+		flow === "login" ? "login" : "verification",
+	);
 
-	res.json({ success: true, message: "OTP sent to email" });
+	return res.json({ success: true, message: "OTP sent to email" });
 });
 
 const verifyEmailOtp = asyncHandler(async (req, res) => {
-	const { email, otp } = req.body;
+	const { email, otp, role, flow } = req.body;
 	if (!email || !otp) throw new AppError("Email and OTP required", 400);
-
+	if (!role) throw new AppError("Role is required", 400);
+	if (!flow) throw new AppError("Flow (login/signup) is required", 400);
 	const record = await OtpVerification.findOne({ email, otp, isEmail: true });
 	if (!record) throw new AppError("Invalid OTP", 400);
 
 	await OtpVerification.deleteMany({ email, isEmail: true });
 
+	// Handle signup flow - check if email exists in ANY role
+	if (flow === "signup") {
+		const existingUser = await User.findOne({ email });
+		if (existingUser) {
+			throw new AppError("Email already registered", 400);
+		}
+
+		const otpSession = jwt.sign({ email }, process.env.JWT_SECRET, {
+			expiresIn: "30m",
+		});
+		return res.json({ success: true, otpSession });
+	}
+
+	// Handle login flow - check for user in SPECIFIC role
+	if (flow === "login") {
+		let user = null;
+		if (role === "rider") {
+			user = await Rider.findOne({ email });
+		} else if (role === "vendor") {
+			user = await Vendor.findOne({ email });
+		} else if (role === "customer") {
+			user = await Customer.findOne({ email });
+		} else {
+			throw new AppError("Invalid role", 400);
+		}
+
+		if (!user) {
+			throw new AppError(`No ${role} account found with this email`, 404);
+		}
+
+		const accessToken = generateAccessToken({ id: user._id, role: user.role });
+		const refreshToken = generateRefreshToken({
+			id: user._id,
+			role: user.role,
+		});
+		await RefreshToken.create({
+			token: refreshToken,
+			user: user._id,
+			ip: req.ip,
+		});
+
+		return res.json({
+			success: true,
+			accessToken,
+			refreshToken,
+			user: {
+				id: user._id,
+				name: user.name,
+				email: user.email,
+				phone: user.phone,
+				role: user.role,
+			},
+		});
+	}
+
+	// Fallback for no flow specified (backward compatibility)
 	const user = await User.findOne({ email });
 	if (!user) {
 		const otpSession = jwt.sign({ email }, process.env.JWT_SECRET, {
@@ -251,13 +336,41 @@ const verifyEmailOtp = asyncHandler(async (req, res) => {
 });
 
 const requestPhoneOtp = asyncHandler(async (req, res) => {
-	let { phone } = req.body;
+	let { phone, role, flow } = req.body;
 	if (!phone) throw new AppError("Phone required", 400);
+	if (!role) throw new AppError("Role is required", 400);
+	if (!flow) throw new AppError("Flow (login/signup) is required", 400);
 
 	phone = normalizePhone(phone);
 
-	const exists = await User.findOne({ phone });
-	if (exists) throw new AppError("Phone already in use", 400);
+	// For signup, check if phone exists in ANY role to prevent duplicate registrations
+	if (flow === "signup") {
+		const existingUser = await User.findOne({ phone });
+		if (existingUser) {
+			throw new AppError("Phone number already registered", 400);
+		}
+	}
+
+	// For login, check for existing user in the SPECIFIC role
+	if (flow === "login") {
+		let existingUser = null;
+		if (role === "rider") {
+			existingUser = await Rider.findOne({ phone });
+		} else if (role === "vendor") {
+			existingUser = await Vendor.findOne({ phone });
+		} else if (role === "customer") {
+			existingUser = await Customer.findOne({ phone });
+		} else {
+			throw new AppError("Invalid role", 400);
+		}
+
+		if (!existingUser) {
+			throw new AppError(
+				`No ${role} account found with this phone number`,
+				404,
+			);
+		}
+	}
 
 	let { success, reference, error } = await requestSmsOtp(phone);
 	if (!success) throw new AppError(error, 500);
@@ -271,13 +384,14 @@ const requestPhoneOtp = asyncHandler(async (req, res) => {
 		isPhone: true,
 	});
 
-	res.json({ message: "OTP sent to phone", reference });
+	return res.json({ message: "OTP sent to phone", reference });
 });
 
 const verifyPhoneOtp = asyncHandler(async (req, res) => {
-	let { phone, otp, reference } = req.body;
+	let { phone, otp, reference, role, flow } = req.body;
 	if (!phone || !otp || !reference)
 		throw new AppError("Phone, OTP, reference required", 400);
+	if (!role) throw new AppError("Role is required", 400);
 
 	phone = normalizePhone(phone);
 
@@ -294,6 +408,65 @@ const verifyPhoneOtp = asyncHandler(async (req, res) => {
 
 	await OtpVerification.deleteOne({ phone, reference, isPhone: true });
 
+	// Handle signup flow - check if phone exists in ANY role
+	if (flow === "signup") {
+		const existingUser = await User.findOne({ phone });
+		if (existingUser) {
+			throw new AppError("Phone number already registered", 400);
+		}
+
+		const otpSession = jwt.sign({ phone }, process.env.JWT_SECRET, {
+			expiresIn: "30m",
+		});
+		return res.json({ success: true, otpSession });
+	}
+
+	// Handle login flow - check for user in SPECIFIC role
+	if (flow === "login") {
+		let user = null;
+		if (role === "rider") {
+			user = await Rider.findOne({ phone });
+		} else if (role === "vendor") {
+			user = await Vendor.findOne({ phone });
+		} else if (role === "customer") {
+			user = await Customer.findOne({ phone });
+		} else {
+			throw new AppError("Invalid role", 400);
+		}
+
+		if (!user) {
+			throw new AppError(
+				`No ${role} account found with this phone number`,
+				404,
+			);
+		}
+
+		const accessToken = generateAccessToken({ id: user._id, role: user.role });
+		const refreshToken = generateRefreshToken({
+			id: user._id,
+			role: user.role,
+		});
+		await RefreshToken.create({
+			token: refreshToken,
+			user: user._id,
+			ip: req.ip,
+		});
+
+		return res.json({
+			success: true,
+			accessToken,
+			refreshToken,
+			user: {
+				id: user._id,
+				name: user.name,
+				email: user.email,
+				phone: user.phone,
+				role: user.role,
+			},
+		});
+	}
+
+	// Fallback for no flow specified (backward compatibility)
 	const user = await User.findOne({ phone });
 	if (!user) {
 		const otpSession = jwt.sign({ phone }, process.env.JWT_SECRET, {
