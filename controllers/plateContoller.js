@@ -1,7 +1,7 @@
 const Plate = require("../models/Plate");
 const FoodItem = require("../models/FoodItem");
 const { deleteImage } = require("../config/cloudinary");
-const paginate = require("../utilis/paginate");
+const { paginate } = require("../utilis/paginate");
 
 const buildPlate = async (req, res) => {
     try {
@@ -52,7 +52,7 @@ const getAllPlates = async (req, res) => {
 
         const result = await paginate(Plate, req.query, populateOptions);
 
-        res.status(200).json(result );
+        res.status(200).json(result);
     } catch (error) {
         res.status(500).json({ error: error.message });
     }
