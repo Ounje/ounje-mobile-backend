@@ -7,12 +7,12 @@ const {
     Customer,
     Rider,
 } = require("../models");
-const { calculateOunjeFee, identifyZone } = require("../utilis/delivery");
+const { calculateOunjeFee, identifyZone } = require("../utils/delivery");
 const crypto = require("crypto");
 const { sendPushNotification } = require("./notification.service");
 const ledgerService = require("./ledger.service");
-const { ORDER_STATUS, ORDER_SUB_STATUS } = require("../utilis/constants");
-const logger = require("../utilis/logger");
+const { ORDER_STATUS, ORDER_SUB_STATUS } = require("../utils/constants");
+const logger = require("../utils/logger");
 const mongoose = require("mongoose");
 
 // --- Helpers ---

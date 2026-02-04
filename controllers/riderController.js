@@ -1,5 +1,5 @@
 const riderService = require("../services/rider.service");
-const logger = require("../utilis/logger");
+const logger = require("../utils/logger");
 
 const getRiderWallet = async (req, res) => {
 	try {

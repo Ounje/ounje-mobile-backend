@@ -4,7 +4,7 @@ const User = require('../models/User');
 const Vendor = require('../models/Vendor');
 const Rider = require('../models/Rider');
 const Order = require('../models/Order');
-const paystack = require('../utilis/paystack');
+const paystack = require('../utils/paystack');
 const ledgerService = require('./ledger.service');
 const { LedgerEntry } = require('../models/LedgerEntry');
 
@@ -44,13 +44,13 @@ const processSinglePayout = async ({ userId, userType, amount, bankDetails, name
     return { success: false, reason: 'insufficient_funds', payout: failed };
   }
 
-  let payout = await Payout.create({ 
-    user: userId, 
-    userType, 
-    order: orderId, 
-    amount, 
-    bankDetails, 
-    status: 'processing', 
+  let payout = await Payout.create({
+    user: userId,
+    userType,
+    order: orderId,
+    amount,
+    bankDetails,
+    status: 'processing',
     ledgerEntry: reserved.entry._id,
     idempotencyKey: `payout_${new Date().getTime()}_${userId}`
   });
@@ -64,10 +64,10 @@ const processSinglePayout = async ({ userId, userType, amount, bankDetails, name
     if (user.paystackRecipientCode) {
       recipientCode = user.paystackRecipientCode;
     } else {
-      const recipient = await paystack.recipients.create({ 
-        name: name || user.name || 'Recipient', 
-        account_number: bankDetails.accountNumber, 
-        bank_code: bankDetails.bankCode 
+      const recipient = await paystack.recipients.create({
+        name: name || user.name || 'Recipient',
+        account_number: bankDetails.accountNumber,
+        bank_code: bankDetails.bankCode
       });
       recipientCode = recipient?.data?.recipient_code;
       if (!recipientCode) throw new Error('Failed to get recipient code');
@@ -76,11 +76,11 @@ const processSinglePayout = async ({ userId, userType, amount, bankDetails, name
     }
 
     // 3. Trigger Transfer
-    const transfer = await paystack.transfer.initiate({ 
-      amount: Math.round(amount * 100), 
-      recipient: recipientCode, 
-      reason: `Wallet Withdrawal`, 
-      idempotencyKey: payout.idempotencyKey 
+    const transfer = await paystack.transfer.initiate({
+      amount: Math.round(amount * 100),
+      recipient: recipientCode,
+      reason: `Wallet Withdrawal`,
+      idempotencyKey: payout.idempotencyKey
     });
 
     const transferCode = transfer?.data?.transfer_code;

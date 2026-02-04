@@ -1,5 +1,5 @@
 // config/db.js
-const logger = require("../utilis/logger");
+const logger = require("../utils/logger");
 
 // Import all necessary Mongoose Models so they can be accessed globally
 

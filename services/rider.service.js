@@ -2,7 +2,7 @@ const { Rider } = require("../models");
 const payoutService = require("./payout.service");
 const ratingService = require("./rating.service");
 const ledgerService = require("./ledger.service");
-const logger = require("../utilis/logger");
+const logger = require("../utils/logger");
 
 /**
  * Get Rider Dashboard Data

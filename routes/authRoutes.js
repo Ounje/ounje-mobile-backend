@@ -18,7 +18,7 @@ const {
 	otpVerifyLimiter,
 	loginLimiter,
 	registerLimiter,
-} = require("../utilis/rateLimiter");
+} = require("../utils/rateLimiter");
 
 /**
  * @swagger

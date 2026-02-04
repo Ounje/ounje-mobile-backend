@@ -3,7 +3,7 @@ const toJSON = require("./plugins/toJSON.plugin");
 // const {
 // 	getCategoryValues,
 // 	getSubCategoryValues,
-// } = require("../utilis/foodEnums");
+// } = require("../utils/foodEnums");
 
 // Schema for individual items within a selection
 const SelectionItemSchema = new mongoose.Schema({

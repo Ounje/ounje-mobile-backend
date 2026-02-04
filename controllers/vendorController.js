@@ -1,7 +1,7 @@
 const vendorService = require("../services/vendor.service");
 const mongoose = require("mongoose"); // needed only for ObjectId validation in userGetVendor (or move validation to service)
 const { Vendor } = require("../models");
-const { paginate } = require("../utilis/paginate");
+const { paginate } = require("../utils/paginate");
 
 // Get popular vendors
 const getPopularVendors = async (req, res) => {

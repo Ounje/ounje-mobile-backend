@@ -1,6 +1,6 @@
 const { Vendor, FoodItem, Combo } = require("../models");
-const { FOOD_ENUMS } = require("../utilis/foodEnums");
-const { paginate } = require("../utilis/paginate");
+const { FOOD_ENUMS } = require("../utils/foodEnums");
+const { paginate } = require("../utils/paginate");
 
 const createFoodItem = async (req, res) => {
 	try {

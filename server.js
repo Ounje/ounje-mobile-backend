@@ -4,7 +4,7 @@ const cors = require("cors");
 const http = require("http"); // Standard Node.js module
 require("dotenv").config();
 const httpLogger = require("./middleware/httpLogger");
-const logger = require("./utilis/logger");
+const logger = require("./utils/logger");
 
 // Load all models early so Mongoose model registration is guaranteed
 require("./models");

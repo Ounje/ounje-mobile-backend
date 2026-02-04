@@ -1,6 +1,6 @@
 const { Plate, FoodItem } = require("../models");
 const { deleteImage } = require("../config/cloudinary");
-const { paginate } = require("../utilis/paginate");
+const { paginate } = require("../utils/paginate");
 
 const buildPlate = async (req, res) => {
     try {

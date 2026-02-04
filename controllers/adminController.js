@@ -1,4 +1,4 @@
-const { generateAccessToken, generateRefreshToken } = require("../utilis/generateToken");
+const { generateAccessToken, generateRefreshToken } = require("../utils/generateToken");
 
 const createPlatformAccount = async (req, res) => {
     try {

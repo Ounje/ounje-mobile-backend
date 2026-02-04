@@ -3,7 +3,7 @@ const {
 	getCategoryValues,
 	getSubCategoryValues,
 	//getSellingUnitValues,
-} = require("../utilis/foodEnums");
+} = require("../utils/foodEnums");
 const toJSON = require("./plugins/toJSON.plugin");
 
 const FoodItemSchema = new mongoose.Schema(
