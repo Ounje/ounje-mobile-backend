@@ -1,4 +1,4 @@
-const firebaseAdmin = require("../utilis/firebase");
+const firebaseAdmin = require("../utils/firebase");
 /**
  * @param {string} token - The user's unique device token
  * @param {string} title - The heading (e.g., "Order Packaged!")

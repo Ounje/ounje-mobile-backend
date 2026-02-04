@@ -24,8 +24,7 @@ const generateOtp = () => Math.floor(1000 + Math.random() * 9000).toString();
 const normalizePhone = require("../utils/phoneNormalizer");
 
 const register = asyncHandler(async (req, res) => {
-	const { name, role, phone, location, email, otpSession, operatingArea } =
-		req.body;
+	const { name, role, phone, location, email, otpSession } = req.body;
 
 	if (!otpSession) throw new AppError("OTP session token is required", 400);
 
@@ -87,7 +86,7 @@ const register = asyncHandler(async (req, res) => {
 	let user;
 	if (role === "customer") user = new Customer(userProps);
 	else if (role === "vendor") user = new Vendor(userProps);
-	else if (role === "rider") user = new Rider({ ...userProps, operatingArea });
+	else if (role === "rider") user = new Rider(userProps);
 
 	await user.save();
 

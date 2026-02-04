@@ -1,5 +1,5 @@
 const notificationService = require("../services/notification.service");
-const logger = require("../utilis/logger");
+const logger = require("../utils/logger");
 
 class NotificationController {
 	async getNotifications(req, res) {

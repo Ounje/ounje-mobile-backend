@@ -11,6 +11,8 @@ const {
 	completeRiderRegistration,
 	getRiderProfile,
 	getRiderWallet,
+	getOperatingArea,
+	updateOperatingArea,
 } = require("../controllers/riderController");
 
 // FIX 3: Endpoint corrected to '/location' since the server.js prefix is '/api/riders'
@@ -148,6 +150,25 @@ router.post(
  *         description: Leaderboard data
  */
 router.get("/leaderboard", riderLeaderBoard);
+/**
+ * @route   GET /api/riders/operating-area
+ * @desc    Get rider's current operating area/zones
+ * @access  Private (Rider only)
+ */
+router.get("/operating-area", authMiddleware, getOperatingArea);
+
+/**
+ * @route   PUT /api/riders/operating-area
+ * @desc    Update rider's operating area (max 2 zones)
+ * @access  Private (Rider only)
+ * @body    { zones: ["Zone1", "Zone2"] }
+ */
+router.put(
+	"/profile/operating-area",
+	authMiddleware,
+	roleGuard(["rider"]),
+	updateOperatingArea,
+);
 
 router.get("/profile", authMiddleware, roleGuard(["rider"]), getRiderProfile);
 

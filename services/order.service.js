@@ -12,8 +12,8 @@ const crypto = require("crypto");
 const { sendPushNotification } = require("./push.notification.service");
 const ledgerService = require("./ledger.service");
 const notificationService = require("./notification.service");
-const { ORDER_STATUS, ORDER_SUB_STATUS } = require("../utilis/constants");
-const logger = require("../utilis/logger");
+const { ORDER_STATUS, ORDER_SUB_STATUS } = require("../utils/constants");
+const logger = require("../utils/logger");
 const mongoose = require("mongoose");
 
 // --- Helpers ---

@@ -2,7 +2,7 @@ const Notification = require("../models/Notification");
 const {
 	sendPushNotification,
 } = require("../services/push.notification.service");
-const logger = require("../utilis/logger");
+const logger = require("../utils/logger");
 
 class NotificationService {
 	async createNotification(payload) {

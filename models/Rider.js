@@ -8,7 +8,7 @@ const GuarantorSchema = new mongoose.Schema({
 	},
 
 	guarantorPhone: {
-		type: Number,
+		type: String,
 		required: true,
 	},
 	guarantorNin: {

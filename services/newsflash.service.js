@@ -1,7 +1,7 @@
 const NewsFlash = require("../models/newsflash");
 const notificationService = require("./notification.service");
 const User = require("../models/User");
-const logger = require("../utilis/logger");
+const logger = require("../utils/logger");
 
 const createNewsFlash = async (data, file) => {
 	const imageUrl = file ? file.path : null;
