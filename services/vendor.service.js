@@ -167,6 +167,36 @@ class VendorService {
 		if (!fileUrl) {
 			throw new Error("NIN ID document is required");
 		}
+
+		// Validate service periods based on service type
+		if (servicesOffered === "preOrderMeals") {
+			if (!data.preorderPeriods) {
+				throw new Error(
+					"At least one preorder period is required for pre-order meals",
+				);
+			}
+			const periods = this._parsePreorderPeriods(data);
+			if (!Array.isArray(periods) || periods.length === 0) {
+				throw new Error(
+					"At least one preorder period is required for pre-order meals",
+				);
+			}
+		} else if (
+			servicesOffered === "InstantMeals" ||
+			servicesOffered === "hybridMeals"
+		) {
+			if (!data.timePeriod) {
+				throw new Error(
+					"At least one time period is required for instant/hybrid meals",
+				);
+			}
+			const periods = this._parseTimePeriods(data);
+			if (!Array.isArray(periods) || periods.length === 0) {
+				throw new Error(
+					"At least one time period is required for instant/hybrid meals",
+				);
+			}
+		}
 	}
 
 	_determineAccountStatus(data) {
@@ -232,6 +262,163 @@ class VendorService {
 		} else {
 			storeDetailsData.timePeriod = this._parseTimePeriods(data);
 		}
+	}
+
+	/**
+	 * Parse preorder periods from request data
+	 * Expected format: data.preorderPeriods as array or JSON string
+	 * Schema expects: Array of { orderingTime, preparationTime, period }
+	 */
+	_parsePreorderPeriods(data) {
+		if (!data.preorderPeriods) {
+			return [];
+		}
+
+		try {
+			let periods = [];
+
+			// If it's already an array, use it
+			if (Array.isArray(data.preorderPeriods)) {
+				periods = data.preorderPeriods;
+			}
+			// If it's a JSON string, parse it
+			else if (typeof data.preorderPeriods === "string") {
+				periods = JSON.parse(data.preorderPeriods);
+			}
+
+			// Validate each period has required fields
+			if (Array.isArray(periods)) {
+				periods.forEach((period, index) => {
+					if (
+						!period.orderingTime ||
+						!period.preparationTime ||
+						!period.period
+					) {
+						throw new Error(
+							`Preorder period at index ${index} is missing required fields (orderingTime, preparationTime, period)`,
+						);
+					}
+					if (!["breakfast", "lunch", "dinner"].includes(period.period)) {
+						throw new Error(
+							`Preorder period at index ${index} has invalid period value. Must be 'breakfast', 'lunch', or 'dinner'`,
+						);
+					}
+				});
+				return periods;
+			}
+
+			return [];
+		} catch (error) {
+			console.error("Error parsing preorder periods:", error);
+			throw error;
+		}
+	}
+
+	/**
+	 * Parse time periods from request data
+	 * Expected format: data.timePeriod as array or JSON string
+	 * Schema expects: Array of { day, openingHour, closingHour }
+	 */
+	_parseTimePeriods(data) {
+		if (!data.timePeriod) {
+			return [];
+		}
+
+		try {
+			let periods = [];
+
+			// If it's already an array, use it
+			if (Array.isArray(data.timePeriod)) {
+				periods = data.timePeriod;
+			}
+			// If it's a JSON string, parse it
+			else if (typeof data.timePeriod === "string") {
+				const parsed = JSON.parse(data.timePeriod);
+				// If parsed result is an array, use it
+				if (Array.isArray(parsed)) {
+					periods = parsed;
+				}
+				// If it's an object with array properties, try to extract the array
+				else if (typeof parsed === "object" && parsed !== null) {
+					// Check if it has a periods or items property that's an array
+					if (Array.isArray(parsed.periods)) {
+						periods = parsed.periods;
+					} else if (Array.isArray(parsed.items)) {
+						periods = parsed.items;
+					}
+					// Otherwise wrap single object in array
+					else {
+						periods = [parsed];
+					}
+				}
+			}
+			// If it's a single object, wrap it in an array
+			else if (
+				typeof data.timePeriod === "object" &&
+				!Array.isArray(data.timePeriod)
+			) {
+				periods = [data.timePeriod];
+			}
+
+			// Validate each period has required fields
+			if (Array.isArray(periods)) {
+				const validDays = [
+					"sunday",
+					"monday",
+					"tuesday",
+					"wednesday",
+					"thursday",
+					"friday",
+					"saturday",
+				];
+
+				periods.forEach((period, index) => {
+					if (!period.day || !period.openingHour || !period.closingHour) {
+						throw new Error(
+							`Time period at index ${index} is missing required fields (day, openingHour, closingHour)`,
+						);
+					}
+					if (!validDays.includes(period.day.toLowerCase())) {
+						throw new Error(
+							`Time period at index ${index} has invalid day value. Must be one of: ${validDays.join(", ")}`,
+						);
+					}
+				});
+				return periods;
+			}
+
+			return [];
+		} catch (error) {
+			console.error("Error parsing time periods:", error);
+			throw error;
+		}
+	}
+
+	/**
+	 * Format the registration response
+	 */
+	_formatRegistrationResponse(vendor, storeDetailsData, statusResult) {
+		const response = {
+			success: true,
+			message:
+				statusResult.status === "active"
+					? "Vendor registration completed successfully"
+					: "Vendor registration submitted and pending verification",
+			vendor: {
+				id: vendor._id,
+				name: vendor.name,
+				email: vendor.email,
+				phone: vendor.phone,
+				storeDetails: storeDetailsData,
+			},
+			accountStatus: statusResult.status,
+		};
+
+		if (statusResult.warningMessage) {
+			response.warning = statusResult.warningMessage;
+		}
+
+		return response;
 	}
 
 	async uploadAndUpdateVendorProfileImage(vendorId, file) {
