@@ -24,8 +24,8 @@ const getRiderWallet = async (req, res) => {
 
 /**
  * Update Rider Operating Area
- * PUT /api/riders/operating-area
- * Body: { zones: ["Zone1", "Zone2"] }
+ * PUT /api/riders/profile/operating-area
+ * Body: { operatingArea: ["Zone1", "Zone2"] }
  */
 const updateOperatingArea = async (req, res) => {
 	try {

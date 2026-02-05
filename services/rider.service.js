@@ -31,6 +31,7 @@ const getRiderDashboard = async (riderId) => {
 /**
  * Register a new Rider
  * Handles simple registration logic (zones selection, etc.)
+ * deprecated - actual registration handled by auth service
  */
 const registerRider = async (data) => {
 	const { name, selectedZones } = data;

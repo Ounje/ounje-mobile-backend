@@ -22,7 +22,7 @@ class NotificationService {
 		}
 	}
 
-	// ✅ NEW: Works for all user types (vendor, customer, rider)
+	// NEW: Works for all user types (vendor, customer, rider)
 	async getUserNotifications(
 		userId,
 		recipientModel,
