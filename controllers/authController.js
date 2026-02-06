@@ -86,12 +86,14 @@ const register = asyncHandler(async (req, res) => {
 	let user;
 	if (role === "customer") {
 		user = new Customer(userProps);
+		// Set accountStatus only for customers
 		user.accountStatus = "active";
 	} else if (role === "vendor") {
 		user = new Vendor(userProps);
 	} else if (role === "rider") {
 		user = new Rider(userProps);
 	}
+
 	await user.save();
 
 	// === START KITCHEN SYNC ===
@@ -147,7 +149,6 @@ const register = asyncHandler(async (req, res) => {
 			email: user.email,
 			phone: user.phone,
 			role: user.role,
-			accountStatus: user.accountStatus,
 		},
 	});
 	logger.info(`User registered: ${user._id} (${role})`);
@@ -247,6 +248,7 @@ const verifyEmailOtp = asyncHandler(async (req, res) => {
 	if (!email || !otp) throw new AppError("Email and OTP required", 400);
 	if (!role) throw new AppError("Role is required", 400);
 	if (!flow) throw new AppError("Flow (login/signup) is required", 400);
+
 	const record = await OtpVerification.findOne({ email, otp, isEmail: true });
 	if (!record) throw new AppError("Invalid OTP", 400);
 
@@ -282,6 +284,12 @@ const verifyEmailOtp = asyncHandler(async (req, res) => {
 			throw new AppError(`No ${role} account found with this email`, 404);
 		}
 
+		// Reactivate customer account on login if deactivated
+		if (role === "customer" && user.accountStatus === "deactivated") {
+			user.accountStatus = "active";
+			await user.save();
+		}
+
 		const accessToken = generateAccessToken({ id: user._id, role: user.role });
 		const refreshToken = generateRefreshToken({
 			id: user._id,
@@ -303,42 +311,12 @@ const verifyEmailOtp = asyncHandler(async (req, res) => {
 				email: user.email,
 				phone: user.phone,
 				role: user.role,
+				accountStatus: user.accountStatus,
 			},
 		});
 	}
 
-	// Fallback for no flow specified (backward compatibility)
-	const user = await User.findOne({ email });
-	if (!user) {
-		const otpSession = jwt.sign({ email }, process.env.JWT_SECRET, {
-			expiresIn: "30m",
-		});
-		return res.json({ success: true, otpSession });
-	}
-
-	const accessToken = generateAccessToken({ id: user._id, role: user.role });
-	const refreshToken = generateRefreshToken({
-		id: user._id,
-		role: user.role,
-	});
-	await RefreshToken.create({
-		token: refreshToken,
-		user: user._id,
-		ip: req.ip,
-	});
-
-	res.json({
-		success: true,
-		accessToken,
-		refreshToken,
-		user: {
-			id: user._id,
-			name: user.name,
-			email: user.email,
-			phone: user.phone,
-			role: user.role,
-		},
-	});
+	throw new AppError("Invalid flow. Must be 'login' or 'signup'", 400);
 });
 
 const requestPhoneOtp = asyncHandler(async (req, res) => {
@@ -398,6 +376,7 @@ const verifyPhoneOtp = asyncHandler(async (req, res) => {
 	if (!phone || !otp || !reference)
 		throw new AppError("Phone, OTP, reference required", 400);
 	if (!role) throw new AppError("Role is required", 400);
+	if (!flow) throw new AppError("Flow (login/signup) is required", 400);
 
 	phone = normalizePhone(phone);
 
@@ -447,6 +426,12 @@ const verifyPhoneOtp = asyncHandler(async (req, res) => {
 			);
 		}
 
+		// Reactivate customer account on login if deactivated
+		if (role === "customer" && user.accountStatus === "deactivated") {
+			user.accountStatus = "active";
+			await user.save();
+		}
+
 		const accessToken = generateAccessToken({ id: user._id, role: user.role });
 		const refreshToken = generateRefreshToken({
 			id: user._id,
@@ -468,42 +453,12 @@ const verifyPhoneOtp = asyncHandler(async (req, res) => {
 				email: user.email,
 				phone: user.phone,
 				role: user.role,
+				accountStatus: user.accountStatus,
 			},
 		});
 	}
 
-	// Fallback for no flow specified (backward compatibility)
-	const user = await User.findOne({ phone });
-	if (!user) {
-		const otpSession = jwt.sign({ phone }, process.env.JWT_SECRET, {
-			expiresIn: "30m",
-		});
-		return res.json({ success: true, otpSession });
-	}
-
-	const accessToken = generateAccessToken({ id: user._id, role: user.role });
-	const refreshToken = generateRefreshToken({
-		id: user._id,
-		role: user.role,
-	});
-	await RefreshToken.create({
-		token: refreshToken,
-		user: user._id,
-		ip: req.ip,
-	});
-
-	res.json({
-		success: true,
-		accessToken,
-		refreshToken,
-		user: {
-			id: user._id,
-			name: user.name,
-			email: user.email,
-			phone: user.phone,
-			role: user.role,
-		},
-	});
+	throw new AppError("Invalid flow. Must be 'login' or 'signup'", 400);
 });
 
 const logOut = asyncHandler(async (req, res) => {

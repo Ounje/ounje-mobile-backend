@@ -21,11 +21,8 @@ const userSchema = new mongoose.Schema(
 	{ timestamps: true, ...options },
 );
 
-
-
 userSchema.index({ location: "2dsphere" });
 
 userSchema.plugin(toJSON);
 
 module.exports = mongoose.model("User", userSchema);
-
