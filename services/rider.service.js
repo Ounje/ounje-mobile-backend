@@ -203,6 +203,7 @@ const completeRiderRegistration = async (riderId, data, files) => {
 
 	rider.modeOfDelivery = modeOfDelivery;
 	rider.Guarantor = [guarantor];
+	rider.status = "active"; // Set status to active after successful registration
 
 	if (driversLicense) rider.driversLicense = driversLicense;
 	if (nin) rider.nin = nin;
@@ -212,6 +213,7 @@ const completeRiderRegistration = async (riderId, data, files) => {
 	return {
 		riderId: rider._id,
 		name: rider.name,
+		status: rider.status,
 		modeOfDelivery: rider.modeOfDelivery,
 		guarantor: {
 			guarantorName: guarantor.guarantorName,
@@ -309,8 +311,18 @@ const getRiderLeaderboard = async () => {
 	return await ratingService.getRiderLeaderboard();
 };
 
+const deactivateRider = async (riderId) => {
+	const rider = await Rider.findByIdAndUpdate(
+		riderId,
+		{ status: "deactivated" },
+		{ new: true },
+	);
+	if (!rider) throw new Error("Rider not found");
+	return rider;
+};
 module.exports = {
 	getRiderDashboard,
+	deactivateRider,
 	registerRider,
 	updateOperatingArea,
 	getOperatingArea,

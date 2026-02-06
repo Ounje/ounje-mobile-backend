@@ -28,6 +28,11 @@ const Rider = User.discriminator(
 		likes: [{ type: mongoose.Schema.Types.ObjectId, ref: "customer" }],
 		driversLicense: String,
 		nin: String,
+		status: {
+			type: String,
+			enum: ["pending", "deactivated", "active"],
+			default: "pending",
+		},
 		Guarantor: [GuarantorSchema],
 		// Geospatial searches
 		lastKnownLocation: {
