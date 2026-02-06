@@ -121,10 +121,13 @@ const register = asyncHandler(async (req, res) => {
 	}
 	// === END KITCHEN SYNC ===
 
-	const accessToken = generateAccessToken({ id: user._id, role: user.role });
+	const accessToken = generateAccessToken({
+		id: user._id,
+		role: (user.get ? user.get("role") : user.role).toLowerCase(),
+	});
 	const refreshToken = generateRefreshToken({
 		id: user._id,
-		role: user.role,
+		role: (user.get ? user.get("role") : user.role).toLowerCase(),
 	});
 
 	await RefreshToken.create({
@@ -148,7 +151,7 @@ const register = asyncHandler(async (req, res) => {
 			name: user.name,
 			email: user.email,
 			phone: user.phone,
-			role: user.role,
+			role: (user.get ? user.get("role") : user.role).toLowerCase(),
 		},
 	});
 	logger.info(`User registered: ${user._id} (${role})`);
@@ -293,7 +296,7 @@ const verifyEmailOtp = asyncHandler(async (req, res) => {
 		const accessToken = generateAccessToken({ id: user._id, role: user.role });
 		const refreshToken = generateRefreshToken({
 			id: user._id,
-			role: user.role,
+			role: (user.get ? user.get("role") : user.role).toLowerCase(),
 		});
 		await RefreshToken.create({
 			token: refreshToken,
@@ -435,7 +438,7 @@ const verifyPhoneOtp = asyncHandler(async (req, res) => {
 		const accessToken = generateAccessToken({ id: user._id, role: user.role });
 		const refreshToken = generateRefreshToken({
 			id: user._id,
-			role: user.role,
+			role: (user.get ? user.get("role") : user.role).toLowerCase(),
 		});
 		await RefreshToken.create({
 			token: refreshToken,
@@ -480,7 +483,10 @@ const refresh = asyncHandler(async (req, res) => {
 	const user = await User.findById(decoded.id);
 	if (!user) throw new AppError("User not found", 401);
 
-	const accessToken = generateAccessToken({ id: user._id, role: user.role });
+	const accessToken = generateAccessToken({
+		id: user._id,
+		role: (user.get ? user.get("role") : user.role).toLowerCase(),
+	});
 	res.json({ accessToken });
 });
 
