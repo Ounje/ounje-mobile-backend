@@ -1,13 +1,13 @@
 const express = require("express");
 const { authMiddleware, roleGuard } = require("../middleware/auth");
 const {
-    createCombo,
-    updateCombo,
-    deleteCombo,
-    getAllCombos,
-    getComboById,
-    getMyCombos,
-    getVendorCombos,
+	createCombo,
+	updateCombo,
+	deleteCombo,
+	getAllCombos,
+	getComboById,
+	getMyCombos,
+	getVendorCombos,
 } = require("../controllers/foodItemController");
 const { comboUpload } = require("../config/cloudinary");
 
@@ -114,10 +114,10 @@ router.get("/vendor/:vendorId", getVendorCombos);
  */
 // Specific routes before parameterized routes!
 router.get(
-    "/vendor/my-combos",
-    authMiddleware,
-    roleGuard(["vendor"]),
-    getMyCombos,
+	"/vendor/my-combos",
+	authMiddleware,
+	roleGuard(["Vendor"]),
+	getMyCombos,
 );
 
 /**
@@ -165,11 +165,11 @@ router.get(
  *         description: Vendor profile incomplete
  */
 router.post(
-    "/",
-    authMiddleware,
-    roleGuard(["vendor"]),
-    comboUpload.single("img"),
-    createCombo,
+	"/",
+	authMiddleware,
+	roleGuard(["Vendor"]),
+	comboUpload.single("img"),
+	createCombo,
 );
 
 /**
@@ -217,11 +217,11 @@ router.post(
  *         description: Combo not found
  */
 router.put(
-    "/:comboId",
-    authMiddleware,
-    roleGuard(["vendor"]),
-    comboUpload.single("img"),
-    updateCombo,
+	"/:comboId",
+	authMiddleware,
+	roleGuard(["Vendor"]),
+	comboUpload.single("img"),
+	updateCombo,
 );
 
 /**
@@ -246,11 +246,6 @@ router.put(
  *       404:
  *         description: Combo not found
  */
-router.delete(
-    "/:comboId",
-    authMiddleware,
-    roleGuard(["vendor"]),
-    deleteCombo,
-);
+router.delete("/:comboId", authMiddleware, roleGuard(["Vendor"]), deleteCombo);
 
 module.exports = router;

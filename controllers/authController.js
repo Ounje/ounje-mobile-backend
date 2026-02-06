@@ -15,6 +15,7 @@ const {
 } = require("../utils/generateToken");
 const { requestSmsOtp, verifySmsOtp } = require("../utils/kudiSmsHelper");
 const { getCoordsFromAddress } = require("../utils/delivery");
+//const { checkActiveUser } = require("../middleware/auth");
 const { syncUserToKitchen } = require("../utils/kitchenSync");
 const asyncHandler = require("../utils/asyncHandler");
 const AppError = require("../utils/AppError");
@@ -151,7 +152,7 @@ const register = asyncHandler(async (req, res) => {
 			name: user.name,
 			email: user.email,
 			phone: user.phone,
-			role: (user.get ? user.get("role") : user.role).toLowerCase(),
+			role: user.role,
 		},
 	});
 	logger.info(`User registered: ${user._id} (${role})`);
@@ -232,7 +233,10 @@ const requestEmailOtp = asyncHandler(async (req, res) => {
 			throw new AppError(`No ${role} account found with this email`, 404);
 		}
 	}
-
+	// checkActiveUser &&
+	// 	(await checkActiveUser({ user: { id: existingUser._id, role } }, res, () =>
+	// 		Promise.resolve(),
+	// 	));
 	const otp = generateOtp();
 	await OtpVerification.deleteMany({ email, isEmail: true });
 	await OtpVerification.create({ email, otp, isEmail: true });
@@ -429,12 +433,17 @@ const verifyPhoneOtp = asyncHandler(async (req, res) => {
 			);
 		}
 
-		// Reactivate customer account on login if deactivated
+		//Reactivate customer account on login if deactivated
 		if (role === "customer" && user.accountStatus === "deactivated") {
 			user.accountStatus = "active";
 			await user.save();
 		}
-
+		// checkActiveUser &&
+		// 	(await checkActiveUser(
+		// 		{ user: { id: existingUser._id, role } },
+		// 		res,
+		// 		() => Promise.resolve(),
+		// 	));
 		const accessToken = generateAccessToken({ id: user._id, role: user.role });
 		const refreshToken = generateRefreshToken({
 			id: user._id,

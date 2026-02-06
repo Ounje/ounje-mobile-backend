@@ -30,7 +30,7 @@ const router = express.Router();
 router.get(
 	"/whatsapp",
 	authMiddleware,
-	roleGuard(["vendor", "rider"]),
+	roleGuard(["Vendor", "rider"]),
 	supportWhatsAppRedirect,
 );
 

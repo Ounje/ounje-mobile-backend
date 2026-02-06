@@ -2,7 +2,6 @@ const express = require("express");
 const { authMiddleware, roleGuard } = require("../middleware/auth");
 const { Combo, Order, Rider, Vendor } = require("../models");
 
-
 const {
 	createOrder,
 	getMyOrders,
@@ -112,7 +111,7 @@ router.get("/", authMiddleware, roleGuard(["customer"]), getMyOrders);
 router.get(
 	"/vendor",
 	authMiddleware,
-	roleGuard(["vendor"]),
+	roleGuard(["Vendor"]),
 	async (req, res) => {
 		try {
 			const orders = await Order.find({ vendor: req.user.id })
@@ -179,8 +178,6 @@ router.get("/:id", authMiddleware, roleGuard(["customer"]), getOrderById);
  */
 router.put("/:id", authMiddleware, roleGuard(["customer"]), updateOrderStatus);
 
-
-
 // Update order status (confirm/cancel) (seller)
 /**
  * @swagger
@@ -217,7 +214,7 @@ router.put("/:id", authMiddleware, roleGuard(["customer"]), updateOrderStatus);
 router.put(
 	"/:id/status",
 	authMiddleware,
-	roleGuard(["vendor"]),
+	roleGuard(["Vendor"]),
 	async (req, res) => {
 		try {
 			const { status } = req.body; // accepted: confirmed or cancelled
@@ -243,14 +240,28 @@ router.put(
 ====================== */
 
 // 1. Get New Delivery Requests
-router.get("/rider/requests", authMiddleware, roleGuard(["rider"]), getAvailableRiderRequests);
+router.get(
+	"/rider/requests",
+	authMiddleware,
+	roleGuard(["rider"]),
+	getAvailableRiderRequests,
+);
 
 // 2. Get Ongoing Ride
-router.get("/rider/ongoing", authMiddleware, roleGuard(["rider"]), getCurrentRiderOrder);
+router.get(
+	"/rider/ongoing",
+	authMiddleware,
+	roleGuard(["rider"]),
+	getCurrentRiderOrder,
+);
 
 // 3. Get Completed Rides Today
-router.get("/rider/completed-today", authMiddleware, roleGuard(["rider"]), getRiderCompletedOrdersToday);
-
+router.get(
+	"/rider/completed-today",
+	authMiddleware,
+	roleGuard(["rider"]),
+	getRiderCompletedOrdersToday,
+);
 
 /* ======================
    RIDER ROUTES
@@ -315,7 +326,12 @@ router.get(
  *       400:
  *         description: Order no longer available
  */
-router.put("/accept/:orderId", authMiddleware, roleGuard(["rider"]), acceptOrder);
+router.put(
+	"/accept/:orderId",
+	authMiddleware,
+	roleGuard(["rider"]),
+	acceptOrder,
+);
 
 // Update order status and optionally rider location
 // router.put(
@@ -416,7 +432,12 @@ router.put("/accept/:orderId", authMiddleware, roleGuard(["rider"]), acceptOrder
  *       403:
  *         description: Not assigned rider
  */
-router.put("/pickup/:orderId", authMiddleware, roleGuard(["rider"]), pickUpOrder);
+router.put(
+	"/pickup/:orderId",
+	authMiddleware,
+	roleGuard(["rider"]),
+	pickUpOrder,
+);
 
 // Rider completes the delivery using the Customer's OTP
 /**
@@ -450,7 +471,12 @@ router.put("/pickup/:orderId", authMiddleware, roleGuard(["rider"]), pickUpOrder
  *       400:
  *         description: Invalid OTP
  */
-router.put("/complete/:orderId", authMiddleware, roleGuard(["rider"]), completeDelivery);
+router.put(
+	"/complete/:orderId",
+	authMiddleware,
+	roleGuard(["rider"]),
+	completeDelivery,
+);
 
 // View rider's own orders
 /**
