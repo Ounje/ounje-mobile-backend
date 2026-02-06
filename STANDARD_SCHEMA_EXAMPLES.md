@@ -138,75 +138,81 @@ This document illustrates the data structure for a standard, scalable food deliv
 
 ---
 
-## 3. The Menu (`products`)
+## 3. The Menu Structure
 
-Instead of separate `Plate` and `Combo` collections, we use a unified `Product` model with `ModifierGroups` to handle choices.
+We distinguish between three core concepts: **FoodItems**, **Combos**, and **Plates**.
 
-### Example A: Simple Item (Jollof Rice)
+### 3.1. FoodItem (`fooditems`)
+**Definition:** A single, atomic unit of food offered by a Vendor. Existing strictly as a vendor-specific offering (e.g., "Jollof Rice", "Fried Plantain").
+
 ```json
 {
-  "_id": "prod_001",
+  "_id": "food_001",
   "vendor": "vendor_555",
-  "name": "Jollof Rice",
-  "description": "Smoky party jollof",
-  "price": 1500,
-  "imageUrl": "https://bucket/jollof.jpg",
-  "type": "item",
+  "name": "Jollof Rice (Spoon)",
+  "price": 500,
+  "category": "Main",
+  "subCategory": "Rice",
+  "preparationTime": "15",
   "isAvailable": true,
-  "modifierGroups": [
+  "img": "https://bucket/food_img.jpg"
+}
+```
+
+### 3.2. Combo (`combos`)
+**Definition:** A curated **Set Meal** designed by the Vendor. It consists of a base price and a set of **Selections** (Modifiers) where the customer makes choices (e.g., "Choose 1 Swallow", "Choose 2 Meats").
+
+```json
+{
+  "_id": "combo_888",
+  "vendor": "vendor_555",
+  "comboName": "Amala Special",
+  "description": "Amala + Ewedu + 2 Meats",
+  "basePrice": 3500,
+  "img": "https://bucket/combo_img.jpg",
+  "time": "20", // Prep time
+  "selections": [
     {
-      "name": "Add Protein",
-      "minSelection": 0,
+      "key": "swallow",
+      "label": "Choose Swallow",
+      "required": true,
+      "maxSelection": 1,
+      "items": [
+        { "item": "food_101", "price": 0, "isAvailable": true }, // Amala
+        { "item": "food_102", "price": 0, "isAvailable": true }  // Eba
+      ]
+    },
+    {
+      "key": "protein",
+      "label": "Choose 2 Proteins",
+      "required": true,
       "maxSelection": 2,
-      "options": [
-        { "name": "Fried Beef", "priceDelta": 500 },
-        { "name": "Chicken", "priceDelta": 800 }
+      "items": [
+        { "item": "food_201", "price": 0, "isAvailable": true },   // Goat Meat
+        { "item": "food_202", "price": 500, "isAvailable": true }   // Assorted (Extra)
       ]
     }
   ]
 }
 ```
 
-### Example B: "Combo" / "Plate" (Full Meal Deal)
-*A "plate" is just a product that requires you to make choices (sides, drinks).*
+### 3.3. Plate (`plates`)
+**Definition:** A **Menu Builder** or **Custom Cart**. It represents a user-created aggregation of FoodItems from a specific vendor. Unlike a Combo (vendor-defined), a Plate is **Customer-defined** at the moment of ordering (e.g., "I want a plate with Jollof, Plantain, and 2 Beefs").
 
 ```json
 {
-  "_id": "prod_002",
+  "_id": "plate_777",
+  "customer": "user_123",
   "vendor": "vendor_555",
-  "name": "Big Boy Combo",
-  "description": "Rice choice + 2 Proteins + Drink",
-  "price": 3500,
-  "type": "combo",
-  "modifierGroups": [
-    {
-      "name": "Choose Rice Base",
-      "minSelection": 1,
-      "maxSelection": 1,
-      "options": [
-        { "name": "Jollof Rice", "priceDelta": 0 },
-        { "name": "Fried Rice", "priceDelta": 0 }
-      ]
-    },
-    {
-      "name": "Choose Proteins",
-      "minSelection": 2,
-      "maxSelection": 2,
-      "options": [
-        { "name": "Chicken Leg", "priceDelta": 0 },
-        { "name": "Asun", "priceDelta": 200 } // Extra charge for Asun
-      ]
-    },
-    {
-      "name": "Select Drink",
-      "minSelection": 1,
-      "maxSelection": 1,
-      "options": [
-        { "name": "Coke", "priceDelta": 0 },
-        { "name": "Water", "priceDelta": 0 }
-      ]
-    }
-  ]
+  "name": "My Custom Dinner",
+  "price": 4500, // Calculated total
+  "timeToMake": "25",
+  "items": [
+    "food_001", // Jollof
+    "food_005", // Plantian
+    "food_201"  // Beef
+  ],
+  "comments": "Put plenty pepper"
 }
 ```
 
