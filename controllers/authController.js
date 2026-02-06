@@ -119,10 +119,13 @@ const register = asyncHandler(async (req, res) => {
 	}
 	// === END KITCHEN SYNC ===
 
-	const accessToken = generateAccessToken({ id: user._id, role: user.role });
+	const accessToken = generateAccessToken({
+		id: user._id,
+		role: (user.get ? user.get('role') : user.role).toLowerCase()
+	});
 	const refreshToken = generateRefreshToken({
 		id: user._id,
-		role: user.role,
+		role: (user.get ? user.get('role') : user.role).toLowerCase(),
 	});
 
 	await RefreshToken.create({
@@ -146,7 +149,7 @@ const register = asyncHandler(async (req, res) => {
 			name: user.name,
 			email: user.email,
 			phone: user.phone,
-			role: user.role,
+			role: (user.get ? user.get('role') : user.role).toLowerCase(),
 			accountStatus: user.accountStatus,
 		},
 	});
@@ -282,10 +285,13 @@ const verifyEmailOtp = asyncHandler(async (req, res) => {
 			throw new AppError(`No ${role} account found with this email`, 404);
 		}
 
-		const accessToken = generateAccessToken({ id: user._id, role: user.role });
+		const accessToken = generateAccessToken({
+			id: user._id,
+			role: (user.get ? user.get('role') : user.role).toLowerCase()
+		});
 		const refreshToken = generateRefreshToken({
 			id: user._id,
-			role: user.role,
+			role: (user.get ? user.get('role') : user.role).toLowerCase(),
 		});
 		await RefreshToken.create({
 			token: refreshToken,
@@ -302,7 +308,7 @@ const verifyEmailOtp = asyncHandler(async (req, res) => {
 				name: user.name,
 				email: user.email,
 				phone: user.phone,
-				role: user.role,
+				role: (user.get ? user.get('role') : user.role).toLowerCase(),
 			},
 		});
 	}
@@ -316,10 +322,13 @@ const verifyEmailOtp = asyncHandler(async (req, res) => {
 		return res.json({ success: true, otpSession });
 	}
 
-	const accessToken = generateAccessToken({ id: user._id, role: user.role });
+	const accessToken = generateAccessToken({
+		id: user._id,
+		role: (user.get ? user.get('role') : user.role).toLowerCase()
+	});
 	const refreshToken = generateRefreshToken({
 		id: user._id,
-		role: user.role,
+		role: (user.get ? user.get('role') : user.role).toLowerCase(),
 	});
 	await RefreshToken.create({
 		token: refreshToken,
@@ -336,7 +345,7 @@ const verifyEmailOtp = asyncHandler(async (req, res) => {
 			name: user.name,
 			email: user.email,
 			phone: user.phone,
-			role: user.role,
+			role: (user.get ? user.get('role') : user.role).toLowerCase(),
 		},
 	});
 });
@@ -447,10 +456,13 @@ const verifyPhoneOtp = asyncHandler(async (req, res) => {
 			);
 		}
 
-		const accessToken = generateAccessToken({ id: user._id, role: user.role });
+		const accessToken = generateAccessToken({
+			id: user._id,
+			role: (user.get ? user.get('role') : user.role).toLowerCase()
+		});
 		const refreshToken = generateRefreshToken({
 			id: user._id,
-			role: user.role,
+			role: (user.get ? user.get('role') : user.role).toLowerCase(),
 		});
 		await RefreshToken.create({
 			token: refreshToken,
@@ -467,7 +479,7 @@ const verifyPhoneOtp = asyncHandler(async (req, res) => {
 				name: user.name,
 				email: user.email,
 				phone: user.phone,
-				role: user.role,
+				role: (user.get ? user.get('role') : user.role).toLowerCase(),
 			},
 		});
 	}
@@ -481,10 +493,13 @@ const verifyPhoneOtp = asyncHandler(async (req, res) => {
 		return res.json({ success: true, otpSession });
 	}
 
-	const accessToken = generateAccessToken({ id: user._id, role: user.role });
+	const accessToken = generateAccessToken({
+		id: user._id,
+		role: (user.get ? user.get('role') : user.role).toLowerCase()
+	});
 	const refreshToken = generateRefreshToken({
 		id: user._id,
-		role: user.role,
+		role: (user.get ? user.get('role') : user.role).toLowerCase(),
 	});
 	await RefreshToken.create({
 		token: refreshToken,
@@ -501,7 +516,7 @@ const verifyPhoneOtp = asyncHandler(async (req, res) => {
 			name: user.name,
 			email: user.email,
 			phone: user.phone,
-			role: user.role,
+			role: (user.get ? user.get('role') : user.role).toLowerCase(),
 		},
 	});
 });
@@ -525,7 +540,10 @@ const refresh = asyncHandler(async (req, res) => {
 	const user = await User.findById(decoded.id);
 	if (!user) throw new AppError("User not found", 401);
 
-	const accessToken = generateAccessToken({ id: user._id, role: user.role });
+	const accessToken = generateAccessToken({
+		id: user._id,
+		role: (user.get ? user.get('role') : user.role).toLowerCase()
+	});
 	res.json({ accessToken });
 });
 
