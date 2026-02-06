@@ -84,10 +84,14 @@ const register = asyncHandler(async (req, res) => {
 	};
 
 	let user;
-	if (role === "customer") user = new Customer(userProps);
-	else if (role === "vendor") user = new Vendor(userProps);
-	else if (role === "rider") user = new Rider(userProps);
-
+	if (role === "customer") {
+		user = new Customer(userProps);
+		user.accountStatus = "active";
+	} else if (role === "vendor") {
+		user = new Vendor(userProps);
+	} else if (role === "rider") {
+		user = new Rider(userProps);
+	}
 	await user.save();
 
 	// === START KITCHEN SYNC ===
@@ -143,6 +147,7 @@ const register = asyncHandler(async (req, res) => {
 			email: user.email,
 			phone: user.phone,
 			role: user.role,
+			accountStatus: user.accountStatus,
 		},
 	});
 	logger.info(`User registered: ${user._id} (${role})`);
@@ -196,6 +201,7 @@ const requestEmailOtp = asyncHandler(async (req, res) => {
 	const { email, role, flow } = req.body;
 	if (!email) throw new AppError("Email is required", 400);
 	if (!role) throw new AppError("Role is required", 400);
+	if (!flow) throw new AppError("Flow (login/signup) is required", 400);
 
 	// For signup, check if email exists in ANY role to prevent duplicate registrations
 	if (flow === "signup") {
