@@ -54,7 +54,7 @@ const registerRider = async (data) => {
  * Allows riders to select their operating zones (max 2)
  */
 
-const updateOperatingArea = async (riderId, body) => {
+const updateOperatingArea = async (userId, body) => {
 	const { operatingArea } = body;
 
 	if (!operatingArea || !Array.isArray(operatingArea)) {
@@ -69,8 +69,8 @@ const updateOperatingArea = async (riderId, body) => {
 		throw new Error("You can only select a maximum of 2 delivery zones");
 	}
 
-	const rider = await RiderProfile.findByIdAndUpdate(
-		riderId,
+	const rider = await RiderProfile.findOneAndUpdate(
+		{ user: userId },
 		{ operatingArea },
 		{ new: true },
 	).select("name phone operatingArea");
@@ -80,7 +80,7 @@ const updateOperatingArea = async (riderId, body) => {
 	}
 
 	logger.info(
-		`Rider ${riderId} updated operating area: ${operatingArea.join(", ")}`,
+		`Rider ${userId} updated operating area: ${operatingArea.join(", ")}`,
 	);
 
 	return {
@@ -98,8 +98,8 @@ const updateOperatingArea = async (riderId, body) => {
  * Get Rider Operating Area
  * Fetches the current operating zones for a rider
  */
-const getOperatingArea = async (riderId) => {
-	const rider = await RiderProfile.findById(riderId).select("operatingArea");
+const getOperatingArea = async (userId) => {
+	const rider = await RiderProfile.findOne({ user: userId }).select("operatingArea");
 
 	if (!rider) {
 		throw new Error("Rider not found");
@@ -117,15 +117,15 @@ const getOperatingArea = async (riderId) => {
  * Update Bank Details
  * Updates bank info and retries any pending payouts.
  */
-const updateBankDetails = async (riderId, bankDetails) => {
+const updateBankDetails = async (userId, bankDetails) => {
 	const { accountNumber, bankCode, accountName } = bankDetails;
 
 	if (!accountNumber || !bankCode || !accountName) {
 		throw new Error("accountNumber, bankCode, accountName required");
 	}
 
-	const rider = await RiderProfile.findByIdAndUpdate(
-		riderId,
+	const rider = await RiderProfile.findOneAndUpdate(
+		{ user: userId },
 		{ bankDetails: { accountNumber, bankCode, accountName } },
 		{ new: true },
 	);
@@ -145,10 +145,10 @@ const updateBankDetails = async (riderId, bankDetails) => {
  * Complete Rider Registration
  * Handles document uploads and profile completion.
  */
-const completeRiderRegistration = async (riderId, data, files) => {
+const completeRiderRegistration = async (userId, data, files) => {
 	const { modeOfDelivery, guarantorName, guarantorPhone } = data;
 
-	const rider = await RiderProfile.findById(riderId);
+	const rider = await RiderProfile.findOne({ user: userId });
 	if (!rider) throw new Error("Rider not found");
 
 	if (rider.Guarantor && rider.Guarantor.length > 0) {
@@ -231,8 +231,8 @@ const completeRiderRegistration = async (riderId, data, files) => {
  * Fetches profile and checks for missing fields.
  * NOTE: Operating area is now handled separately
  */
-const getRiderProfile = async (riderId) => {
-	const rider = await RiderProfile.findById(riderId).select(
+const getRiderProfile = async (userId) => {
+	const rider = await RiderProfile.findOne({ user: userId }).select(
 		"name phone modeOfDelivery Guarantor bankDetails driversLicense nin status operatingArea",
 	);
 
@@ -315,9 +315,9 @@ const getRiderLeaderboard = async () => {
 	return await ratingService.getRiderLeaderboard();
 };
 
-const deactivateRiderAccount = async (riderId) => {
-	const rider = await RiderProfile.findByIdAndUpdate(
-		riderId,
+const deactivateRiderAccount = async (userId) => {
+	const rider = await RiderProfile.findOneAndUpdate(
+		{ user: userId },
 		{ status: "deactivated" },
 		{ new: true },
 	);

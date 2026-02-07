@@ -54,6 +54,37 @@ const vendorProfileSchema = new mongoose.Schema(
                 isClosed: { type: Boolean, default: false },
             },
         ],
+        bankDetails: {
+            accountNumber: { type: String, select: false },
+            bankCode: { type: String, select: false },
+            accountName: { type: String, select: false },
+        },
+        storeDetails: [
+            {
+                storeName: String,
+                storeType: String,
+                isVerifiedBusiness: Boolean,
+                CACNumber: String,
+                servicesOffered: String,
+                ninID: String,
+                status: { type: String, default: "pending" },
+                needsCACSupport: Boolean,
+                timePeriod: [
+                    {
+                        day: String,
+                        openingHour: String,
+                        closingHour: String,
+                    },
+                ],
+                preorderPeriods: [
+                    {
+                        orderingTime: String,
+                        preparationTime: String,
+                        period: String,
+                    },
+                ],
+            },
+        ],
     },
     { timestamps: true },
 );

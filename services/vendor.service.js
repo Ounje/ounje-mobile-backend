@@ -60,33 +60,58 @@ class VendorService {
 	}
 
 	/**
-	 * Vendor private profile
+	 * Vendor private profile (for vendor viewing their own profile)
+	 * Includes sensitive info like bank details
+	 * @param {string} userId - The User ID (from req.user.id)
 	 */
-	async getVendorProfile(vendorId) {
-		const vendor = await VendorProfile.findById(vendorId)
-			//.select("+bankDetails")
-			.populate("menu");
+	async getVendorProfile(userId) {
+		const vendor = await VendorProfile.findOne({ owner: userId })
+			.select("+bankDetails"); // Include bank details for vendor's own view
 
 		if (!vendor) throw new Error("Vendor not found");
 		return vendor;
 	}
 
+	/**
+	 * Get vendor details with products (for customers viewing vendor)
+	 * @param {string} vendorId - The VendorProfile document ID
+	 */
 	async getVendorWithProducts(vendorId) {
-		const vendor = await VendorProfile.findById(vendorId)
-			.populate("menu")
-			.populate("foodItems");
-
+		// Exclude sensitive fields: balance, earnings, storeDetails
+		const vendor = await VendorProfile.findById(vendorId).select(
+			"-balance -earnings -storeDetails"
+		);
 		if (!vendor) throw new Error("Vendor not found");
-		return vendor;
+
+		// Fetch food items and combos for this vendor
+		// FoodItem and Combo reference the vendor by the User ID (owner field)
+		const FoodItem = require("../models").FoodItem;
+		const Combo = require("../models").Combo;
+
+		const [foodItems, combos] = await Promise.all([
+			FoodItem.find({ vendor: vendor.owner, isAvailable: true }).select(
+				"name price description category subCategory img preparationTime"
+			),
+			Combo.find({ vendor: vendor.owner, isAvailable: true }).select(
+				"comboName basePrice description img time selections"
+			),
+		]);
+
+		// Return vendor profile with products
+		return {
+			...vendor.toJSON(),
+			foodItems,
+			combos,
+		};
 	}
 
-	async updateBankDetails(vendorId, { accountNumber, bankCode, accountName }) {
+	async updateBankDetails(userId, { accountNumber, bankCode, accountName }) {
 		if (!accountNumber || !bankCode || !accountName) {
 			throw new Error("accountNumber, bankCode, accountName required");
 		}
 
-		const vendor = await VendorProfile.findByIdAndUpdate(
-			vendorId,
+		const vendor = await VendorProfile.findOneAndUpdate(
+			{ owner: userId },
 			{
 				bankDetails: {
 					accountNumber,
@@ -109,11 +134,12 @@ class VendorService {
 
 	/**
 	 * Complete vendor registration
+	 * @param {string} userId - The User ID (from req.user.id)
 	 */
-	async completeRegistration(vendorId, data, fileUrl) {
+	async completeRegistration(userId, data, fileUrl) {
 		this._validateBasicRegistrationData(data, fileUrl);
 
-		const vendor = await VendorProfile.findById(vendorId);
+		const vendor = await VendorProfile.findOne({ owner: userId });
 		if (!vendor) throw new Error("Vendor not found");
 		if (vendor.storeDetails && vendor.storeDetails.length > 0) {
 			throw new Error("Vendor profile already completed");
@@ -421,8 +447,8 @@ class VendorService {
 		return response;
 	}
 
-	async uploadAndUpdateVendorProfileImage(vendorId, file) {
-		const vendor = await VendorProfile.findById(vendorId);
+	async uploadAndUpdateVendorProfileImage(userId, file) {
+		const vendor = await VendorProfile.findOne({ owner: userId });
 		if (!vendor) throw new Error("Vendor not found");
 
 		if (vendor.img) await this._deleteOldImage(vendor.img);
@@ -437,8 +463,8 @@ class VendorService {
 		};
 	}
 
-	async deleteVendorProfileImage(vendorId) {
-		const vendor = await VendorProfile.findById(vendorId);
+	async deleteVendorProfileImage(userId) {
+		const vendor = await VendorProfile.findOne({ owner: userId });
 		if (!vendor) throw new Error("Vendor not found");
 
 		if (!vendor.img) throw new Error("No profile image to delete");
@@ -462,9 +488,9 @@ class VendorService {
 		}
 	}
 
-	async deactivateVendorAccount(vendorId) {
+	async deactivateVendorAccount(userId) {
 		try {
-			const vendor = await VendorProfile.findById(vendorId);
+			const vendor = await VendorProfile.findOne({ owner: userId });
 			if (!vendor) throw new Error("Vendor not found");
 			vendor.storeDetails[0].status = "deactivated";
 			await vendor.save();
