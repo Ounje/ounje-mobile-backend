@@ -89,10 +89,10 @@ class VendorService {
 		const Combo = require("../models").Combo;
 
 		const [foodItems, combos] = await Promise.all([
-			FoodItem.find({ vendor: vendor.owner, isAvailable: true }).select(
+			FoodItem.find({ vendor: vendor._id, isAvailable: true }).select(
 				"name price description category subCategory img preparationTime"
 			),
-			Combo.find({ vendor: vendor.owner, isAvailable: true }).select(
+			Combo.find({ vendor: vendor._id, isAvailable: true }).select(
 				"comboName basePrice description img time selections"
 			),
 		]);

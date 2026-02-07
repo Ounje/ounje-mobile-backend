@@ -90,7 +90,7 @@ router.put(
 	"/profile/bank-details",
 	authMiddleware,
 	checkActiveUser,
-	roleGuard(["Vendor"]),
+	roleGuard(["vendor"]),
 	updateBankDetails,
 );
 
@@ -184,7 +184,7 @@ router.post(
 	"/complete-registration",
 	authMiddleware,
 	checkActiveUser,
-	roleGuard(["Vendor"]),
+	roleGuard(["vendor"]),
 	NINStorage.single("ninID"),
 	completeVendorRegistration,
 );
@@ -193,7 +193,7 @@ router.put(
 	"/profile/upload/image",
 	authMiddleware,
 	checkActiveUser,
-	roleGuard(["Vendor"]),
+	roleGuard(["vendor"]),
 	vendorImageUpload.single("img"),
 	updateVendorProfileImage,
 );
@@ -202,14 +202,14 @@ router.delete(
 	"/profile/delete/image",
 	authMiddleware,
 	checkActiveUser,
-	roleGuard(["Vendor"]),
+	roleGuard(["vendor"]),
 	deleteVendorProfileImage,
 );
 
 router.delete(
 	"/profile/deactivate",
 	authMiddleware,
-	roleGuard(["Vendor"]),
+	roleGuard(["vendor"]),
 	deactivateVendorAccount,
 );
 

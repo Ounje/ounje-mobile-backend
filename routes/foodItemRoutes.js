@@ -91,7 +91,7 @@ router.get("/:foodItemId", getFoodItemById);
 router.get(
 	"/vendor/my-items",
 	authMiddleware,
-	roleGuard(["Vendor"]),
+	roleGuard(["vendor"]),
 	checkActiveUser,
 	getMyFoodItems,
 );
@@ -143,7 +143,7 @@ router.get(
 router.post(
 	"/",
 	authMiddleware,
-	roleGuard(["Vendor"]),
+	roleGuard(["vendor"]),
 	checkActiveUser,
 	foodItemUpload.single("img"),
 	createFoodItem,
@@ -197,7 +197,7 @@ router.post(
 router.put(
 	"/:foodItemId",
 	authMiddleware,
-	roleGuard(["Vendor"]),
+	roleGuard(["vendor"]),
 	checkActiveUser,
 	foodItemUpload.single("img"),
 	updateFoodItem,
@@ -228,7 +228,7 @@ router.put(
 router.delete(
 	"/:foodItemId",
 	authMiddleware,
-	roleGuard(["Vendor"]),
+	roleGuard(["vendor"]),
 	checkActiveUser,
 	deleteFoodItem,
 );

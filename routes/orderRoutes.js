@@ -116,7 +116,7 @@ router.get(
 	"/vendor",
 	authMiddleware,
 	checkActiveUser,
-	roleGuard(["Vendor"]),
+	roleGuard(["vendor"]),
 	async (req, res) => {
 		try {
 			const orders = await Order.find({ vendor: req.user.id })
@@ -220,7 +220,7 @@ router.put(
 	"/:id/status",
 	authMiddleware,
 	checkActiveUser,
-	roleGuard(["Vendor"]),
+	roleGuard(["vendor"]),
 	async (req, res) => {
 		try {
 			const { status } = req.body; // accepted: confirmed or cancelled

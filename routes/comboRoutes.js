@@ -120,7 +120,7 @@ router.get("/vendor/:vendorId", getVendorCombos);
 router.get(
 	"/vendor/my-combos",
 	authMiddleware,
-	roleGuard(["Vendor"]),
+	roleGuard(["vendor"]),
 	checkActiveUser,
 	getMyCombos,
 );
@@ -172,7 +172,7 @@ router.get(
 router.post(
 	"/",
 	authMiddleware,
-	roleGuard(["Vendor"]),
+	roleGuard(["vendor"]),
 	checkActiveUser,
 	comboUpload.single("img"),
 	createCombo,
@@ -225,7 +225,7 @@ router.post(
 router.put(
 	"/:comboId",
 	authMiddleware,
-	roleGuard(["Vendor"]),
+	roleGuard(["vendor"]),
 	checkActiveUser,
 	comboUpload.single("img"),
 	updateCombo,
@@ -257,7 +257,7 @@ router.delete(
 	"/:comboId",
 	authMiddleware,
 	checkActiveUser,
-	roleGuard(["Vendor"]),
+	roleGuard(["vendor"]),
 	deleteCombo,
 );
 
