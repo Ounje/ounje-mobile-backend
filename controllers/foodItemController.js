@@ -1,4 +1,4 @@
-const { Vendor, FoodItem, Combo } = require("../models");
+const { VendorProfile, FoodItem, Combo } = require("../models");
 const { FOOD_ENUMS } = require("../utils/foodEnums");
 const { paginate } = require("../utils/paginate");
 
@@ -7,12 +7,12 @@ const createFoodItem = async (req, res) => {
 		const { name, price, description, category, subCategory, preparationTime } =
 			req.body;
 		const vendorId = req.user.id;
-		const vendor = await Vendor.findById(vendorId);
+		const vendor = await VendorProfile.findOne({ owner: vendorId });
 		if (!vendor)
 			return res
 				.status(404)
-				.json({ success: false, message: "Vendor not found." });
-		if (!vendor.storeDetails || vendor.storeDetails.length === 0)
+				.json({ success: false, message: "Vendor profile not found." });
+		if (!vendor.isActive)
 			return res.status(403).json({
 				success: false,
 				message:
@@ -207,12 +207,12 @@ const createCombo = async (req, res) => {
 			deliveryTime,
 		} = req.body;
 		const vendorId = req.user.id;
-		const vendor = await Vendor.findById(vendorId);
+		const vendor = await VendorProfile.findOne({ owner: vendorId });
 		if (!vendor)
 			return res
 				.status(404)
-				.json({ success: false, message: "Vendor not found." });
-		if (!vendor.storeDetails || vendor.storeDetails.length === 0)
+				.json({ success: false, message: "Vendor profile not found." });
+		if (!vendor.isActive)
 			return res.status(403).json({
 				success: false,
 				message: "Please complete your vendor profile before creating combos.",

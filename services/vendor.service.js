@@ -1,4 +1,4 @@
-const { Vendor, Customer } = require("../models");
+const { VendorProfile, Customer } = require("../models");
 const { deleteImage } = require("../config/cloudinary");
 const payoutService = require("./payout.service");
 
@@ -17,7 +17,7 @@ class VendorService {
 			}
 
 			if (lat && lng) {
-				const vendors = await Vendor.find({
+				const vendors = await VendorProfile.find({
 					isAvailable: { $ne: false },
 					location: {
 						$near: {
@@ -40,7 +40,7 @@ class VendorService {
 				}
 			}
 
-			const allVendors = await Vendor.find({
+			const allVendors = await VendorProfile.find({
 				isAvailable: { $ne: false },
 			}).limit(20);
 
@@ -56,14 +56,14 @@ class VendorService {
 	}
 
 	async getPopularVendors() {
-		return await Vendor.find().sort({ totalOrders: -1 });
+		return await VendorProfile.find().sort({ totalOrders: -1 });
 	}
 
 	/**
 	 * Vendor private profile
 	 */
 	async getVendorProfile(vendorId) {
-		const vendor = await Vendor.findById(vendorId)
+		const vendor = await VendorProfile.findById(vendorId)
 			//.select("+bankDetails")
 			.populate("menu");
 
@@ -72,7 +72,7 @@ class VendorService {
 	}
 
 	async getVendorWithProducts(vendorId) {
-		const vendor = await Vendor.findById(vendorId)
+		const vendor = await VendorProfile.findById(vendorId)
 			.populate("menu")
 			.populate("foodItems");
 
@@ -85,7 +85,7 @@ class VendorService {
 			throw new Error("accountNumber, bankCode, accountName required");
 		}
 
-		const vendor = await Vendor.findByIdAndUpdate(
+		const vendor = await VendorProfile.findByIdAndUpdate(
 			vendorId,
 			{
 				bankDetails: {
@@ -113,7 +113,7 @@ class VendorService {
 	async completeRegistration(vendorId, data, fileUrl) {
 		this._validateBasicRegistrationData(data, fileUrl);
 
-		const vendor = await Vendor.findById(vendorId);
+		const vendor = await VendorProfile.findById(vendorId);
 		if (!vendor) throw new Error("Vendor not found");
 		if (vendor.storeDetails && vendor.storeDetails.length > 0) {
 			throw new Error("Vendor profile already completed");
@@ -422,7 +422,7 @@ class VendorService {
 	}
 
 	async uploadAndUpdateVendorProfileImage(vendorId, file) {
-		const vendor = await Vendor.findById(vendorId);
+		const vendor = await VendorProfile.findById(vendorId);
 		if (!vendor) throw new Error("Vendor not found");
 
 		if (vendor.img) await this._deleteOldImage(vendor.img);
@@ -438,7 +438,7 @@ class VendorService {
 	}
 
 	async deleteVendorProfileImage(vendorId) {
-		const vendor = await Vendor.findById(vendorId);
+		const vendor = await VendorProfile.findById(vendorId);
 		if (!vendor) throw new Error("Vendor not found");
 
 		if (!vendor.img) throw new Error("No profile image to delete");
@@ -464,7 +464,7 @@ class VendorService {
 
 	async deactivateVendorAccount(vendorId) {
 		try {
-			const vendor = await Vendor.findById(vendorId);
+			const vendor = await VendorProfile.findById(vendorId);
 			if (!vendor) throw new Error("Vendor not found");
 			vendor.storeDetails[0].status = "deactivated";
 			await vendor.save();

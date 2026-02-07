@@ -3,8 +3,8 @@ const { v4: uuidv4 } = require("uuid");
 const {
 	User,
 	Customer,
-	Vendor,
-	Rider,
+	VendorProfile,
+	RiderProfile,
 	OtpVerification,
 	RefreshToken,
 } = require("../models");
@@ -15,7 +15,6 @@ const {
 } = require("../utils/generateToken");
 const { requestSmsOtp, verifySmsOtp } = require("../utils/kudiSmsHelper");
 const { getCoordsFromAddress } = require("../utils/delivery");
-const { checkActiveUser } = require("../middleware/auth");
 const { syncUserToKitchen } = require("../utils/kitchenSync");
 const asyncHandler = require("../utils/asyncHandler");
 const AppError = require("../utils/AppError");
@@ -32,7 +31,7 @@ const register = asyncHandler(async (req, res) => {
 	let decoded;
 	try {
 		decoded = jwt.verify(otpSession, process.env.JWT_SECRET);
-	} catch (err) {
+	} catch {
 		throw new AppError("Invalid or expired OTP session", 400);
 	}
 
@@ -76,32 +75,51 @@ const register = asyncHandler(async (req, res) => {
 
 	const coordinates = { type: "Point", coordinates: [geo.lng, geo.lat] };
 
-	const userProps = {
+	// Create User document first
+	const user = new User({
 		name,
 		email: finalEmail || undefined,
 		phone: finalPhone,
 		address: location,
 		location: coordinates,
-	};
-
-	let user;
-	if (role === "customer") {
-		user = new Customer(userProps);
-		// Set accountStatus only for customers
-		user.accountStatus = "active";
-	} else if (role === "vendor") {
-		user = new Vendor(userProps);
-	} else if (role === "rider") {
-		user = new Rider(userProps);
-	}
-
+		role: role.toLowerCase(),
+	});
 	await user.save();
+
+	// Create corresponding profile
+	let profile;
+	if (role === "customer") {
+		profile = new Customer({
+			user: user._id,
+			preferences: {
+				marketingEmails: true,
+				pushNotifications: true,
+			},
+		});
+	} else if (role === "vendor") {
+		profile = new VendorProfile({
+			owner: user._id,
+			name: user.name,
+			location: {
+				type: "Point",
+				coordinates: coordinates.coordinates,
+				address: location,
+			},
+			isActive: true,
+		});
+	} else if (role === "rider") {
+		profile = new RiderProfile({
+			user: user._id,
+			status: "pending",
+		});
+	}
+	await profile.save();
 
 	// === START KITCHEN SYNC ===
 	// Only sync if the role is 'customer' or 'vendor'
 	if (role === "customer" || role === "vendor") {
 		let mirrorData = {
-			_id: user._id,
+			_id: profile._id,
 			email: user.email,
 			phone: user.phone,
 		};
@@ -124,11 +142,11 @@ const register = asyncHandler(async (req, res) => {
 
 	const accessToken = generateAccessToken({
 		id: user._id,
-		role: (user.get ? user.get("role") : user.role).toLowerCase(),
+		role: user.role,
 	});
 	const refreshToken = generateRefreshToken({
 		id: user._id,
-		role: (user.get ? user.get("role") : user.role).toLowerCase(),
+		role: user.role,
 	});
 
 	await RefreshToken.create({
@@ -153,9 +171,10 @@ const register = asyncHandler(async (req, res) => {
 			email: user.email,
 			phone: user.phone,
 			role: user.role,
+			profileId: profile._id,
 		},
 	});
-	logger.info(`User registered: ${user._id} (${role})`);
+	logger.info(`User registered: ${user._id} (${role}) with profile: ${profile._id}`);
 });
 
 const login = asyncHandler(async (req, res) => {
@@ -216,27 +235,33 @@ const requestEmailOtp = asyncHandler(async (req, res) => {
 		}
 	}
 
-	// For login, check for existing user in the SPECIFIC role
+	// For login, check for existing user and verify they have the correct role profile
 	if (flow === "login") {
-		let existingUser = null;
+		const user = await User.findOne({ email });
+		if (!user) {
+			throw new AppError("No account found with this email", 404);
+		}
+
+		// Verify they have the correct role profile
+		let hasProfile = false;
 		if (role === "rider") {
-			existingUser = await Rider.findOne({ email });
+			const profile = await RiderProfile.findOne({ user: user._id });
+			hasProfile = !!profile;
 		} else if (role === "vendor") {
-			existingUser = await Vendor.findOne({ email });
+			const profile = await VendorProfile.findOne({ owner: user._id });
+			hasProfile = !!profile;
 		} else if (role === "customer") {
-			existingUser = await Customer.findOne({ email });
+			const profile = await Customer.findOne({ user: user._id });
+			hasProfile = !!profile;
 		} else {
 			throw new AppError("Invalid role", 400);
 		}
 
-		if (!existingUser) {
+		if (!hasProfile) {
 			throw new AppError(`No ${role} account found with this email`, 404);
 		}
 	}
-	checkActiveUser &&
-		(await checkActiveUser({ user: { id: user.id, role } }, res, () =>
-			Promise.resolve(),
-		));
+
 	const otp = generateOtp();
 	await OtpVerification.deleteMany({ email, isEmail: true });
 	await OtpVerification.create({ email, otp, isEmail: true });
@@ -274,38 +299,31 @@ const verifyEmailOtp = asyncHandler(async (req, res) => {
 		return res.json({ success: true, otpSession });
 	}
 
-	// Handle login flow - check for user in SPECIFIC role
+	// Handle login flow - find user and verify profile exists
 	if (flow === "login") {
-		let user = null;
+		const user = await User.findOne({ email });
+		if (!user) {
+			throw new AppError("No account found with this email", 404);
+		}
+
+		// Verify they have the correct role profile
+		let profile = null;
 		if (role === "rider") {
-			user = await Rider.findOne({ email });
+			profile = await RiderProfile.findOne({ user: user._id });
 		} else if (role === "vendor") {
-			user = await Vendor.findOne({ email });
+			profile = await VendorProfile.findOne({ owner: user._id });
 		} else if (role === "customer") {
-			user = await Customer.findOne({ email });
+			profile = await Customer.findOne({ user: user._id });
 		} else {
 			throw new AppError("Invalid role", 400);
 		}
 
-		if (!user) {
+		if (!profile) {
 			throw new AppError(`No ${role} account found with this email`, 404);
 		}
 
-		// Reactivate customer account on login if deactivated
-		// if (role === "customer" && user.accountStatus === "deactivated") {
-		// 	user.accountStatus = "active";
-		// 	await user.save();
-		// }
-		checkActiveUser &&
-			(await checkActiveUser({ user: { id: user.id, role } }, res, () =>
-				Promise.resolve(),
-			));
-
 		const accessToken = generateAccessToken({ id: user._id, role: user.role });
-		const refreshToken = generateRefreshToken({
-			id: user._id,
-			role: (user.get ? user.get("role") : user.role).toLowerCase(),
-		});
+		const refreshToken = generateRefreshToken({ id: user._id, role: user.role });
 		await RefreshToken.create({
 			token: refreshToken,
 			user: user._id,
@@ -322,7 +340,7 @@ const verifyEmailOtp = asyncHandler(async (req, res) => {
 				email: user.email,
 				phone: user.phone,
 				role: user.role,
-				accountStatus: user.accountStatus,
+				profileId: profile._id,
 			},
 		});
 	}
@@ -346,24 +364,30 @@ const requestPhoneOtp = asyncHandler(async (req, res) => {
 		}
 	}
 
-	// For login, check for existing user in the SPECIFIC role
+	// For login, check for existing user and verify they have the correct role profile
 	if (flow === "login") {
-		let existingUser = null;
+		const user = await User.findOne({ phone });
+		if (!user) {
+			throw new AppError("No account found with this phone number", 404);
+		}
+
+		// Verify they have the correct role profile
+		let hasProfile = false;
 		if (role === "rider") {
-			existingUser = await Rider.findOne({ phone });
+			const profile = await RiderProfile.findOne({ user: user._id });
+			hasProfile = !!profile;
 		} else if (role === "vendor") {
-			existingUser = await Vendor.findOne({ phone });
+			const profile = await VendorProfile.findOne({ owner: user._id });
+			hasProfile = !!profile;
 		} else if (role === "customer") {
-			existingUser = await Customer.findOne({ phone });
+			const profile = await Customer.findOne({ user: user._id });
+			hasProfile = !!profile;
 		} else {
 			throw new AppError("Invalid role", 400);
 		}
 
-		if (!existingUser) {
-			throw new AppError(
-				`No ${role} account found with this phone number`,
-				404,
-			);
+		if (!hasProfile) {
+			throw new AppError(`No ${role} account found with this phone number`, 404);
 		}
 	}
 
@@ -417,40 +441,31 @@ const verifyPhoneOtp = asyncHandler(async (req, res) => {
 		return res.json({ success: true, otpSession });
 	}
 
-	// Handle login flow - check for user in SPECIFIC role
+	// Handle login flow - find user and verify profile exists
 	if (flow === "login") {
-		let user = null;
+		const user = await User.findOne({ phone });
+		if (!user) {
+			throw new AppError("No account found with this phone number", 404);
+		}
+
+		// Verify they have the correct role profile
+		let profile = null;
 		if (role === "rider") {
-			user = await Rider.findOne({ phone });
+			profile = await RiderProfile.findOne({ user: user._id });
 		} else if (role === "vendor") {
-			user = await Vendor.findOne({ phone });
+			profile = await VendorProfile.findOne({ owner: user._id });
 		} else if (role === "customer") {
-			user = await Customer.findOne({ phone });
+			profile = await Customer.findOne({ user: user._id });
 		} else {
 			throw new AppError("Invalid role", 400);
 		}
 
-		if (!user) {
-			throw new AppError(
-				`No ${role} account found with this phone number`,
-				404,
-			);
+		if (!profile) {
+			throw new AppError(`No ${role} account found with this phone number`, 404);
 		}
 
-		//Reactivate customer account on login if deactivated
-		// if (role === "customer" && user.accountStatus === "deactivated") {
-		// 	user.accountStatus = "active";
-		// 	await user.save();
-		// }
-		checkActiveUser &&
-			(await checkActiveUser({ user: { id: user.id, role } }, res, () =>
-				Promise.resolve(),
-			));
 		const accessToken = generateAccessToken({ id: user._id, role: user.role });
-		const refreshToken = generateRefreshToken({
-			id: user._id,
-			role: user.role,
-		});
+		const refreshToken = generateRefreshToken({ id: user._id, role: user.role });
 		await RefreshToken.create({
 			token: refreshToken,
 			user: user._id,
@@ -467,7 +482,7 @@ const verifyPhoneOtp = asyncHandler(async (req, res) => {
 				email: user.email,
 				phone: user.phone,
 				role: user.role,
-				accountStatus: user.accountStatus,
+				profileId: profile._id,
 			},
 		});
 	}
@@ -496,7 +511,7 @@ const refresh = asyncHandler(async (req, res) => {
 
 	const accessToken = generateAccessToken({
 		id: user._id,
-		role: (user.get ? user.get("role") : user.role).toLowerCase(),
+		role: user.role,
 	});
 	res.json({ accessToken });
 });

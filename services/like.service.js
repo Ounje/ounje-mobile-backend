@@ -1,14 +1,14 @@
 const mongoose = require("mongoose");
 const { Types } = mongoose;
-const { FoodItem, Combo, Vendor, Rider } = require("../models");
+const { FoodItem, Combo, VendorProfile, RiderProfile } = require("../models");
 
 class LikeService {
 	constructor() {
 		this.models = {
 			FoodItem,
 			Combo,
-			Vendor,
-			Rider,
+			VendorProfile,
+			RiderProfile,
 		};
 	}
 

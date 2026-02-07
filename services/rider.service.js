@@ -1,4 +1,4 @@
-const { Rider } = require("../models");
+const { RiderProfile } = require("../models");
 const payoutService = require("./payout.service");
 const ratingService = require("./rating.service");
 const ledgerService = require("./ledger.service");
@@ -69,7 +69,7 @@ const updateOperatingArea = async (riderId, body) => {
 		throw new Error("You can only select a maximum of 2 delivery zones");
 	}
 
-	const rider = await Rider.findByIdAndUpdate(
+	const rider = await RiderProfile.findByIdAndUpdate(
 		riderId,
 		{ operatingArea },
 		{ new: true },
@@ -99,7 +99,7 @@ const updateOperatingArea = async (riderId, body) => {
  * Fetches the current operating zones for a rider
  */
 const getOperatingArea = async (riderId) => {
-	const rider = await Rider.findById(riderId).select("operatingArea");
+	const rider = await RiderProfile.findById(riderId).select("operatingArea");
 
 	if (!rider) {
 		throw new Error("Rider not found");
@@ -124,7 +124,7 @@ const updateBankDetails = async (riderId, bankDetails) => {
 		throw new Error("accountNumber, bankCode, accountName required");
 	}
 
-	const rider = await Rider.findByIdAndUpdate(
+	const rider = await RiderProfile.findByIdAndUpdate(
 		riderId,
 		{ bankDetails: { accountNumber, bankCode, accountName } },
 		{ new: true },
@@ -148,7 +148,7 @@ const updateBankDetails = async (riderId, bankDetails) => {
 const completeRiderRegistration = async (riderId, data, files) => {
 	const { modeOfDelivery, guarantorName, guarantorPhone } = data;
 
-	const rider = await Rider.findById(riderId);
+	const rider = await RiderProfile.findById(riderId);
 	if (!rider) throw new Error("Rider not found");
 
 	if (rider.Guarantor && rider.Guarantor.length > 0) {
@@ -232,7 +232,7 @@ const completeRiderRegistration = async (riderId, data, files) => {
  * NOTE: Operating area is now handled separately
  */
 const getRiderProfile = async (riderId) => {
-	const rider = await Rider.findById(riderId).select(
+	const rider = await RiderProfile.findById(riderId).select(
 		"name phone modeOfDelivery Guarantor bankDetails driversLicense nin status operatingArea",
 	);
 
@@ -316,7 +316,7 @@ const getRiderLeaderboard = async () => {
 };
 
 const deactivateRiderAccount = async (riderId) => {
-	const rider = await Rider.findByIdAndUpdate(
+	const rider = await RiderProfile.findByIdAndUpdate(
 		riderId,
 		{ status: "deactivated" },
 		{ new: true },

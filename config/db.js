@@ -12,9 +12,9 @@ try {
         Order: require('../models/Order'),
 
         // Vendor and Logistics Models
-        restaurants: require('../models/Vendor'), // Assuming Vendor model handles restaurant data
+        restaurants: require('../models/VendorProfile'), // VendorProfile handles restaurant data
 
-        riders: require('../models/Rider'),
+        riders: require('../models/RiderProfile'),
 
     };
 

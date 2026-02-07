@@ -88,17 +88,19 @@ io.on("connection", (socket) => {
 	// 1. Listen for the 'update-location' signal from the Rider's App
 	socket.on("update-location", async (data) => {
 		try {
-			const Rider = require("./models/Rider");
+			const { RiderProfile } = require("./models");
 
-			// 2. SAVE to Database: This is where you apply the code
-			// We update the specific rider using their ID
-			await Rider.findByIdAndUpdate(data.riderId, {
-				lastKnownLocation: {
-					type: "Point",
-					coordinates: [data.lng, data.lat], // GeoJSON format: [longitude, latitude]
+			// 2. SAVE to Database: Update rider location
+			// Note: data.riderId should be the rider's user ID, not the profile ID
+			await RiderProfile.findOneAndUpdate(
+				{ user: data.riderId },
+				{
+					currentLocation: {
+						type: "Point",
+						coordinates: [data.lng, data.lat], // GeoJSON format: [longitude, latitude]
+					},
 				},
-				updatedAt: new Date(),
-			});
+			);
 
 			logger.info(
 				`Rider ${data.riderId} location updated: [${data.lng}, ${data.lat}]`,

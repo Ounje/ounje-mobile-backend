@@ -1,6 +1,5 @@
 const mongoose = require("mongoose");
 const toJSON = require("./plugins/toJSON.plugin");
-const options = { discriminatorKey: "role", collection: "users" };
 
 const userSchema = new mongoose.Schema(
 	{
@@ -12,13 +11,18 @@ const userSchema = new mongoose.Schema(
 			coordinates: { type: [Number] },
 		},
 		phone: Number,
+		role: {
+			type: String,
+			enum: ["customer", "vendor", "rider", "admin"],
+			required: true,
+		},
 		img: String,
 		fcmToken: {
 			type: String,
 			default: null,
 		},
 	},
-	{ timestamps: true, ...options },
+	{ timestamps: true, collection: "users" },
 );
 
 userSchema.index({ location: "2dsphere" });
