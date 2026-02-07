@@ -2,50 +2,41 @@ const mongoose = require("mongoose");
 
 const payoutSchema = new mongoose.Schema(
   {
-    user: {
-      type: mongoose.Schema.Types.ObjectId,
-      required: true,
-      index: true,
-      refPath: "userType",
-    },
-    userType: {
+    recipientType: {
       type: String,
-      enum: ["VENDOR", "RIDER"],
+      enum: ["VendorProfile", "RiderProfile"],
       required: true,
     },
-    order: {
+    recipientId: {
       type: mongoose.Schema.Types.ObjectId,
-      ref: "Order",
-      index: true,
+      required: true,
+      refPath: "recipientType",
     },
     amount: {
       type: Number,
       required: true,
       min: 0,
     },
-    bankDetails: {
-      accountNumber: { type: String },
-      bankCode: { type: String },
-      accountName: { type: String },
-    },
     status: {
       type: String,
-      enum: ["pending", "processing", "completed", "failed", "cancelled"],
+      enum: ["pending", "processed", "failed"],
       default: "pending",
     },
-    ledgerEntry: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: "LedgerEntry",
+    // OPTION A: Stored Details (Acceptable for Payouts, NOT Payments)
+    bankDetails: {
+      bankName: String,
+      accountNumber: String,
+      accountName: String,
     },
-    transactionRef: String,
-    idempotencyKey: { type: String },
-    failureReason: String,
+    // OPTION B: Tokenized (Best Practice)
+    providerRecipientCode: String,
+    reference: String,
     processedAt: Date,
   },
   { timestamps: true }
 );
 
 payoutSchema.index({ status: 1, createdAt: -1 });
-payoutSchema.index({ user: 1, userType: 1, status: 1 });
+payoutSchema.index({ recipientId: 1, recipientType: 1 });
 
 module.exports = mongoose.model("Payout", payoutSchema);

@@ -1,7 +1,7 @@
 const mongoose = require("mongoose");
 
 const paymentSchema = new mongoose.Schema({
-  customer: { type: mongoose.Schema.Types.ObjectId, ref: "customer", required: true },
+  customer: { type: mongoose.Schema.Types.ObjectId, ref: "Customer", required: true },
   orderId: { type: mongoose.Schema.Types.ObjectId, ref: "Order", required: true },
   reference: { type: String, unique: true, required: true },
   amount: { type: Number, required: true },
@@ -10,4 +10,4 @@ const paymentSchema = new mongoose.Schema({
   paidAt: Date,
 }, { timestamps: true });
 
-module.exports=  mongoose.model("Payment", paymentSchema);
+module.exports = mongoose.model("Payment", paymentSchema);

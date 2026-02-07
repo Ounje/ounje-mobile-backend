@@ -1,4 +1,4 @@
-const NewsFlash = require("../models/newsflash");
+const Announcement = require("../models/Announcement");
 const notificationService = require("./notification.service");
 const User = require("../models/User");
 const logger = require("../utils/logger");
@@ -6,7 +6,7 @@ const logger = require("../utils/logger");
 const createNewsFlash = async (data, file) => {
 	const imageUrl = file ? file.path : null;
 
-	const newsflash = await NewsFlash.create({
+	const newsflash = await Announcement.create({
 		...data,
 		imageUrl,
 	});
@@ -46,11 +46,11 @@ const createNewsFlash = async (data, file) => {
 };
 
 const getAllNewsFlash = async () => {
-	return await Newsflash.find().sort({ createdAt: -1 });
+	return await Announcement.find().sort({ createdAt: -1 });
 };
 
 const getNewsFlashById = async (id) => {
-	return await Newsflash.findById(id);
+	return await Announcement.findById(id);
 };
 
 const updateNewsFlash = async (id, data, file) => {
@@ -58,14 +58,14 @@ const updateNewsFlash = async (id, data, file) => {
 		data.imageUrl = file.path;
 	}
 
-	return await Newsflash.findByIdAndUpdate(id, data, {
+	return await Announcement.findByIdAndUpdate(id, data, {
 		new: true,
 		runValidators: true,
 	});
 };
 
 const deleteNewsFlash = async (id) => {
-	return await Newsflash.findByIdAndDelete(id);
+	return await Announcement.findByIdAndDelete(id);
 };
 
 module.exports = {

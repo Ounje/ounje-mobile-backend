@@ -4,7 +4,7 @@ const {
 	roleGuard,
 	checkActiveUser,
 } = require("../middleware/auth");
-const { Combo, Order, Rider, Vendor } = require("../models");
+const { Order, RiderProfile } = require("../models");
 
 const {
 	createOrder,
@@ -298,7 +298,7 @@ router.get(
 	async (req, res) => {
 		try {
 			// Get the rider's operating areas (Max 2 zones)
-			const rider = await Rider.findById(req.user.id);
+			const rider = await RiderProfile.findById(req.user.id);
 
 			// ONLY find orders that match the rider's zones
 			const orders = await Order.find({

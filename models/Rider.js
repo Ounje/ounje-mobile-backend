@@ -25,7 +25,7 @@ const Rider = User.discriminator(
 		// Rating & Likes
 		ratingCount: { type: Number, default: 0 },
 		averageRating: { type: Number, default: 0 },
-		likes: [{ type: mongoose.Schema.Types.ObjectId, ref: "customer" }],
+		likes: [{ type: mongoose.Schema.Types.ObjectId, ref: "Customer" }],
 		driversLicense: String,
 		nin: String,
 		status: {

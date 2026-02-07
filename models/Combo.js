@@ -12,6 +12,7 @@ const SelectionItemSchema = new mongoose.Schema({
 		ref: "FoodItem",
 		required: true,
 	},
+	name: { type: String }, // Denormalized name from FoodItem for quick access
 	price: {
 		type: Number,
 		default: 0,
@@ -37,7 +38,7 @@ const ComboSchema = new mongoose.Schema(
 		selections: [SelectionGroupSchema], // Changed from Map to Array for better population support
 		vendor: {
 			type: mongoose.Schema.Types.ObjectId,
-			ref: "Vendor",
+			ref: "VendorProfile",
 			required: true,
 		},
 		img: { type: String, required: true },
@@ -47,7 +48,7 @@ const ComboSchema = new mongoose.Schema(
 		//isAvailable: { type: Boolean, default: true },
 		averageRating: { type: Number, default: 0 },
 		ratingCount: { type: Number, default: 0 },
-		likes: [{ type: mongoose.Schema.Types.ObjectId, ref: "customer" }],
+		likes: [{ type: mongoose.Schema.Types.ObjectId, ref: "Customer" }],
 	},
 	{ timestamps: true },
 );

@@ -14,7 +14,7 @@ const FoodItemSchema = new mongoose.Schema(
 		description: { type: String },
 		vendor: {
 			type: mongoose.Schema.Types.ObjectId,
-			ref: "Vendor",
+			ref: "VendorProfile",
 			required: true,
 		},
 		category: {
@@ -36,7 +36,7 @@ const FoodItemSchema = new mongoose.Schema(
 		ordersCount: { type: Number, default: 0 },
 		averageRating: { type: Number, default: 0 },
 		ratingCount: { type: Number, default: 0 },
-		likes: [{ type: mongoose.Schema.Types.ObjectId, ref: "customer" }],
+		likes: [{ type: mongoose.Schema.Types.ObjectId, ref: "Customer" }],
 	},
 	{ timestamps: true },
 );

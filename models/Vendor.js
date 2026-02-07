@@ -74,7 +74,7 @@ const VendorSchema = new mongoose.Schema({
 	ratingCount: { type: Number, default: 0 },
 	averageRating: { type: Number, default: 0 },
 	totalOrders: { type: Number, default: 0 },
-	likes: [{ type: mongoose.Schema.Types.ObjectId, ref: "customer" }],
+	likes: [{ type: mongoose.Schema.Types.ObjectId, ref: "Customer" }],
 	minPrice: Number,
 	balance: Number,
 	ledger: [ledgerSchema],

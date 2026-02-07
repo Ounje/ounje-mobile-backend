@@ -4,7 +4,7 @@ const ratingSchema = new mongoose.Schema(
 	{
 		targetType: {
 			type: String,
-			enum: ["FoodItem", "Combo", "Vendor", "Rider"],
+			enum: ["FoodItem", "Combo", "VendorProfile", "RiderProfile"],
 			required: true,
 		},
 		target: {
@@ -12,9 +12,14 @@ const ratingSchema = new mongoose.Schema(
 			required: true,
 			refPath: "targetType",
 		},
+		orderId: {
+			type: mongoose.Schema.Types.ObjectId,
+			ref: "Order",
+			required: true,
+		},
 		customer: {
 			type: mongoose.Schema.Types.ObjectId,
-			ref: "customer",
+			ref: "Customer",
 			required: true,
 		},
 		rating: {

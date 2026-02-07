@@ -7,12 +7,12 @@ const plateSchema = new mongoose.Schema(
 		description: { type: String },
 		customer: {
 			type: mongoose.Schema.Types.ObjectId,
-			ref: "customer",
+			ref: "Customer",
 			required: true,
 		},
 		vendor: {
 			type: mongoose.Schema.Types.ObjectId,
-			ref: "Vendor",
+			ref: "VendorProfile",
 			required: true,
 		},
 		price: { type: Number, required: true },

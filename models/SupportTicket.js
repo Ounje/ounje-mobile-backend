@@ -60,7 +60,7 @@ const supportTicketSchema = new mongoose.Schema(
 		},
 		relatedVendor: {
 			type: mongoose.Schema.Types.ObjectId,
-			ref: "Vendor",
+			ref: "VendorProfile",
 			default: null,
 		},
 		messages: [messageSchema],

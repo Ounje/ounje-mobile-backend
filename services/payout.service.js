@@ -1,19 +1,19 @@
 const mongoose = require('mongoose');
 const Payout = require('../models/Payout');
 const User = require('../models/User');
-const Vendor = require('../models/Vendor');
-const Rider = require('../models/Rider');
+const VendorProfile = require('../models/VendorProfile');
+const RiderProfile = require('../models/RiderProfile');
 const Order = require('../models/Order');
 const paystack = require('../utils/paystack');
 const ledgerService = require('./ledger.service');
 const { LedgerEntry } = require('../models/LedgerEntry');
 
 // Ensure critical models are registered
-if (!mongoose.models.Vendor) {
-  try { require('../models/Vendor'); } catch (e) { console.warn('Vendor model load error:', e.message); }
+if (!mongoose.models.VendorProfile) {
+  try { require('../models/VendorProfile'); } catch (e) { console.warn('VendorProfile model load error:', e.message); }
 }
-if (!mongoose.models.rider) {
-  try { require('../models/Rider'); } catch (e) { console.warn('Rider model load error:', e.message); }
+if (!mongoose.models.RiderProfile) {
+  try { require('../models/RiderProfile'); } catch (e) { console.warn('RiderProfile model load error:', e.message); }
 }
 
 /**
@@ -58,7 +58,7 @@ const processSinglePayout = async ({ userId, userType, amount, bankDetails, name
   try {
     // 2. Resolve Paystack Recipient
     let recipientCode;
-    const model = userType === 'VENDOR' ? Vendor : Rider;
+    const model = userType === 'VENDOR' ? VendorProfile : RiderProfile;
     const user = await model.findById(userId);
 
     if (user.paystackRecipientCode) {

@@ -7,12 +7,12 @@ const { ORDER_STATUS, ORDER_SUB_STATUS } = require("../utils/constants");
 const orderSchema = new mongoose.Schema({
 	customer: {
 		type: mongoose.Schema.Types.ObjectId,
-		ref: "customer",
+		ref: "Customer",
 		required: true,
 	},
 	vendor: {
 		type: mongoose.Schema.Types.ObjectId,
-		ref: "Vendor",
+		ref: "VendorProfile",
 		required: true,
 	},
 	items: [
@@ -56,7 +56,7 @@ const orderSchema = new mongoose.Schema({
 	}, // e.g., "Ikeja"
 	deliveryLatitude: Number,
 	deliveryLongitude: Number,
-	rider: { type: mongoose.Schema.Types.ObjectId, ref: "rider" },
+	rider: { type: mongoose.Schema.Types.ObjectId, ref: "RiderProfile" },
 	status: {
 		type: String,
 		enum: Object.values(ORDER_STATUS),
@@ -77,7 +77,7 @@ const orderSchema = new mongoose.Schema({
 	deliveryOtpSentAt: Date,
 	deliveryOtpExpiresAt: Date,
 	deliveryConfirmedAt: Date,
-	deliveryConfirmedBy: { type: mongoose.Schema.Types.ObjectId, ref: "rider" },
+	deliveryConfirmedBy: { type: mongoose.Schema.Types.ObjectId, ref: "RiderProfile" },
 	paymentStatus: {
 		type: String,
 		enum: ["unpaid", "paid", "refunded"],
