@@ -1,6 +1,31 @@
 const mongoose = require("mongoose");
 const toJSON = require("./plugins/toJSON.plugin");
 
+const storeDetailsSchema = new mongoose.Schema({
+    storeName: String,
+    storeType: String,
+    isVerifiedBusiness: Boolean,
+    CACNumber: String,
+    servicesOffered: String,
+    ninID: String,
+    status: { type: String, default: "pending" },
+    needsCACSupport: Boolean,
+    timePeriod: [
+        {
+            day: String,
+            openingHour: String,
+            closingHour: String,
+        },
+    ],
+    preorderPeriods: [
+        {
+            orderingTime: String,
+            preparationTime: String,
+            period: String,
+        },
+    ],
+});
+
 const vendorProfileSchema = new mongoose.Schema(
     {
         owner: {
@@ -59,34 +84,9 @@ const vendorProfileSchema = new mongoose.Schema(
             bankCode: { type: String, select: false },
             accountName: { type: String, select: false },
         },
-        storeDetails: [
-            {
-                storeName: String,
-                storeType: String,
-                isVerifiedBusiness: Boolean,
-                CACNumber: { type: String, select: false },
-                servicesOffered: String,
-                ninID: { type: String, select: false },
-                status: { type: String, default: "pending" },
-                needsCACSupport: Boolean,
-                timePeriod: [
-                    {
-                        day: String,
-                        openingHour: String,
-                        closingHour: String,
-                    },
-                ],
-                preorderPeriods: [
-                    {
-                        orderingTime: String,
-                        preparationTime: String,
-                        period: String,
-                    },
-                ],
-            },
-        ],
+        storeDetails: [storeDetailsSchema],
     },
-    { timestamps: true },
+    { timestamps: true }
 );
 
 vendorProfileSchema.index({ location: "2dsphere" });

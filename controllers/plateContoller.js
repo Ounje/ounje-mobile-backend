@@ -1,4 +1,4 @@
-const { Plate, FoodItem } = require("../models");
+const { Plate, FoodItem, Customer } = require("../models");
 const { deleteImage } = require("../config/cloudinary");
 const { paginate } = require("../utils/paginate");
 
@@ -15,6 +15,12 @@ const buildPlate = async (req, res) => {
             }
         }
 
+        // Lookup Customer ID from User ID
+        const customer = await Customer.findOne({ user: req.user.id });
+        if (!customer) {
+            return res.status(404).json({ error: "Customer profile not found" });
+        }
+
         // Fetch item names to create the description
         // 'items' is likely an array of IDs from the frontend
         const selectedItems = await FoodItem.find({ _id: { $in: items } });
@@ -27,7 +33,7 @@ const buildPlate = async (req, res) => {
         // Logic to build a plate using plateData
         const newPlate = await Plate.create({
             name,
-            customer: req.user.id,
+            customer: customer._id, // Use Customer document ID, not User ID
             vendor,
             price,
             img: req.file ? req.file.path : undefined,
@@ -44,7 +50,7 @@ const buildPlate = async (req, res) => {
 const getAllPlates = async (req, res) => {
     try {
         const populateOptions = [
-            { path: "items", select: "-vendor" },
+            { path: "items", select: "-vendor -averageRating -ratingCount -likes" },
             { path: "vendor", select: "storeDetails img description" },
             { path: "customer", select: "firstName lastName img" }
         ];
@@ -61,7 +67,7 @@ const getSpecificPlate = async (req, res) => {
     try {
         const { plateId } = req.params;
         const plate = await Plate.findById(plateId)
-            .populate("items", "-vendor")
+            .populate("items", "-vendor -averageRating -ratingCount -likes")
             .populate("vendor", "storeDetails img description")
             .populate("customer", "firstName lastName img");
         if (!plate) {
@@ -76,12 +82,13 @@ const getSpecificPlate = async (req, res) => {
 const deletePlate = async (req, res) => {
     try {
         const { plateId } = req.params;
-        const plate = await Plate.findById(plateId);
+        const plate = await Plate.findById(plateId).populate('customer', 'user');
         if (!plate) {
             return res.status(404).json({ error: "Plate not found" });
         }
-        console.log(plate.customer.toString())
-        if (req.user.id !== plate.customer.toString()) {
+        console.log(plate.customer.user.toString())
+        // Compare User IDs since req.user.id is User ID
+        if (req.user.id !== plate.customer.user.toString()) {
             return res.status(403).json({ error: "Forbidden: You can only delete your own plates" });
         }
         if (plate.img) {
