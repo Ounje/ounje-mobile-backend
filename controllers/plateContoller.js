@@ -44,7 +44,7 @@ const buildPlate = async (req, res) => {
 const getAllPlates = async (req, res) => {
     try {
         const populateOptions = [
-            "items",
+            { path: "items", select: "-vendor" },
             { path: "vendor", select: "storeDetails img description" },
             { path: "customer", select: "firstName lastName img" }
         ];
@@ -61,7 +61,7 @@ const getSpecificPlate = async (req, res) => {
     try {
         const { plateId } = req.params;
         const plate = await Plate.findById(plateId)
-            .populate("items")
+            .populate("items", "-vendor")
             .populate("vendor", "storeDetails img description")
             .populate("customer", "firstName lastName img");
         if (!plate) {

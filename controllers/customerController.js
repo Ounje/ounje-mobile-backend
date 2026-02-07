@@ -2,9 +2,10 @@ const { Customer } = require("../models");
 const { getCoordsFromAddress } = require("../utils/delivery");
 
 const getCustomerProfile = async (req, res) => {
-	const customerId = req.user.id;
+	const userId = req.user.id; // This is the User ID from JWT
 	try {
-		const customer = await Customer.findById(customerId);
+		// Find Customer by user reference, not by ID
+		const customer = await Customer.findOne({ user: userId }).populate("user", "email role isVerified");
 		if (!customer) {
 			return res.status(404).json({ error: "Customer not found" });
 		}
@@ -24,7 +25,7 @@ const updateFcmToken = async (req, res) => {
 			return res.status(400).json({ message: "FCM token is required" });
 		}
 
-		await Customer.findByIdAndUpdate(userId, { fcmToken });
+		await Customer.findOneAndUpdate({ user: userId }, { fcmToken });
 		res.status(200).json({ success: true, message: "Device token saved!" });
 	} catch (error) {
 		console.error(error);
@@ -33,35 +34,50 @@ const updateFcmToken = async (req, res) => {
 };
 
 const updateCustomerProfile = async (req, res) => {
-	const customerId = req.user.id;
-	const { name, email, phone, location } = req.body;
+	const userId = req.user.id;
+	const { firstName, lastName, phone, location } = req.body;
 
 	try {
 		const updateData = {};
 
 		// Add fields to update only if they are provided
-		if (name) updateData.name = name;
-		if (email) updateData.email = email;
+		if (firstName) updateData.firstName = firstName;
+		if (lastName) updateData.lastName = lastName;
 		if (phone) updateData.phone = phone;
 
-		// If location is provided, geocode it and update both address and coordinates
+		// If location is provided, add it to savedAddresses
 		if (location) {
 			const geo = await getCoordsFromAddress(location);
 			if (!geo) {
 				return res.status(400).json({ error: "Invalid address" });
 			}
 
-			updateData.address = location;
-			updateData.location = {
-				type: "Point",
-				coordinates: [geo.lng, geo.lat],
-			};
+			// Get existing profile to update addresses
+			const existingProfile = await Customer.findOne({ user: userId });
+			if (existingProfile) {
+				const newAddress = {
+					label: "Home",
+					address: location,
+					coordinates: [geo.lng, geo.lat]
+				};
+				// Replace or add the first address
+				if (existingProfile.savedAddresses && existingProfile.savedAddresses.length > 0) {
+					existingProfile.savedAddresses[0] = newAddress;
+				} else {
+					existingProfile.savedAddresses = [newAddress];
+				}
+				updateData.savedAddresses = existingProfile.savedAddresses;
+			}
 		}
 
-		const customer = await Customer.findByIdAndUpdate(customerId, updateData, {
-			new: true,
-			runValidators: true,
-		});
+		const customer = await Customer.findOneAndUpdate(
+			{ user: userId },
+			updateData,
+			{
+				new: true,
+				runValidators: true,
+			}
+		).populate("user", "email role");
 
 		if (!customer) {
 			return res.status(404).json({ error: "Customer not found" });
@@ -79,15 +95,15 @@ const updateCustomerProfile = async (req, res) => {
 };
 
 const deleteCustomerProfile = async (req, res) => {
-	const customerId = req.user.id;
+	const userId = req.user.id;
 
 	try {
-		// Soft delete by setting accountStatus to deactivated
-		const customer = await Customer.findByIdAndUpdate(
-			customerId,
-			{ accountStatus: "deactivated" },
-			{ new: true },
-		);
+		// Soft delete by setting isActive to false on the profile
+		const customer = await Customer.findOneAndUpdate(
+			{ user: userId },
+			{ isActive: false },
+			{ new: true }
+		).populate("user", "email");
 
 		if (!customer) {
 			return res.status(404).json({ error: "Customer not found" });

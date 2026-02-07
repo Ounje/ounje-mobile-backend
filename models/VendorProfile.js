@@ -64,9 +64,9 @@ const vendorProfileSchema = new mongoose.Schema(
                 storeName: String,
                 storeType: String,
                 isVerifiedBusiness: Boolean,
-                CACNumber: String,
+                CACNumber: { type: String, select: false },
                 servicesOffered: String,
-                ninID: String,
+                ninID: { type: String, select: false },
                 status: { type: String, default: "pending" },
                 needsCACSupport: Boolean,
                 timePeriod: [

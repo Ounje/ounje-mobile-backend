@@ -9,10 +9,10 @@ class VendorService {
 	async getNearbyVendors({ lat, lng, userId }) {
 		try {
 			if ((!lat || !lng) && userId) {
-				const customer = await Customer.findById(userId);
-				if (customer?.location?.coordinates) {
-					lng = customer.location.coordinates[0];
-					lat = customer.location.coordinates[1];
+				const customer = await Customer.findOne({ user: userId });
+				if (customer?.savedAddresses?.[0]?.coordinates) {
+					lng = customer.savedAddresses[0].coordinates[0];
+					lat = customer.savedAddresses[0].coordinates[1];
 				}
 			}
 

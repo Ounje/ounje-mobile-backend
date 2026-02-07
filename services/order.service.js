@@ -118,9 +118,13 @@ const createOrder = async (userId, data) => {
         }
     }
 
-    // 4. Create Order
+    // 4. Lookup Customer document ID from User ID
+    const customer = await Customer.findOne({ user: userId });
+    if (!customer) throw new Error("Customer profile not found");
+
+    // 5. Create Order
     const order = await Order.create({
-        customer: userId,
+        customer: customer._id, // Use Customer document ID, not User ID
         vendor: vendorId,
         items: orderItems,
         totalPrice: itemsTotalPrice + fee,
@@ -131,7 +135,7 @@ const createOrder = async (userId, data) => {
         zone: orderZone,
     });
 
-    // 5. Send notification to vendor
+    // 6. Send notification to vendor
     try {
         await notificationService.notifyNewOrder(vendorId, order);
         logger.info(`New order notification sent to vendor ${vendorId}`);

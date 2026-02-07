@@ -55,7 +55,7 @@ const createFoodItem = async (req, res) => {
 			category,
 			subCategory,
 			preparationTime,
-			vendor: vendorId,
+			vendor: vendor._id, // Use VendorProfile ID, not User ID
 			img: req.file.path,
 		});
 
@@ -73,12 +73,13 @@ const createFoodItem = async (req, res) => {
 const updateFoodItem = async (req, res) => {
 	try {
 		const { foodItemId } = req.params;
-		const foodItem = await FoodItem.findById(foodItemId);
+		const foodItem = await FoodItem.findById(foodItemId).populate('vendor');
 		if (!foodItem)
 			return res
 				.status(404)
 				.json({ success: false, message: "Food item not found" });
-		if (!foodItem.vendor.equals(req.user.id))
+		// Check if current user owns the vendor profile
+		if (!foodItem.vendor.owner.equals(req.user.id))
 			return res.status(403).json({
 				success: false,
 				message: "Not authorized to update this food item",
@@ -131,12 +132,13 @@ const updateFoodItem = async (req, res) => {
 const deleteFoodItem = async (req, res) => {
 	try {
 		const { foodItemId } = req.params;
-		const foodItem = await FoodItem.findById(foodItemId);
+		const foodItem = await FoodItem.findById(foodItemId).populate('vendor');
 		if (!foodItem)
 			return res
 				.status(404)
 				.json({ success: false, message: "Food item not found" });
-		if (!foodItem.vendor.equals(req.user.id))
+		// Check if current user owns the vendor profile
+		if (!foodItem.vendor.owner.equals(req.user.id))
 			return res.status(403).json({
 				success: false,
 				message: "Not authorized to delete this food item",
@@ -185,8 +187,13 @@ const getFoodItemById = async (req, res) => {
 
 const getMyFoodItems = async (req, res) => {
 	try {
-		// Create a filter so the utility only finds THIS vendor's food
-		const filter = { vendor: req.user.id };
+		// Find the vendor profile for this user
+		const vendor = await VendorProfile.findOne({ owner: req.user.id });
+		if (!vendor) {
+			return res.status(404).json({ success: false, message: "Vendor profile not found" });
+		}
+		// Create a filter using VendorProfile ID
+		const filter = { vendor: vendor._id };
 
 		const result = await paginate(FoodItem, req.query, null, filter);
 
@@ -243,7 +250,7 @@ const createCombo = async (req, res) => {
 			description,
 			basePrice,
 			selections: parsedSelections,
-			vendor: vendorId,
+			vendor: vendor._id, // Use VendorProfile ID, not User ID
 			img: req.file.path,
 			time,
 			deliveryTime,
@@ -260,12 +267,13 @@ const createCombo = async (req, res) => {
 
 const updateCombo = async (req, res) => {
 	try {
-		const combo = await Combo.findById(req.params.id);
+		const combo = await Combo.findById(req.params.id).populate('vendor');
 		if (!combo)
 			return res
 				.status(404)
 				.json({ success: false, message: "Combo not found" });
-		if (!combo.vendor.equals(req.user.id))
+		// Check if current user owns the vendor profile
+		if (!combo.vendor.owner.equals(req.user.id))
 			return res.status(403).json({
 				success: false,
 				message: "Not authorized to update this combo",
@@ -301,12 +309,13 @@ const updateCombo = async (req, res) => {
 
 const deleteCombo = async (req, res) => {
 	try {
-		const combo = await Combo.findById(req.params.id);
+		const combo = await Combo.findById(req.params.id).populate('vendor');
 		if (!combo)
 			return res
 				.status(404)
 				.json({ success: false, message: "Combo not found" });
-		if (!combo.vendor.equals(req.user.id))
+		// Check if current user owns the vendor profile
+		if (!combo.vendor.owner.equals(req.user.id))
 			return res.status(403).json({
 				success: false,
 				message: "Not authorized to delete this combo",
@@ -339,7 +348,13 @@ const getAllCombos = async (req, res) => {
 
 const getMyCombos = async (req, res) => {
 	try {
-		const filter = { vendor: req.user.id };
+		// Find the vendor profile for this user
+		const vendor = await VendorProfile.findOne({ owner: req.user.id });
+		if (!vendor) {
+			return res.status(404).json({ success: false, message: "Vendor profile not found" });
+		}
+		// Create a filter using VendorProfile ID
+		const filter = { vendor: vendor._id };
 		const populateOptions = {
 			path: "selections.items.item",
 			select: "name img description price"
