@@ -461,6 +461,22 @@ class VendorService {
 			console.error("Error deleting old image:", error);
 		}
 	}
+
+	async deactivateVendorAccount(vendorId) {
+		try {
+			const vendor = await Vendor.findById(vendorId);
+			if (!vendor) throw new Error("Vendor not found");
+			vendor.storeDetails[0].status = "deactivated";
+			await vendor.save();
+			return {
+				success: true,
+				message: "Vendor account deactivated successfully",
+			};
+		} catch (error) {
+			console.error("Error deactivating vendor account:", error);
+			throw error;
+		}
+	}
 }
 
 module.exports = new VendorService();

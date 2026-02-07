@@ -9,8 +9,13 @@ const {
 	completeVendorRegistration,
 	updateVendorProfileImage,
 	deleteVendorProfileImage,
+	deactivateVendorAccount,
 } = require("../controllers/vendorController");
-const { authMiddleware, roleGuard } = require("../middleware/auth");
+const {
+	authMiddleware,
+	roleGuard,
+	checkActiveUser,
+} = require("../middleware/auth");
 
 const router = express.Router();
 
@@ -84,6 +89,7 @@ router.get("/profile", authMiddleware, getVendor);
 router.put(
 	"/profile/bank-details",
 	authMiddleware,
+	checkActiveUser,
 	roleGuard(["Vendor"]),
 	updateBankDetails,
 );
@@ -177,6 +183,7 @@ router.get("/nearby", authMiddleware, getNearbyVendors);
 router.post(
 	"/complete-registration",
 	authMiddleware,
+	checkActiveUser,
 	roleGuard(["Vendor"]),
 	NINStorage.single("ninID"),
 	completeVendorRegistration,
@@ -185,6 +192,7 @@ router.post(
 router.put(
 	"/profile/upload/image",
 	authMiddleware,
+	checkActiveUser,
 	roleGuard(["Vendor"]),
 	vendorImageUpload.single("img"),
 	updateVendorProfileImage,
@@ -193,8 +201,16 @@ router.put(
 router.delete(
 	"/profile/delete/image",
 	authMiddleware,
+	checkActiveUser,
 	roleGuard(["Vendor"]),
 	deleteVendorProfileImage,
+);
+
+router.delete(
+	"/profile/deactivate",
+	authMiddleware,
+	roleGuard(["Vendor"]),
+	deactivateVendorAccount,
 );
 
 module.exports = router;

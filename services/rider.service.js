@@ -203,7 +203,6 @@ const completeRiderRegistration = async (riderId, data, files) => {
 
 	rider.modeOfDelivery = modeOfDelivery;
 	rider.Guarantor = [guarantor];
-	rider.status = "active"; // Set status to active after successful registration
 
 	if (driversLicense) rider.driversLicense = driversLicense;
 	if (nin) rider.nin = nin;
@@ -234,7 +233,7 @@ const completeRiderRegistration = async (riderId, data, files) => {
  */
 const getRiderProfile = async (riderId) => {
 	const rider = await Rider.findById(riderId).select(
-		"name phone modeOfDelivery Guarantor bankDetails driversLicense nin operatingArea",
+		"name phone modeOfDelivery Guarantor bankDetails driversLicense nin status operatingArea",
 	);
 
 	if (!rider) throw new Error("Rider not found");
@@ -277,6 +276,10 @@ const getRiderProfile = async (riderId) => {
 	}
 
 	setupComplete = missingFields.length === 0;
+	if (setupComplete === true) {
+		rider.status = "active";
+		await rider.save();
+	}
 
 	const responseData = {
 		name: rider.name,
@@ -285,6 +288,7 @@ const getRiderProfile = async (riderId) => {
 		operatingArea: rider.operatingArea || [],
 		Guarantor: rider.Guarantor,
 		bankDetails: rider.bankDetails,
+		status: rider.status,
 		setupComplete,
 	};
 
@@ -311,7 +315,7 @@ const getRiderLeaderboard = async () => {
 	return await ratingService.getRiderLeaderboard();
 };
 
-const deactivateRider = async (riderId) => {
+const deactivateRiderAccount = async (riderId) => {
 	const rider = await Rider.findByIdAndUpdate(
 		riderId,
 		{ status: "deactivated" },
@@ -322,7 +326,7 @@ const deactivateRider = async (riderId) => {
 };
 module.exports = {
 	getRiderDashboard,
-	deactivateRider,
+	deactivateRiderAccount,
 	registerRider,
 	updateOperatingArea,
 	getOperatingArea,

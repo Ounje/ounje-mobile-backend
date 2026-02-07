@@ -20,7 +20,7 @@ const storeDetailsSchema = new mongoose.Schema(
 		isVerifiedBusiness: Boolean,
 		status: {
 			type: String,
-			enum: ["active", "suspended", "pending"],
+			enum: ["active", "suspended", "pending", "deactivated"],
 			default: "active",
 		},
 		needsCACSupport: {

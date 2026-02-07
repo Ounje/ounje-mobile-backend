@@ -191,7 +191,19 @@ const deleteVendorProfileImage = async (req, res) => {
 		});
 	}
 };
-
+const deactivateVendorAccount = async (req, res) => {
+	try {
+		const vendorId = req.user.id;
+		const result = await vendorService.deactivateVendorAccount(vendorId);
+		return res.status(200).json(result);
+	} catch (error) {
+		logger.error(`Deactivate Vendor Account Error: ${error.message}`);
+		return res.status(500).json({
+			success: false,
+			message: error.message || "Error deactivating vendor account",
+		});
+	}
+};
 module.exports = {
 	completeVendorRegistration,
 	getPopularVendors,
@@ -202,4 +214,5 @@ module.exports = {
 	updateVendorProfileImage,
 	deleteVendorProfileImage,
 	getVendors,
+	deactivateVendorAccount,
 };

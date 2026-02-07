@@ -30,7 +30,7 @@ const Rider = User.discriminator(
 		nin: String,
 		status: {
 			type: String,
-			enum: ["pending", "deactivated", "active"],
+			enum: ["pending", "deactivated", "active", "suspended"],
 			default: "pending",
 		},
 		Guarantor: [GuarantorSchema],

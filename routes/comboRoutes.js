@@ -1,5 +1,9 @@
 const express = require("express");
-const { authMiddleware, roleGuard } = require("../middleware/auth");
+const {
+	authMiddleware,
+	roleGuard,
+	checkActiveUser,
+} = require("../middleware/auth");
 const {
 	createCombo,
 	updateCombo,
@@ -117,6 +121,7 @@ router.get(
 	"/vendor/my-combos",
 	authMiddleware,
 	roleGuard(["Vendor"]),
+	checkActiveUser,
 	getMyCombos,
 );
 
@@ -168,6 +173,7 @@ router.post(
 	"/",
 	authMiddleware,
 	roleGuard(["Vendor"]),
+	checkActiveUser,
 	comboUpload.single("img"),
 	createCombo,
 );
@@ -220,6 +226,7 @@ router.put(
 	"/:comboId",
 	authMiddleware,
 	roleGuard(["Vendor"]),
+	checkActiveUser,
 	comboUpload.single("img"),
 	updateCombo,
 );
@@ -246,6 +253,12 @@ router.put(
  *       404:
  *         description: Combo not found
  */
-router.delete("/:comboId", authMiddleware, roleGuard(["Vendor"]), deleteCombo);
+router.delete(
+	"/:comboId",
+	authMiddleware,
+	checkActiveUser,
+	roleGuard(["Vendor"]),
+	deleteCombo,
+);
 
 module.exports = router;

@@ -3,7 +3,11 @@
 const express = require("express");
 const router = express.Router(); // FIX 1: Must initialize the router
 const db = require("../config/db"); // FIX 2: Assuming 'db' helper is accessible/imported here
-const { authMiddleware, roleGuard } = require("../middleware/auth");
+const {
+	authMiddleware,
+	roleGuard,
+	checkActiveUser,
+} = require("../middleware/auth");
 const { riderUpload } = require("../config/cloudinary");
 const {
 	updateBankDetails,
@@ -13,6 +17,7 @@ const {
 	getRiderWallet,
 	getOperatingArea,
 	updateOperatingArea,
+	deactivateRiderAccount,
 } = require("../controllers/riderController");
 
 // FIX 3: Endpoint corrected to '/location' since the server.js prefix is '/api/riders'
@@ -170,7 +175,20 @@ router.put(
 	updateOperatingArea,
 );
 
-router.get("/profile", authMiddleware, roleGuard(["rider"]), getRiderProfile);
+router.delete(
+	"/profile/deactivate",
+	authMiddleware,
+	roleGuard(["rider"]),
+	deactivateRiderAccount,
+);
+
+router.get(
+	"/profile",
+	authMiddleware,
+	checkActiveUser,
+	roleGuard(["rider"]),
+	getRiderProfile,
+);
 
 // Rider Wallet & Earnings
 router.get("/wallet", authMiddleware, roleGuard(["rider"]), getRiderWallet);

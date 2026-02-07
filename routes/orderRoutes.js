@@ -1,5 +1,9 @@
 const express = require("express");
-const { authMiddleware, roleGuard } = require("../middleware/auth");
+const {
+	authMiddleware,
+	roleGuard,
+	checkActiveUser,
+} = require("../middleware/auth");
 const { Combo, Order, Rider, Vendor } = require("../models");
 
 const {
@@ -111,6 +115,7 @@ router.get("/", authMiddleware, roleGuard(["customer"]), getMyOrders);
 router.get(
 	"/vendor",
 	authMiddleware,
+	checkActiveUser,
 	roleGuard(["Vendor"]),
 	async (req, res) => {
 		try {
@@ -214,6 +219,7 @@ router.put("/:id", authMiddleware, roleGuard(["customer"]), updateOrderStatus);
 router.put(
 	"/:id/status",
 	authMiddleware,
+	checkActiveUser,
 	roleGuard(["Vendor"]),
 	async (req, res) => {
 		try {
@@ -243,6 +249,7 @@ router.put(
 router.get(
 	"/rider/requests",
 	authMiddleware,
+	checkActiveUser,
 	roleGuard(["rider"]),
 	getAvailableRiderRequests,
 );
@@ -251,6 +258,7 @@ router.get(
 router.get(
 	"/rider/ongoing",
 	authMiddleware,
+	checkActiveUser,
 	roleGuard(["rider"]),
 	getCurrentRiderOrder,
 );
@@ -260,6 +268,7 @@ router.get(
 	"/rider/completed-today",
 	authMiddleware,
 	roleGuard(["rider"]),
+	checkActiveUser,
 	getRiderCompletedOrdersToday,
 );
 
@@ -284,6 +293,8 @@ router.get(
 	"/available",
 	authMiddleware,
 	roleGuard(["rider"]),
+	checkActiveUser,
+
 	async (req, res) => {
 		try {
 			// Get the rider's operating areas (Max 2 zones)
@@ -330,6 +341,7 @@ router.put(
 	"/accept/:orderId",
 	authMiddleware,
 	roleGuard(["rider"]),
+	checkActiveUser,
 	acceptOrder,
 );
 
@@ -436,6 +448,7 @@ router.put(
 	"/pickup/:orderId",
 	authMiddleware,
 	roleGuard(["rider"]),
+	checkActiveUser,
 	pickUpOrder,
 );
 
@@ -475,6 +488,7 @@ router.put(
 	"/complete/:orderId",
 	authMiddleware,
 	roleGuard(["rider"]),
+	checkActiveUser,
 	completeDelivery,
 );
 
