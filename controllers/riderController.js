@@ -160,6 +160,28 @@ const getRiderProfile = async (req, res) => {
 		});
 	}
 };
+/**
+ * Deactivate Rider Account
+ * Sets accountStatus to 'deactivated' and prevents future logins.
+ */
+const deactivateRiderAccount = async (req, res) => {
+	try {
+		const riderId = req.user.id;
+		const rider = await riderService.deactivateRiderAccount(riderId);
+		res.json({
+			success: true,
+			message: "Rider account deactivated successfully",
+			data: rider,
+		});
+	} catch (err) {
+		logger.error(`Deactivate Rider Account Error: ${err.message}`);
+		res.status(500).json({
+			success: false,
+			message: "An error occurred while deactivating the rider account",
+			error: err.message,
+		});
+	}
+};
 
 module.exports = {
 	completeRiderRegistration,
@@ -170,4 +192,5 @@ module.exports = {
 	getRiderWallet,
 	updateOperatingArea,
 	getOperatingArea,
+	deactivateRiderAccount,
 };
