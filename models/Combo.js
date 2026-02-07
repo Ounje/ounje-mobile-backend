@@ -45,7 +45,7 @@ const ComboSchema = new mongoose.Schema(
 		time: { type: String, required: true }, // Preparation time
 		deliveryTime: { type: String },
 		ordersCount: { type: Number, default: 0 },
-		//isAvailable: { type: Boolean, default: true },
+		isAvailable: { type: Boolean, default: true },
 		averageRating: { type: Number, default: 0 },
 		ratingCount: { type: Number, default: 0 },
 		likes: [{ type: mongoose.Schema.Types.ObjectId, ref: "Customer" }],

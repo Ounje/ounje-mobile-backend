@@ -92,7 +92,7 @@ class VendorService {
 			FoodItem.find({ vendor: vendor._id, isAvailable: true }).select(
 				"name price description category subCategory img preparationTime"
 			),
-			Combo.find({ vendor: vendor._id, isAvailable: true }).select(
+			Combo.find({ vendor: vendor._id, isAvailable: { $ne: false } }).select(
 				"comboName basePrice description img time selections"
 			),
 		]);

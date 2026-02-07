@@ -203,6 +203,61 @@ const getMyFoodItems = async (req, res) => {
 	}
 };
 
+// Helper to process selections
+const processSelections = async (selections, vendorId) => {
+	if (!selections) return [];
+
+	let parsedSelections = selections;
+	if (typeof selections === "string") {
+		try {
+			parsedSelections = JSON.parse(selections);
+		} catch {
+			throw new Error("Invalid selections format");
+		}
+	}
+
+	if (!Array.isArray(parsedSelections)) return [];
+
+	// Extract all item IDs
+	const itemIds = [];
+	parsedSelections.forEach((group) => {
+		if (group.items && Array.isArray(group.items)) {
+			group.items.forEach((selectionItem) => {
+				if (selectionItem.item) itemIds.push(selectionItem.item);
+			});
+		}
+	});
+
+	if (itemIds.length === 0) return parsedSelections;
+
+	// Fetch all items
+	const foodItems = await FoodItem.find({
+		_id: { $in: itemIds },
+		vendor: vendorId, // Ensure items belong to this vendor profile
+	});
+
+	const foodItemMap = new Map(foodItems.map((item) => [item.id, item]));
+
+	// Reconstruct selections with populated data
+	return parsedSelections.map((group) => {
+		const populatedItems = [];
+		if (group.items && Array.isArray(group.items)) {
+			group.items.forEach((selectionItem) => {
+				const foodItem = foodItemMap.get(selectionItem.item.toString());
+				if (foodItem) {
+					populatedItems.push({
+						item: foodItem._id,
+						name: foodItem.name,
+						price: foodItem.price,
+						isAvailable: foodItem.isAvailable,
+					});
+				}
+			});
+		}
+		return { ...group, items: populatedItems };
+	});
+};
+
 const createCombo = async (req, res) => {
 	try {
 		const {
@@ -234,22 +289,16 @@ const createCombo = async (req, res) => {
 				.status(400)
 				.json({ success: false, message: "Base price must be greater than 0" });
 
-		let parsedSelections = selections || {};
-		if (typeof selections === "string") {
-			try {
-				parsedSelections = JSON.parse(selections);
-			} catch {
-				return res
-					.status(400)
-					.json({ success: false, message: "Invalid selections format" });
-			}
-		}
+		const processedSelections = await processSelections(
+			selections,
+			vendor._id, // Pass VendorProfile ID
+		);
 
 		const combo = await Combo.create({
 			comboName,
 			description,
 			basePrice,
-			selections: parsedSelections,
+			selections: processedSelections,
 			vendor: vendor._id, // Use VendorProfile ID, not User ID
 			img: req.file.path,
 			time,
@@ -267,7 +316,7 @@ const createCombo = async (req, res) => {
 
 const updateCombo = async (req, res) => {
 	try {
-		const combo = await Combo.findById(req.params.id).populate('vendor');
+		const combo = await Combo.findById(req.params.id).populate("vendor");
 		if (!combo)
 			return res
 				.status(404)
@@ -283,17 +332,15 @@ const updateCombo = async (req, res) => {
 				.status(400)
 				.json({ success: false, message: "Base price must be greater than 0" });
 
-		if (req.body.selections && typeof req.body.selections === "string") {
-			try {
-				req.body.selections = JSON.parse(req.body.selections);
-			} catch {
-				return res
-					.status(400)
-					.json({ success: false, message: "Invalid selections format" });
-			}
+		const { vendor, selections, ...updateData } = req.body;
+
+		if (selections) {
+			updateData.selections = await processSelections(
+				selections,
+				combo.vendor._id, // Use VendorProfile ID from populated combo
+			);
 		}
 
-		const { vendor, ...updateData } = req.body;
 		Object.assign(combo, updateData);
 		if (req.file) combo.img = req.file.path;
 		await combo.save();
