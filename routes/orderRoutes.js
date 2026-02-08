@@ -569,4 +569,12 @@ router.get(
 	},
 );
 
+router.get(
+	"/rider",
+	authMiddleware,
+	roleGuard(["rider"]),
+	checkActiveUser,
+	getRiderOrders,
+);
+
 module.exports = router;

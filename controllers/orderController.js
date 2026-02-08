@@ -14,18 +14,11 @@ exports.createOrder = asyncHandler(async (req, res) => {
 });
 
 exports.getMyOrders = asyncHandler(async (req, res) => {
-	// We inject the filter { customer: req.user.id } so users only see THEIR orders
-	// The original had separate getMyOrders twice, one with pagination one without.
-	// The second one (at end of file) was using paginate. I will use that one logic here.
-	// But wait, the file I viewed had duplicate exports. createOrder, getMyOrders etc appeared twice.
-	// I should probably clean that up too.
-
-	// Let's assume the user wants the pagination one as it was at the bottom.
-	const result = await paginate(Order, { ...req.query, customer: req.user.id }, [
-		{ path: "vendor", select: "name" },
-		{ path: "items.item" },
-	]);
-
+	const result = await paginate(
+		Order,
+		{ ...req.query, customer: req.user.id },
+		[{ path: "vendor", select: "name" }, { path: "items.item" }],
+	);
 	res.status(200).json(result);
 });
 
@@ -53,7 +46,6 @@ exports.getOrderById = asyncHandler(async (req, res) => {
 exports.updateOrderStatus = asyncHandler(async (req, res) => {
 	const { id } = req.params;
 	const { status, subStatus } = req.body;
-
 	const order = await orderService.updateOrderStatus(id, status, subStatus);
 	res.status(200).json({ success: true, order });
 });
@@ -69,9 +61,7 @@ exports.verifyDeliveryOtp = async (order, otp, riderId) => {
 exports.acceptOrder = asyncHandler(async (req, res) => {
 	const { orderId } = req.params;
 	const riderId = req.user.id;
-
 	const order = await orderService.acceptOrder(orderId, riderId);
-
 	return res.status(200).json({
 		success: true,
 		message: "Order accepted successfully",
@@ -82,9 +72,7 @@ exports.acceptOrder = asyncHandler(async (req, res) => {
 exports.pickUpOrder = asyncHandler(async (req, res) => {
 	const { orderId } = req.params;
 	const riderId = req.user.id;
-
 	const order = await orderService.pickUpOrder(orderId, riderId);
-
 	res.status(200).json({
 		success: true,
 		message: "Order picked up! OTP sent to customer.",
@@ -96,9 +84,7 @@ exports.completeDelivery = asyncHandler(async (req, res) => {
 	const { orderId } = req.params;
 	const { otp } = req.body;
 	const riderId = req.user.id;
-
 	const order = await orderService.completeDelivery(orderId, riderId, otp);
-
 	res.status(200).json({
 		success: true,
 		message: "Delivery completed successfully!",
@@ -118,7 +104,6 @@ exports.getAvailableRiderRequests = asyncHandler(async (req, res) => {
 exports.getCurrentRiderOrder = asyncHandler(async (req, res) => {
 	const riderId = req.user.id;
 	const order = await orderService.getCurrentRiderOrder(riderId);
-
 	if (!order) {
 		return res
 			.status(200)
@@ -130,9 +115,68 @@ exports.getCurrentRiderOrder = asyncHandler(async (req, res) => {
 exports.getRiderCompletedOrdersToday = asyncHandler(async (req, res) => {
 	const riderId = req.user.id;
 	const orders = await orderService.getRiderCompletedOrdersToday(riderId);
-
 	res.status(200).json({
 		count: orders.length,
 		orders,
 	});
+});
+
+/**
+ * Get rider's orders with filtering
+ * Query params:
+ *   - status: pending | active | completed
+ *   - page: number
+ *   - limit: number
+ */
+exports.getRiderOrders = asyncHandler(async (req, res) => {
+	const riderId = req.user.id;
+	const { status } = req.query;
+
+	// Build filter based on status query
+	const filter = { rider: riderId };
+
+	if (status === "pending") {
+		// Orders available for pickup (rider assigned but not picked up yet)
+		filter.status = "RIDING";
+		filter.subStatus = "RIDER_ASSIGNED";
+	} else if (status === "active") {
+		// Orders currently being delivered (picked up but not delivered)
+		filter.status = "RIDING";
+		filter.subStatus = "PICKED_UP";
+	} else if (status === "completed") {
+		// Delivered orders
+		filter.status = "DELIVERED";
+		filter.subStatus = "DELIVERED";
+	}
+
+	const result = await paginate(
+		Order,
+		{ ...req.query, ...filter },
+		[
+			{ path: "vendor", select: "name" },
+			{ path: "customer", select: "name" },
+		],
+
+		{
+			select:
+				"totalPrice status subStatus deliveryFee deliveryConfirmedAt updatedAt createdAt",
+		},
+	);
+
+	const transformedData = {
+		...result,
+		data: result.data.map((order) => ({
+			id: order._id,
+			vendor: order.vendor ? { name: order.vendor.name } : null,
+			customer: order.customer ? { name: order.customer.name } : null,
+			amount: order.totalPrice,
+			status: order.status,
+			subStatus: order.subStatus,
+			completedAt: order.deliveryConfirmedAt || null,
+			updatedAt: order.updatedAt,
+			createdAt: order.createdAt,
+		})),
+	};
+
+	res.status(200).json(transformedData);
 });
