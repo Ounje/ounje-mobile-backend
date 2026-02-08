@@ -24,14 +24,12 @@ const authMiddleware = async (req, res, next) => {
 
 const roleGuard =
 	(allowedRoles = []) =>
-		(req, res, next) => {
-			if (!req.user) return res.status(401).json({ error: "No user in request" });
-			if (!allowedRoles.includes(req.user.role))
-				return res.status(403).json({ error: "Forbidden: insufficient role" });
-			next();
-		};
-
-
+	(req, res, next) => {
+		if (!req.user) return res.status(401).json({ error: "No user in request" });
+		if (!allowedRoles.includes(req.user.role))
+			return res.status(403).json({ error: "Forbidden: insufficient role" });
+		next();
+	};
 
 const checkActiveUser = async (req, res, next) => {
 	try {
@@ -69,7 +67,7 @@ const checkActiveUser = async (req, res, next) => {
 			if (!rider) {
 				return res.status(404).json({ error: "Rider profile not found" });
 			}
-			if (rider.status === "deactivated" || rider.status === "pending") {
+			if (rider.status === "deactivated") {
 				return res.status(403).json({
 					error: "Rider account is not active. Please contact support.",
 				});
@@ -87,19 +85,19 @@ const checkActiveUser = async (req, res, next) => {
 
 const ipWhitelist =
 	(allowedIps = []) =>
-		(req, res, next) => {
-			console.log("Request IP:", req.ip);
-			let requestIp = req.ip || req.connection.remoteAddress;
-			if (requestIp.startsWith("::ffff:")) {
-				requestIp = requestIp.replace("::ffff:", "");
-			}
-			if (!allowedIps.includes(requestIp)) {
-				return res
-					.status(403)
-					.json({ error: "Forbidden: IP not allowed", requestIp });
-			}
-			next();
-		};
+	(req, res, next) => {
+		console.log("Request IP:", req.ip);
+		let requestIp = req.ip || req.connection.remoteAddress;
+		if (requestIp.startsWith("::ffff:")) {
+			requestIp = requestIp.replace("::ffff:", "");
+		}
+		if (!allowedIps.includes(requestIp)) {
+			return res
+				.status(403)
+				.json({ error: "Forbidden: IP not allowed", requestIp });
+		}
+		next();
+	};
 
 module.exports = {
 	authMiddleware,
