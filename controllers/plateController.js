@@ -4,14 +4,19 @@ const { paginate } = require("../utils/paginate");
 
 const buildPlate = async (req, res) => {
     try {
-        const { name, price, timeToMake, items, vendor } = req.body;
+        let { name, items, vendor } = req.body;
 
         if (typeof items === 'string') {
             try {
                 items = JSON.parse(items);
             } catch (e) {
-                // if it's just a single ID string, wrap it in an array
-                items = [items];
+                // Check if it's a comma-separated list
+                if (items.includes(',')) {
+                    items = items.split(',').map(item => item.trim());
+                } else {
+                    // if it's just a single ID string, wrap it in an array
+                    items = [items];
+                }
             }
         }
 
@@ -21,12 +26,24 @@ const buildPlate = async (req, res) => {
             return res.status(404).json({ error: "Customer profile not found" });
         }
 
-        // Fetch item names to create the description
-        // 'items' is likely an array of IDs from the frontend
+        // Fetch item details to calculate price and description
         const selectedItems = await FoodItem.find({ _id: { $in: items } });
 
         // Debugging: See if items are actually being found in your terminal
         console.log("Items found in DB:", selectedItems.length);
+
+        if (selectedItems.length === 0) {
+            return res.status(400).json({ error: "No valid food items selected" });
+        }
+
+        // Calculate total price
+        const price = selectedItems.reduce((sum, item) => sum + item.price, 0);
+
+        // Calculate max preparation time (assuming parallel preparation, or sum if sequential - usually max for plates)
+        // Parse "30 mins" or "30" to numbers
+        const times = selectedItems.map(item => parseInt(item.preparationTime) || 0);
+        const maxTime = Math.max(...times);
+        const timeToMake = `${maxTime} mins`;
 
         const description = selectedItems.map(item => item.name).join(", ");
 

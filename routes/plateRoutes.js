@@ -6,7 +6,7 @@ const {
 	getSpecificPlate,
 	deletePlate,
 	fixAllPlates,
-} = require("../controllers/plateContoller");
+} = require("../controllers/plateController");
 
 const { roleGuard, authMiddleware } = require("../middleware/auth");
 const { plateUpload } = require("../config/cloudinary");
@@ -39,6 +39,14 @@ const router = express.Router();
  *               file:
  *                 type: string
  *                 format: binary
+ *               name:
+ *                 type: string
+ *               vendor:
+ *                 type: string
+ *               items:
+ *                 type: array
+ *                 items:
+ *                   type: string
  *     responses:
  *       201:
  *         description: Plate created

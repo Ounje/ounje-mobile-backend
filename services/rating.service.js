@@ -5,8 +5,8 @@ const {
 	Order,
 	FoodItem,
 	Combo,
-	Vendor,
-	Rider,
+	VendorProfile: Vendor,
+	RiderProfile: Rider,
 } = require("../models");
 const logger = require("../utils/logger");
 
