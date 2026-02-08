@@ -10,7 +10,7 @@ class NotificationController {
 
 			// Determine recipient model based on user type
 			let recipientModel;
-			if (userType === "Vendor" || req.user.__t === "Vendor") {
+			if (userType === "vendor" || req.user.__t === "vendor") {
 				recipientModel = "Vendor";
 			} else if (userType === "customer" || req.user.__t === "customer") {
 				recipientModel = "Customer";
