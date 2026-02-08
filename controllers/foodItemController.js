@@ -316,7 +316,7 @@ const createCombo = async (req, res) => {
 
 const updateCombo = async (req, res) => {
 	try {
-		const combo = await Combo.findById(req.params.id).populate("vendor");
+		const combo = await Combo.findById(req.params.comboId).populate("vendor");
 		if (!combo)
 			return res
 				.status(404)
@@ -356,7 +356,7 @@ const updateCombo = async (req, res) => {
 
 const deleteCombo = async (req, res) => {
 	try {
-		const combo = await Combo.findById(req.params.id).populate('vendor');
+		const combo = await Combo.findById(req.params.comboId).populate('vendor');
 		if (!combo)
 			return res
 				.status(404)
