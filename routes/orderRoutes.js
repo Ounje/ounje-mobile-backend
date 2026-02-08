@@ -15,6 +15,7 @@ const {
 	verifyDeliveryOtp,
 	acceptOrder,
 	pickUpOrder,
+	getRiderOrders,
 	completeDelivery,
 	getAvailableRiderRequests,
 	getCurrentRiderOrder,
