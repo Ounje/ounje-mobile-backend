@@ -1,6 +1,31 @@
 const ratingService = require("../services/rating.service");
 const likeService = require("../services/like.service");
 const logger = require("../utils/logger");
+const mongoose = require("mongoose");
+
+// Helper: Convert User ID to Profile ID for Vendor/Rider
+const getProfileId = async (targetType, userId) => {
+	if (targetType === "Vendor") {
+		const VendorProfile = mongoose.model("VendorProfile");
+		const vendor = await VendorProfile.findOne({ owner: userId });
+		if (vendor) return vendor._id.toString();
+
+		const byId = await VendorProfile.findById(userId);
+		if (byId) return byId._id.toString();
+
+		throw new Error("Vendor profile not found for this user");
+	} else if (targetType === "Rider") {
+		const RiderProfile = mongoose.model("RiderProfile");
+		const rider = await RiderProfile.findOne({ user: userId });
+		if (rider) return rider._id.toString();
+
+		const byId = await RiderProfile.findById(userId);
+		if (byId) return byId._id.toString();
+
+		throw new Error("Rider profile not found for this user");
+	}
+	return userId; // FoodItem and Combo use their own IDs directly
+};
 
 // Main handler for rating & likes
 const rateEntity = async ({ req, res, targetType }) => {
@@ -8,12 +33,15 @@ const rateEntity = async ({ req, res, targetType }) => {
 		const { rating, comment, like } = req.body;
 		let result = {};
 
+		// Convert User ID to Profile ID if needed
+		const profileId = await getProfileId(targetType, req.params.id);
+
 		// 1. Handle Like
 		if (like !== undefined) {
 			const likeResult = await likeService.toggleLike(
 				req.user.id,
 				targetType,
-				req.params.id,
+				profileId,
 				like,
 			);
 			result = { ...result, ...likeResult };
@@ -24,23 +52,17 @@ const rateEntity = async ({ req, res, targetType }) => {
 			const ratingResult = await ratingService.rateEntity(
 				req.user.id,
 				targetType,
-				req.params.id,
+				profileId,
 				{ rating, comment },
 			);
 			result = { ...result, ...ratingResult };
 		}
 
-		// If both are undefined, it's a bad request, but the services or previous logic handled simple checks.
-		// The previous controller didn't explicitly check if BOTH were missing at the top level,
-		// but the individual checks inside would catch it or do nothing.
-		// Let's ensure we did something.
 		if (like === undefined && rating === undefined && comment === undefined) {
-			return res
-				.status(400)
-				.json({
-					success: false,
-					message: "No rating, comment, or like provided",
-				});
+			return res.status(400).json({
+				success: false,
+				message: "No rating, comment, or like provided",
+			});
 		}
 
 		return res.status(200).json({
@@ -72,7 +94,10 @@ const getReviews = async (req, res) => {
 		const { targetType, targetId } = req.params;
 		const { page, limit } = req.query;
 
-		const result = await ratingService.getReviews(targetType, targetId, {
+		// Convert provided ID (likely User ID) to Profile ID
+		const profileId = await getProfileId(targetType, targetId);
+
+		const result = await ratingService.getReviews(targetType, profileId, {
 			page,
 			limit,
 		});

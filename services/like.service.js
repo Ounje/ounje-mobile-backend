@@ -1,57 +1,133 @@
 const mongoose = require("mongoose");
-const { Types } = mongoose;
-const { FoodItem, Combo, VendorProfile, RiderProfile } = require("../models");
+const logger = require("../utils/logger");
+
+/**
+ * Like Service
+ * Handles like/unlike functionality for various entity types
+ * 
+ * IMPORTANT: This service should work with Profile IDs for Vendor/Rider
+ * (The controller already converts User IDs to Profile IDs before calling this service)
+ */
 
 class LikeService {
-	constructor() {
-		this.models = {
-			FoodItem,
-			Combo,
-			VendorProfile,
-			RiderProfile,
-		};
+	/**
+	 * Toggle like/unlike for an entity
+	 * @param {String} customerId - User ID of the customer
+	 * @param {String} targetType - Type: FoodItem, Combo, Vendor, Rider
+	 * @param {String} targetId - ID of the entity (Profile ID for Vendor/Rider)
+	 * @param {Boolean} like - true to like, false to unlike
+	 */
+	async toggleLike(customerId, targetType, targetId, like) {
+		try {
+			// Validate target type
+			const validTypes = ['FoodItem', 'Combo', 'Vendor', 'Rider'];
+			if (!validTypes.includes(targetType)) {
+				logger.error(`Invalid target type for like: ${targetType}`);
+				throw new Error(`Invalid target type: ${targetType}. Must be one of: ${validTypes.join(', ')}`);
+			}
+
+			// Verify the entity exists
+			const Model = this.getModel(targetType);
+			if (!Model) {
+				throw new Error(`Model not found for target type: ${targetType}`);
+			}
+
+			const entity = await Model.findById(targetId);
+			if (!entity) {
+				throw new Error(`${targetType} not found`);
+			}
+
+			const Like = mongoose.model("Like");
+
+			if (like) {
+				// Add like
+				await Like.findOneAndUpdate(
+					{ targetType, target: targetId, customer: customerId },
+					{ targetType, target: targetId, customer: customerId },
+					{ upsert: true, new: true, setDefaultsOnInsert: true }
+				);
+				logger.info(`User ${customerId} liked ${targetType} ${targetId}`);
+			} else {
+				// Remove like
+				await Like.findOneAndDelete({
+					targetType,
+					target: targetId,
+					customer: customerId,
+				});
+				logger.info(`User ${customerId} unliked ${targetType} ${targetId}`);
+			}
+
+			// Count total likes for this entity
+			const likeCount = await Like.countDocuments({
+				targetType,
+				target: targetId,
+			});
+
+			return {
+				liked: like,
+				totalLikes: likeCount,
+			};
+		} catch (error) {
+			logger.error(`LikeService.toggleLike error: ${error.message}`);
+			throw error;
+		}
 	}
 
-	// Safe ObjectId conversion
-	toObjectId(id) {
-		return id && Types.ObjectId.isValid(id) ? new Types.ObjectId(id) : null;
+	/**
+	 * Get the mongoose model for a target type
+	 */
+	getModel(targetType) {
+		try {
+			if (targetType === 'Vendor') return mongoose.model('VendorProfile');
+			if (targetType === 'Rider') return mongoose.model('RiderProfile');
+			return mongoose.model(targetType);
+		} catch (error) {
+			logger.error(`Error getting model for ${targetType}: ${error.message}`);
+			return null;
+		}
 	}
 
-	async toggleLike(customerId, targetType, targetId, likeStatus) {
-		const Model = this.models[targetType];
-		if (!Model) {
-			throw new Error(`Invalid target type: ${targetType}`);
-		}
-
-		if (!this.toObjectId(targetId)) {
-			throw new Error("Invalid target ID");
-		}
-
-		const target = await Model.findById(targetId);
-		if (!target) {
-			throw new Error(`${targetType} not found`);
-		}
-
-
-		// likeStatus: true = like, false = unlike
-		console.log(`[LikeService] Toggling like: User ${customerId} -> ${targetType} ${targetId} (Like: ${likeStatus})`);
-
-		if (likeStatus === true) {
-			await Model.findByIdAndUpdate(targetId, {
-				$addToSet: { likes: customerId },
+	/**
+	 * Check if a user has liked an entity
+	 * @param {String} customerId - User ID
+	 * @param {String} targetType - Entity type
+	 * @param {String} targetId - Entity ID (Profile ID for Vendor/Rider)
+	 */
+	async hasLiked(customerId, targetType, targetId) {
+		try {
+			const Like = mongoose.model("Like");
+			const like = await Like.findOne({
+				targetType,
+				target: targetId,
+				customer: customerId,
 			});
-		} else if (likeStatus === false) {
-			await Model.findByIdAndUpdate(targetId, {
-				$pull: { likes: customerId },
-			});
+			return !!like;
+		} catch (error) {
+			logger.error(`LikeService.hasLiked error: ${error.message}`);
+			return false;
 		}
+	}
 
-		const updatedTarget = await Model.findById(targetId);
-		console.log(`[LikeService] Updated likes count: ${updatedTarget.likes ? updatedTarget.likes.length : 0}`);
+	/**
+	 * Get all likes for an entity
+	 * @param {String} targetType - Entity type
+	 * @param {String} targetId - Entity ID (Profile ID for Vendor/Rider)
+	 */
+	async getLikes(targetType, targetId) {
+		try {
+			const Like = mongoose.model("Like");
+			const likes = await Like.find({ targetType, target: targetId })
+				.populate('customer', 'name img')
+				.lean();
 
-		return {
-			likes: updatedTarget.likes ? updatedTarget.likes.length : 0,
-		};
+			return {
+				totalLikes: likes.length,
+				likes: likes,
+			};
+		} catch (error) {
+			logger.error(`LikeService.getLikes error: ${error.message}`);
+			throw error;
+		}
 	}
 }
 

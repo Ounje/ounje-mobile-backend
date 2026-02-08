@@ -6,6 +6,7 @@ const Customer = require("./Customer");
 const FoodItem = require("./FoodItem");
 const LedgerAccount = require("./LedgerAccount");
 const LedgerEntry = require("./LedgerEntry");
+const Like = require("./Like");
 const Order = require("./Order");
 const OTP = require("./OTP");
 const OtpVerification = require("./OtpVerification");
@@ -29,6 +30,7 @@ module.exports = {
     FoodItem,
     LedgerAccount,
     LedgerEntry,
+    Like,
     Order,
     OTP,
     OtpVerification,

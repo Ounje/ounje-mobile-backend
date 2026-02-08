@@ -40,6 +40,7 @@ const vendorProfileSchema = new mongoose.Schema(
         logoUrl: String,
         bannerUrl: String,
         rating: { type: Number, default: 0 },
+        ratingCount: { type: Number, default: 0 },
         isActive: { type: Boolean, default: true },
         balance: { type: Number, default: 0 }, // Cached available balance from Ledger
         earnings: {

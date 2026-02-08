@@ -33,6 +33,8 @@ const riderProfileSchema = new mongoose.Schema(
             average: { type: Number, default: 0 },
             count: { type: Number, default: 0 },
         },
+        averageRating: { type: Number, default: 0 },
+        ratingCount: { type: Number, default: 0 },
         // Personal Verification Documents
         guarantor: {
             name: { type: String },
