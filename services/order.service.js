@@ -82,7 +82,7 @@ const createOrder = async (userId, data) => {
     }
 
     // 3. Calculate Fee
-    const fee = await calculateOunjeFee(vendor.address, deliveryAddress);
+    const fee = await calculateOunjeFee(vendor.location.address, deliveryAddress);
     if (fee === null) {
         throw new Error(
             "Google Maps could not calculate distance. Check addresses.",
