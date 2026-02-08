@@ -1,15 +1,46 @@
 const { Customer } = require("../models");
 const { getCoordsFromAddress } = require("../utils/delivery");
 
+// Helper to format customer profile
+const formatCustomerProfile = (customer) => {
+	if (!customer || !customer.user) return null;
+
+	// Merge user and customer data
+	const user = customer.user.toJSON ? customer.user.toJSON() : customer.user;
+	const customerData = customer.toJSON ? customer.toJSON() : customer;
+	delete customerData.user; // Remove the nested user object
+
+	// Prioritize Customer fields if they exist, otherwise use User fields
+	return {
+		...user,
+		...customerData,
+		// Ensure essential fields are present even if they are in User
+		name: customer.firstName && customer.lastName ? `${customer.firstName} ${customer.lastName}` : user.name,
+		phone: customer.phone || user.phone,
+		address: customer.savedAddresses && customer.savedAddresses.length > 0 ? customer.savedAddresses[0].address : user.address,
+		// Location preferences
+		location: customer.savedAddresses && customer.savedAddresses.length > 0
+			? {
+				type: "Point",
+				coordinates: customer.savedAddresses[0].coordinates
+			}
+			: user.location,
+		wallet: 0 // Placeholder for wallet balance if implemented later
+	};
+};
+
 const getCustomerProfile = async (req, res) => {
 	const userId = req.user.id; // This is the User ID from JWT
 	try {
 		// Find Customer by user reference, not by ID
-		const customer = await Customer.findOne({ user: userId }).populate("user", "email role isVerified");
+		const customer = await Customer.findOne({ user: userId }).populate("user");
+
 		if (!customer) {
 			return res.status(404).json({ error: "Customer not found" });
 		}
-		res.json(customer);
+
+		const profile = formatCustomerProfile(customer);
+		res.json(profile);
 	} catch (err) {
 		console.error(err);
 		res.status(500).json({ error: err.message });
@@ -83,10 +114,12 @@ const updateCustomerProfile = async (req, res) => {
 			return res.status(404).json({ error: "Customer not found" });
 		}
 
+		const profile = formatCustomerProfile(customer);
+
 		res.json({
 			success: true,
 			message: "Profile updated successfully",
-			customer,
+			customer: profile,
 		});
 	} catch (err) {
 		console.error(err);
