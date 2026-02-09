@@ -10,27 +10,36 @@ const supportWhatsAppRedirect = async (req, res) => {
 			});
 		}
 
-		// Build message as plain text
+		const supportType =
+			req.query.type === "deactivated" ? "deactivated" : "delivery";
+
 		let message = `Hello Ounje Market Support,\n\n`;
 
-		if (user.role === "vendor") {
-			message += `I am a vendor.\n`;
-			message += `The rider has not delivered my food.\n`;
-		} else if (user.role === "rider") {
-			message += `I am a rider.\n`;
-			message += `I have an issue with a delivery.\n`;
-		} else {
-			return res.status(403).json({
-				success: false,
-				message: "Support access not allowed for this role",
-			});
+		switch (user.role) {
+			case "vendor":
+				message += `I am a vendor.\n`;
+				message +=
+					supportType === "deactivated"
+						? `I would like to reactivate my vendor account.\n`
+						: `The rider has not delivered my food.\n`;
+				break;
+
+			case "rider":
+				message += `I am a rider.\n`;
+				message +=
+					supportType === "deactivate"
+						? `I would like to reactivate my rider account.\n`
+						: `I have an issue with a delivery.\n`;
+				break;
+
+			default:
+				return res.status(403).json({
+					success: false,
+					message: "Support access not allowed for this role",
+				});
 		}
 
-		//message += `\nUser ID: ${user.id}`;
-
-		// Encode once
 		const encodedMessage = encodeURIComponent(message);
-
 		const whatsappUrl = `https://wa.me/${phone}?text=${encodedMessage}`;
 
 		return res.status(200).json({
@@ -40,7 +49,7 @@ const supportWhatsAppRedirect = async (req, res) => {
 	} catch (err) {
 		return res.status(500).json({
 			success: false,
-			error: err.message,
+			message: err.message,
 		});
 	}
 };
