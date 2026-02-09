@@ -65,8 +65,9 @@ class VendorService {
 	 * @param {string} userId - The User ID (from req.user.id)
 	 */
 	async getVendorProfile(userId) {
-		const vendor = await VendorProfile.findOne({ owner: userId })
-			.select("+bankDetails"); // Include bank details for vendor's own view
+		const vendor = await VendorProfile.findOne({ owner: userId }).select(
+			"+bankDetails",
+		); // Include bank details for vendor's own view
 
 		if (!vendor) throw new Error("Vendor not found");
 		return vendor;
@@ -79,7 +80,7 @@ class VendorService {
 	async getVendorWithProducts(vendorId) {
 		// Exclude sensitive fields: balance, earnings, storeDetails
 		const vendor = await VendorProfile.findById(vendorId).select(
-			"-balance -earnings -storeDetails"
+			"-balance -earnings -storeDetails",
 		);
 		if (!vendor) throw new Error("Vendor not found");
 
@@ -90,10 +91,10 @@ class VendorService {
 
 		const [foodItems, combos] = await Promise.all([
 			FoodItem.find({ vendor: vendor._id, isAvailable: true }).select(
-				"name price description category subCategory img preparationTime"
+				"name price description category subCategory img preparationTime",
 			),
 			Combo.find({ vendor: vendor._id, isAvailable: { $ne: false } }).select(
-				"comboName basePrice description img time selections"
+				"comboName basePrice description img time selections",
 			),
 		]);
 
@@ -493,6 +494,7 @@ class VendorService {
 			const vendor = await VendorProfile.findOne({ owner: userId });
 			if (!vendor) throw new Error("Vendor not found");
 			vendor.storeDetails[0].status = "deactivated";
+			if (vendor.isActive) vendor.isActive = false;
 			await vendor.save();
 			return {
 				success: true,

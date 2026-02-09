@@ -9,7 +9,11 @@ const storeDetailsSchema = new mongoose.Schema(
 		CACNumber: String,
 		servicesOffered: String,
 		ninID: String,
-		status: { type: String, default: "pending" },
+		status: {
+			type: String,
+			enum: ["pending", "deactivated", "suspended", "available"],
+			default: "pending",
+		},
 		needsCACSupport: Boolean,
 		timePeriod: [
 			{
