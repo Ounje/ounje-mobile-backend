@@ -268,11 +268,18 @@ const verifyDeliveryOtp = async (order, otp, riderId) => {
 
 const acceptOrder = async (orderId, riderId) => {
 	// Atomic update to prevent race conditions
+	// Accept orders that are either PENDING or actively looking for a rider
 	const order = await Order.findOneAndUpdate(
 		{
 			_id: orderId,
-			status: ORDER_STATUS.PENDING,
-			rider: null,
+			$or: [
+				{ status: ORDER_STATUS.PENDING, rider: null },
+				{
+					status: ORDER_STATUS.RIDING,
+					subStatus: ORDER_SUB_STATUS.LOOKING_FOR_RIDER,
+					rider: null,
+				},
+			],
 		},
 		{
 			$set: {
@@ -433,13 +440,36 @@ const cancelOrder = async (orderId, userId, userRole) => {
 // --- Rider Dashboard Queries ---
 
 const getAvailableRiderRequests = async () => {
-	return await Order.find({
-		status: ORDER_STATUS.PENDING,
-		rider: null,
-	})
-		.populate("vendor", "name address location")
-		.populate("customer", "name location")
-		.sort({ createdAt: -1 });
+	try {
+		// Look for orders that are ready for rider assignment
+		// This includes orders in PENDING status or orders actively looking for a rider
+		const orders = await Order.find({
+			$or: [
+				{ status: ORDER_STATUS.PENDING, rider: null },
+				{
+					status: ORDER_STATUS.RIDING,
+					subStatus: ORDER_SUB_STATUS.LOOKING_FOR_RIDER,
+					rider: null,
+				},
+			],
+		})
+			.populate("vendor", "name location")
+			.populate({
+				path: "customer",
+				select: "name user",
+				populate: {
+					path: "user",
+					select: "name",
+				},
+			})
+			.sort({ createdAt: -1 })
+			.lean();
+
+		return orders;
+	} catch (error) {
+		logger.error(`Error fetching available rider requests: ${error.message}`);
+		throw new Error("Failed to fetch available orders");
+	}
 };
 
 const getCurrentRiderOrder = async (riderId) => {
@@ -470,6 +500,7 @@ const getRiderCompletedOrdersToday = async (userId) => {
 		deliveryConfirmedAt: { $gte: startOfDay, $lte: endOfDay },
 	}).select("totalPrice deliveryFee deliveryConfirmedAt");
 };
+
 const getRiderOrders = async (riderId, statusFilter) => {
 	const filter = { rider: riderId };
 
