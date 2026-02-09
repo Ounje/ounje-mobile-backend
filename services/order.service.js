@@ -30,8 +30,8 @@ const findNearbyRiders = async (vendorLocation, orderId) => {
     try {
         // 1. Find all available riders within 3km (3000 meters)
         const nearbyRiders = await RiderProfile.find({
-            isOnline: true,
-            isAvailable: true,
+            status: "available",
+            isActive: true,
             currentLocation: {
                 $near: {
                     $geometry: vendorLocation, // The Vendor's [lng, lat]
