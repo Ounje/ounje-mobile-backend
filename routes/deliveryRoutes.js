@@ -47,12 +47,7 @@ router.get('/quote', async (req, res) => {
 
         const fee = await calculateOunjeFee(vendor, customer);
 
-        if (fee === null) {
-            return res.status(500).json({
-                success: false,
-                message: "Error calculating delivery fee"
-            });
-        }
+        // fee will be a number if successful, otherwise an error is thrown
 
         res.status(200).json({
             success: true,

@@ -18,7 +18,7 @@ class VendorService {
 
 			if (lat && lng) {
 				const vendors = await VendorProfile.find({
-					isAvailable: { $ne: false },
+					isActive: true,
 					location: {
 						$near: {
 							$geometry: {
@@ -41,7 +41,7 @@ class VendorService {
 			}
 
 			const allVendors = await VendorProfile.find({
-				isAvailable: { $ne: false },
+				isActive: true,
 			}).limit(20);
 
 			return {

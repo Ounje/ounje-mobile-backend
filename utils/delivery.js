@@ -50,14 +50,15 @@ async function calculateOunjeFee(vendorAddr, customerAddr, surge = 1.0) {
             !response.data.rows[0].elements[0]
         ) {
             console.error("Pricing Error: Invalid response structure from Google Maps");
-            return null;
+            throw new Error("Google Maps Error: Invalid API response");
         }
 
         const element = response.data.rows[0].elements[0];
 
         if (element.status !== "OK") {
-            console.error(`Pricing Error: Google Maps Returned Status - ${element.status}`);
-            return null;
+            const errorMessage = `Google Maps Error: ${element.status}`;
+            console.error(`Pricing Error: ${errorMessage}`);
+            throw new Error(errorMessage);
         }
 
         // Get distance in KM [cite: 17, 20]
@@ -82,7 +83,7 @@ async function calculateOunjeFee(vendorAddr, customerAddr, surge = 1.0) {
 
     } catch (error) {
         console.error("Pricing Error:", error.message);
-        return null; // Return null so the service can handle it gracefully
+        throw error; // Re-throw the error to be handled by the caller
     }
 }
 

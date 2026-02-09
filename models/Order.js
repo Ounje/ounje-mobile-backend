@@ -16,7 +16,7 @@ const orderSchema = new mongoose.Schema({
 		required: true,
 	},
 	items: [
-		{
+		new mongoose.Schema({
 			itemType: {
 				type: String,
 				enum: ["FoodItem", "Combo", "Plate"],
@@ -37,7 +37,7 @@ const orderSchema = new mongoose.Schema({
 				required: true,
 			},
 			notes: String, // optional instructions
-		},
+		}, { _id: false }) // Disable automatic _id for subdocuments
 	],
 	totalPrice: {
 		type: Number,
@@ -94,6 +94,11 @@ orderSchema.set("toJSON", {
 	versionKey: false,
 	transform: function (doc, ret) {
 		delete ret._id;
+		if (ret.items && Array.isArray(ret.items)) {
+			ret.items.forEach((item) => {
+				delete item._id;
+			});
+		}
 	},
 });
 

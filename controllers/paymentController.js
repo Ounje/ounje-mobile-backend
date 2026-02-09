@@ -19,13 +19,18 @@ const paystack = axios.create({
 const initialisePayment = async (req, res) => {
 	try {
 		const { orderId } = req.body;
-		const customerId = req.user.id; // Assumes your auth middleware provides req.user
-
+		const userId = req.user.id;
 		const order = await Order.findById(orderId);
 		if (!order) return res.status(400).json({ error: "Order not found" });
 
-		const customer = await Customer.findById(customerId);
-		if (!customer || !customer.email) {
+		const customer = await Customer.findOne({ user: userId }).populate("user");
+		if (!customer) {
+			return res.status(400).json({ error: "Customer not found" });
+		}
+
+		const email = customer.user ? customer.user.email : null;
+
+		if (!email) {
 			return res.status(400).json({ error: "Customer email is required" });
 		}
 
@@ -33,13 +38,13 @@ const initialisePayment = async (req, res) => {
 		const amountInKobo = Math.round(order.totalPrice * 100);
 
 		const response = await paystack.post("/transaction/initialize", {
-			email: customer.email,
+			email: email,
 			amount: amountInKobo,
 			metadata: {
 				orderId: order._id.toString(),
 				customerId: customer._id.toString(),
 			},
-			callback_url: `${process.env.FRONTEND_URL}` / payment / verify, // Where user goes after paying
+			callback_url: `${process.env.FRONTEND_URL}/payment/verify`, // Where user goes after paying
 		});
 
 		// Create a Payment record in your DB as 'pending'
