@@ -52,7 +52,7 @@ router.get("/popular", getPopularVendors);
  *       404:
  *         description: Vendor not found
  */
-router.get("/profile", authMiddleware, getVendor);
+router.get("/profile", authMiddleware, checkActiveUser, getVendor);
 
 // Vendor updates their bank details and trigger retries of pending payouts
 /**
