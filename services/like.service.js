@@ -20,7 +20,7 @@ class LikeService {
 	async toggleLike(customerId, targetType, targetId, like) {
 		try {
 			// Validate target type
-			const validTypes = ['FoodItem', 'Combo', 'Vendor', 'Rider'];
+			const validTypes = ['FoodItem', 'Combo', 'Vendor', 'Rider', 'Plate'];
 			if (!validTypes.includes(targetType)) {
 				logger.error(`Invalid target type for like: ${targetType}`);
 				throw new Error(`Invalid target type: ${targetType}. Must be one of: ${validTypes.join(', ')}`);

@@ -102,7 +102,7 @@ class RatingService {
 
 		const Rating = mongoose.model("Rating");
 		await Rating.findOneAndUpdate(
-			{ targetType, target: targetId, customer: customerId },
+			{ targetType, targetType: targetType === "Plate" ? "Plate" : targetType, target: targetId, customer: customerId },
 			updateData,
 			{
 				upsert: true,
@@ -144,6 +144,11 @@ class RatingService {
 		if (targetType === "Vendor") {
 			updateData.rating = avg;
 		}
+		// For Plate, check if 'rating' field is used for average
+		if (targetType === "Plate") {
+			updateData.rating = avg;
+		}
+
 
 		// Update target model with new stats
 		await Model.findByIdAndUpdate(targetId, updateData);
@@ -165,15 +170,6 @@ class RatingService {
 				query.vendor = tId;
 				break;
 			case "Rider":
-				// Check for orders delivered by this rider (Order.rider is User ID, usually?)
-				// Wait, typically Order.rider stores the RiderProfile ID in a clean schema,
-				// BUT the user instructions explicitly said:
-				// "Check if your Order model stores rider as User ID (not Profile ID)"
-				// And in `models/Order.js` we see: rider: { type: mongoose.Schema.Types.ObjectId, ref: "RiderProfile" }
-				// PROCEEDING WITH USER INSTRUCTION AS PRIORITY, but noting conflict.
-				// The user said: "For Riders: Order.exists({ rider: riderUserId })"
-				// So let's use target.user if available.
-
 				if (target && target.user) {
 					query.rider = target.user; // Assuming Order.rider matches RiderProfile.user (User ID)
 				} else {
@@ -183,6 +179,7 @@ class RatingService {
 				break;
 			case "FoodItem":
 			case "Combo":
+			case "Plate":
 				// Check for orders containing this item
 				query["items.item"] = tId;
 				query["items.itemType"] = targetType;
@@ -211,7 +208,7 @@ class RatingService {
 			throw new Error("Invalid target ID");
 		}
 
-		const validTypes = ["FoodItem", "Combo", "Vendor", "Rider"];
+		const validTypes = ["FoodItem", "Combo", "Vendor", "Rider", "Plate"];
 		if (!validTypes.includes(targetType)) {
 			throw new Error(
 				`Invalid target type. Must be one of: ${validTypes.join(", ")}`,

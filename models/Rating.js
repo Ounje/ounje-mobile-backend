@@ -4,7 +4,7 @@ const ratingSchema = new mongoose.Schema(
 	{
 		targetType: {
 			type: String,
-			enum: ["FoodItem", "Combo", "VendorProfile", "RiderProfile"],
+			enum: ["FoodItem", "Combo", "VendorProfile", "RiderProfile", "Plate"],
 			required: true,
 		},
 		target: {

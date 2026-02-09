@@ -145,6 +145,7 @@ module.exports = {
 	rateCombo: (req, res) => rateEntity({ req, res, targetType: "Combo" }),
 	rateVendor: (req, res) => rateEntity({ req, res, targetType: "Vendor" }),
 	rateRider: (req, res) => rateEntity({ req, res, targetType: "Rider" }),
+	ratePlate: (req, res) => rateEntity({ req, res, targetType: "Plate" }),
 	getReviews,
 	deleteReview,
 };
