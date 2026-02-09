@@ -1,30 +1,33 @@
 const mongoose = require("mongoose");
 const toJSON = require("./plugins/toJSON.plugin");
 
-const storeDetailsSchema = new mongoose.Schema({
-	storeName: String,
-	storeType: String,
-	isVerifiedBusiness: Boolean,
-	CACNumber: String,
-	servicesOffered: String,
-	ninID: String,
-	status: { type: String, default: "pending" },
-	needsCACSupport: Boolean,
-	timePeriod: [
-		{
-			day: String,
-			openingHour: String,
-			closingHour: String,
-		},
-	],
-	preorderPeriods: [
-		{
-			orderingTime: String,
-			preparationTime: String,
-			period: String,
-		},
-	],
-});
+const storeDetailsSchema = new mongoose.Schema(
+	{
+		storeName: String,
+		storeType: String,
+		isVerifiedBusiness: Boolean,
+		CACNumber: String,
+		servicesOffered: String,
+		ninID: String,
+		status: { type: String, default: "pending" },
+		needsCACSupport: Boolean,
+		timePeriod: [
+			{
+				day: String,
+				openingHour: String,
+				closingHour: String,
+			},
+		],
+		preorderPeriods: [
+			{
+				orderingTime: String,
+				preparationTime: String,
+				period: String,
+			},
+		],
+	},
+	{ _id: false },
+);
 
 const vendorProfileSchema = new mongoose.Schema(
 	{
@@ -32,17 +35,16 @@ const vendorProfileSchema = new mongoose.Schema(
 			type: mongoose.Schema.Types.ObjectId,
 			ref: "User",
 			required: true,
-			unique: true,
+			index: false, // explicit: NOT indexed
 		},
 		name: { type: String, required: true },
-		// slug: { type: String, unique: true },
 		description: String,
 		logoUrl: String,
 		bannerUrl: String,
 		rating: { type: Number, default: 0 },
 		ratingCount: { type: Number, default: 0 },
 		isActive: { type: Boolean, default: true },
-		balance: { type: Number, default: 0 }, // Cached available balance from Ledger
+		balance: { type: Number, default: 0 },
 		earnings: {
 			today: { type: Number, default: 0 },
 			week: { type: Number, default: 0 },
@@ -50,7 +52,7 @@ const vendorProfileSchema = new mongoose.Schema(
 		},
 		location: {
 			type: { type: String, enum: ["Point"], default: "Point" },
-			coordinates: { type: [Number], index: "2dsphere" },
+			coordinates: { type: [Number] },
 			address: String,
 		},
 		fulfillmentSettings: {
@@ -79,8 +81,8 @@ const vendorProfileSchema = new mongoose.Schema(
 						"sunday",
 					],
 				},
-				open: String, // HH:mm
-				close: String, // HH:mm
+				open: String,
+				close: String,
 				isClosed: { type: Boolean, default: false },
 			},
 		],
@@ -94,7 +96,6 @@ const vendorProfileSchema = new mongoose.Schema(
 	{ timestamps: true },
 );
 
-vendorProfileSchema.index({ location: "2dsphere" });
 vendorProfileSchema.plugin(toJSON);
 
 module.exports = mongoose.model("VendorProfile", vendorProfileSchema);
