@@ -270,7 +270,6 @@ router.get(
 	authMiddleware,
 	checkActiveUser,
 	roleGuard(["rider"]),
-
 	getRiderCompletedOrdersToday,
 );
 
