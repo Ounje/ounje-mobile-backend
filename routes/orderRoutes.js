@@ -270,7 +270,6 @@ router.get(
 	authMiddleware,
 	checkActiveUser,
 	roleGuard(["rider"]),
-
 	getRiderCompletedOrdersToday,
 );
 
@@ -494,29 +493,29 @@ router.put(
 	completeDelivery,
 );
 
-// View rider's own orders
-/**
- * @swagger
- * /api/orders/rider:
- *   get:
- *     summary: Get all orders assigned to logged-in rider
- *     tags: [Orders]
- *     security:
- *       - bearerAuth: []
- *     responses:
- *       200:
- *         description: List of rider orders
- */
-router.get("/rider", authMiddleware, roleGuard(["rider"]), async (req, res) => {
-	try {
-		const orders = await Order.find({ rider: req.user.id })
-			.populate("customer", "name phone")
-			.populate("vendor", "name location");
-		res.json(orders);
-	} catch (err) {
-		res.status(500).json({ error: err.message });
-	}
-});
+// // View rider's own orders
+// /**
+//  * @swagger
+//  * /api/orders/rider:
+//  *   get:
+//  *     summary: Get all orders assigned to logged-in rider
+//  *     tags: [Orders]
+//  *     security:
+//  *       - bearerAuth: []
+//  *     responses:
+//  *       200:
+//  *         description: List of rider orders
+//  */
+// router.get("/rider", authMiddleware, roleGuard(["rider"]), async (req, res) => {
+// 	try {
+// 		const orders = await Order.find({ rider: req.user.id })
+// 			.populate("customer", "name phone")
+// 			.populate("vendor", "name location");
+// 		res.json(orders);
+// 	} catch (err) {
+// 		res.status(500).json({ error: err.message });
+//}
+//});
 
 // Customer: Get active delivery OTP for an order (in-app only)
 /**

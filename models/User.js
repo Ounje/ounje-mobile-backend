@@ -4,8 +4,8 @@ const toJSON = require("./plugins/toJSON.plugin");
 const userSchema = new mongoose.Schema(
 	{
 		name: { type: String, required: true },
-		email: { type: String, unique: true },
-		address: { type: String, required: true }, // For Google Pricing Algorithm
+		email: String,
+		address: { type: String, required: true },
 		location: {
 			type: { type: String, enum: ["Point"], default: "Point" },
 			coordinates: { type: [Number] },
@@ -24,8 +24,6 @@ const userSchema = new mongoose.Schema(
 	},
 	{ timestamps: true, collection: "users" },
 );
-
-userSchema.index({ location: "2dsphere" });
 
 userSchema.plugin(toJSON);
 
