@@ -268,8 +268,9 @@ router.get(
 router.get(
 	"/rider/completed-today",
 	authMiddleware,
-	roleGuard(["rider"]),
 	checkActiveUser,
+	roleGuard(["rider"]),
+
 	getRiderCompletedOrdersToday,
 );
 
