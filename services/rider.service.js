@@ -1,4 +1,5 @@
-const { RiderProfile, Rider } = require("../models");
+const RiderProfile = require("../models/RiderProfile");
+const User = require("../models/User");
 const payoutService = require("./payout.service");
 const ratingService = require("./rating.service");
 const ledgerService = require("./ledger.service");
@@ -40,8 +41,11 @@ const completeRiderRegistration = async (userId, data, files) => {
 		guarantorNin: guarantorNinNumber,
 	} = data;
 
-	const user = await Rider.findById(userId);
-	if (!user) throw new Error("Rider account not found");
+	// Find the user account and verify it's a rider
+	const user = await User.findById(userId);
+	if (!user) {
+		throw new Error("User account not found");
+	}
 
 	// Find or create rider profile
 	let riderProfile = await RiderProfile.findOne({ user: userId });
@@ -93,7 +97,7 @@ const completeRiderRegistration = async (userId, data, files) => {
 	riderProfile.guarantor = {
 		name: guarantorName,
 		phone: guarantorPhone,
-		nin: guarantorNinNumber || guarantorNinUrl, // Use NIN number or document URL
+		nin: guarantorNinNumber || guarantorNinUrl,
 	};
 
 	if (driversLicense) riderProfile.driversLicense = driversLicense;
@@ -106,6 +110,7 @@ const completeRiderRegistration = async (userId, data, files) => {
 		userId: user._id,
 		name: user.name,
 		phone: user.phone,
+		role: user.role,
 		status: riderProfile.status,
 		modeOfDelivery: riderProfile.modeOfDelivery,
 		guarantor: {
@@ -167,7 +172,7 @@ const getRiderProfile = async (userId) => {
 	// Activate rider if setup is complete
 	if (setupComplete && !riderProfile.isActive) {
 		riderProfile.isActive = true;
-		riderProfile.status = "available"; // Change from pending to available
+		riderProfile.status = "available";
 		await riderProfile.save();
 	}
 
