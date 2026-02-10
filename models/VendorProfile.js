@@ -11,7 +11,7 @@ const storeDetailsSchema = new mongoose.Schema(
 		ninID: String,
 		status: {
 			type: String,
-			enum: ["pending", "deactivated", "suspended", "available"],
+			enum: ["pending", "deactivated", "suspended", "available", "active"],
 			default: "pending",
 		},
 		needsCACSupport: Boolean,

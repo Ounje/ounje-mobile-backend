@@ -1,10 +1,13 @@
 const mongoose = require("mongoose");
 const { Schema } = mongoose;
 
-const messageSchema = new mongoose.Schema(
+/**
+ * Message sub-document
+ */
+const messageSchema = new Schema(
 	{
 		sender: {
-			type: mongoose.Schema.Types.ObjectId,
+			type: Schema.Types.ObjectId,
 			required: true,
 			refPath: "messages.senderModel",
 		},
@@ -16,12 +19,16 @@ const messageSchema = new mongoose.Schema(
 		message: {
 			type: String,
 			required: true,
+			trim: true,
 		},
 	},
 	{ timestamps: true },
 );
 
-const supportTicketSchema = new mongoose.Schema(
+/**
+ * Support Ticket
+ */
+const supportTicketSchema = new Schema(
 	{
 		user: {
 			type: Schema.Types.ObjectId,
@@ -44,7 +51,7 @@ const supportTicketSchema = new mongoose.Schema(
 			default: "Medium",
 		},
 		assignee: {
-			type: mongoose.Schema.Types.ObjectId,
+			type: Schema.Types.ObjectId,
 			ref: "Admin",
 			default: null,
 		},
@@ -53,16 +60,19 @@ const supportTicketSchema = new mongoose.Schema(
 			enum: ["Order", "Payment", "Account", "Technical", "General"],
 			required: true,
 		},
-		relatedOrder: {
-			type: mongoose.Schema.Types.ObjectId,
-			ref: "Order",
-			default: null,
-		},
+
 		relatedVendor: {
-			type: mongoose.Schema.Types.ObjectId,
+			type: Schema.Types.ObjectId,
 			ref: "VendorProfile",
 			default: null,
 		},
+
+		relatedRider: {
+			type: Schema.Types.ObjectId,
+			ref: "RiderProfile",
+			default: null,
+		},
+
 		messages: [messageSchema],
 	},
 	{ timestamps: true },
