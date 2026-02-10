@@ -130,21 +130,21 @@ class RatingService {
 
 		const { avg = 0, count = 0 } = stats[0] || {};
 
-		const updateData = {
-			averageRating: avg,
-			ratingCount: count,
-		};
+		// Standard fields for all models
+		updateData.averageRating = avg;
+		updateData.ratingCount = count;
 
-		// For RiderProfile, update nested fields as well for backward compatibility
+		// BACKWARD COMPATIBILITY
+		// For RiderProfile: update nested fields
 		if (targetType === "Rider") {
 			updateData["ratings.average"] = avg;
 			updateData["ratings.count"] = count;
 		}
-		// For VendorProfile, check if 'rating' field is used for average
+		// For VendorProfile: keep 'rating' in sync
 		if (targetType === "Vendor") {
 			updateData.rating = avg;
 		}
-		// For Plate, check if 'rating' field is used for average
+		// Plate: 'rating' was used before standardizing, keep it synced if needed, but averageRating is now source of truth
 		if (targetType === "Plate") {
 			updateData.rating = avg;
 		}

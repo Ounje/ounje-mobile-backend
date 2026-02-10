@@ -48,6 +48,7 @@ const vendorProfileSchema = new mongoose.Schema(
 		bannerUrl: String,
 		rating: { type: Number, default: 0 },
 		ratingCount: { type: Number, default: 0 },
+		averageRating: { type: Number, default: 0 },
 		isActive: { type: Boolean, default: true },
 		balance: { type: Number, default: 0 },
 		earnings: {
