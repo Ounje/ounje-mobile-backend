@@ -43,6 +43,7 @@ const vendorProfileSchema = new mongoose.Schema(
 		},
 		name: { type: String, required: true },
 		description: String,
+		profileImage: String,
 		logoUrl: String,
 		bannerUrl: String,
 		rating: { type: Number, default: 0 },

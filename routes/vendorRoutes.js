@@ -194,7 +194,7 @@ router.put(
 	authMiddleware,
 	checkActiveUser,
 	roleGuard(["vendor"]),
-	vendorImageUpload.single("img"),
+	vendorImageUpload.single("profileImage"),
 	updateVendorProfileImage,
 );
 
