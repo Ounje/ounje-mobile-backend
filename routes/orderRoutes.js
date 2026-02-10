@@ -165,8 +165,8 @@ router.get(
 router.get(
 	"/rider/orders",
 	authMiddleware,
-	roleGuard(["rider"]),
 	checkActiveUser,
+	roleGuard(["rider"]),
 	getRiderOrders,
 );
 
@@ -190,8 +190,8 @@ router.get(
 router.get(
 	"/available",
 	authMiddleware,
-	roleGuard(["rider"]),
 	checkActiveUser,
+	roleGuard(["rider"]),
 	async (req, res) => {
 		try {
 			// Get the rider's operating areas (Max 2 zones)
@@ -237,8 +237,8 @@ router.get(
 router.put(
 	"/accept/:orderId",
 	authMiddleware,
-	roleGuard(["rider"]),
 	checkActiveUser,
+	roleGuard(["rider"]),
 	acceptOrder,
 );
 
@@ -266,8 +266,8 @@ router.put(
 router.put(
 	"/pickup/:orderId",
 	authMiddleware,
-	roleGuard(["rider"]),
 	checkActiveUser,
+	roleGuard(["rider"]),
 	pickUpOrder,
 );
 
@@ -306,8 +306,8 @@ router.put(
 router.put(
 	"/complete/:orderId",
 	authMiddleware,
-	roleGuard(["rider"]),
 	checkActiveUser,
+	roleGuard(["rider"]),
 	completeDelivery,
 );
 
