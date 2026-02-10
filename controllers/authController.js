@@ -22,6 +22,7 @@ const logger = require("../utils/logger");
 
 const generateOtp = () => Math.floor(1000 + Math.random() * 9000).toString();
 const normalizePhone = require("../utils/phoneNormalizer");
+const { checkActiveUser } = require("../middleware/auth");
 
 const register = asyncHandler(async (req, res) => {
 	const { name, role, phone, location, email, otpSession } = req.body;
@@ -174,7 +175,9 @@ const register = asyncHandler(async (req, res) => {
 			profileId: profile._id,
 		},
 	});
-	logger.info(`User registered: ${user._id} (${role}) with profile: ${profile._id}`);
+	logger.info(
+		`User registered: ${user._id} (${role}) with profile: ${profile._id}`,
+	);
 });
 
 const login = asyncHandler(async (req, res) => {
@@ -321,9 +324,12 @@ const verifyEmailOtp = asyncHandler(async (req, res) => {
 		if (!profile) {
 			throw new AppError(`No ${role} account found with this email`, 404);
 		}
-
+		checkActiveUser && (await checkActiveUser(user._id));
 		const accessToken = generateAccessToken({ id: user._id, role: user.role });
-		const refreshToken = generateRefreshToken({ id: user._id, role: user.role });
+		const refreshToken = generateRefreshToken({
+			id: user._id,
+			role: user.role,
+		});
 		await RefreshToken.create({
 			token: refreshToken,
 			user: user._id,
@@ -387,7 +393,10 @@ const requestPhoneOtp = asyncHandler(async (req, res) => {
 		}
 
 		if (!hasProfile) {
-			throw new AppError(`No ${role} account found with this phone number`, 404);
+			throw new AppError(
+				`No ${role} account found with this phone number`,
+				404,
+			);
 		}
 	}
 
@@ -461,11 +470,17 @@ const verifyPhoneOtp = asyncHandler(async (req, res) => {
 		}
 
 		if (!profile) {
-			throw new AppError(`No ${role} account found with this phone number`, 404);
+			throw new AppError(
+				`No ${role} account found with this phone number`,
+				404,
+			);
 		}
-
+		checkActiveUser && (await checkActiveUser(user._id));
 		const accessToken = generateAccessToken({ id: user._id, role: user.role });
-		const refreshToken = generateRefreshToken({ id: user._id, role: user.role });
+		const refreshToken = generateRefreshToken({
+			id: user._id,
+			role: user.role,
+		});
 		await RefreshToken.create({
 			token: refreshToken,
 			user: user._id,
