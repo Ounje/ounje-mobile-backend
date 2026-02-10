@@ -5,7 +5,7 @@ const likeSchema = new mongoose.Schema(
     {
         targetType: {
             type: String,
-            enum: ["FoodItem", "Combo", "Vendor", "Rider"], // Using "Vendor" and "Rider" as per service logic
+            enum: ["FoodItem", "Combo", "Vendor", "Rider", "Plate"],
             required: true,
         },
         target: {

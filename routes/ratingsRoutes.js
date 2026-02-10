@@ -7,6 +7,7 @@ const {
 	rateCombo,
 	rateVendor,
 	rateRider,
+	ratePlate,
 	getReviews,
 	deleteReview,
 } = require("../controllers/ratingController");
@@ -153,6 +154,39 @@ router.post("/vendor/:id", authMiddleware, roleGuard(["customer"]), rateVendor);
  */
 router.post("/rider/:id", authMiddleware, roleGuard(["customer"]), rateRider);
 
+/**
+ * @swagger
+ * /api/rating/plate/{id}:
+ *   post:
+ *     summary: Rate a plate
+ *     tags: [Ratings]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               rating:
+ *                 type: number
+ *               comment:
+ *                 type: string
+ *               like:
+ *                 type: boolean
+ *     responses:
+ *       201:
+ *         description: Rated successfully
+ */
+router.post("/plate/:id", authMiddleware, roleGuard(["customer"]), ratePlate);
+
 // Get reviews (public)
 /**
  * @swagger
@@ -166,7 +200,7 @@ router.post("/rider/:id", authMiddleware, roleGuard(["customer"]), rateRider);
  *         required: true
  *         schema:
  *           type: string
- *           enum: [FoodItem, Combo, Vendor, Rider]
+ *           enum: [FoodItem, Combo, Vendor, Rider, Plate]
  *       - in: path
  *         name: targetId
  *         required: true
