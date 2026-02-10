@@ -23,6 +23,7 @@ const logger = require("../utils/logger");
 const generateOtp = () => Math.floor(1000 + Math.random() * 9000).toString();
 const normalizePhone = require("../utils/phoneNormalizer");
 const { checkActiveUser } = require("../middleware/auth");
+const { validateUserStatus } = require("../utils/accountValidator");
 
 const register = asyncHandler(async (req, res) => {
 	const { name, role, phone, location, email, otpSession } = req.body;
@@ -325,6 +326,7 @@ const verifyEmailOtp = asyncHandler(async (req, res) => {
 			throw new AppError(`No ${role} account found with this email`, 404);
 		}
 		// checkActiveUser && (await checkActiveUser(user._id));
+		await validateUserStatus(user._id, user.role);
 		const accessToken = generateAccessToken({ id: user._id, role: user.role });
 		const refreshToken = generateRefreshToken({
 			id: user._id,
@@ -476,6 +478,7 @@ const verifyPhoneOtp = asyncHandler(async (req, res) => {
 			);
 		}
 		// checkActiveUser && (await checkActiveUser(user._id));
+		await validateUserStatus(user._id, user.role);
 		const accessToken = generateAccessToken({ id: user._id, role: user.role });
 		const refreshToken = generateRefreshToken({
 			id: user._id,
