@@ -34,6 +34,8 @@ const FoodItemSchema = new mongoose.Schema(
 		preparationTime: { type: String, required: true },
 		isAvailable: { type: Boolean, default: true },
 		ordersCount: { type: Number, default: 0 },
+		averageRating: { type: Number, default: 0 },
+		ratingCount: { type: Number, default: 0 },
 	},
 	{ timestamps: true },
 );
