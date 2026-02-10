@@ -452,9 +452,9 @@ class VendorService {
 		const vendor = await VendorProfile.findOne({ owner: userId });
 		if (!vendor) throw new Error("Vendor not found");
 
-		if (vendor.img) await this._deleteOldImage(vendor.img);
+		if (vendor.profileImage) await this._deleteOldImage(vendor.profileImage);
 
-		vendor.img = file.path;
+		vendor.profileImage = file.path;
 		await vendor.save();
 
 		return {
