@@ -42,6 +42,10 @@ const checkActiveUser = async (req, res, next) => {
 			if (!customer) {
 				return res.status(404).json({ error: "Customer profile not found" });
 			}
+			if (!customer.isActive) {
+				customer.isActive = true;
+				await customer.save();
+			}
 			// Note: Customer profile doesn't have accountStatus in the new schema
 			// If you need status checks, add it to the Customer model
 			return next();
