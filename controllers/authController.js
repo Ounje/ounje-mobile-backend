@@ -324,7 +324,7 @@ const verifyEmailOtp = asyncHandler(async (req, res) => {
 		if (!profile) {
 			throw new AppError(`No ${role} account found with this email`, 404);
 		}
-		checkActiveUser && (await checkActiveUser(user._id));
+		// checkActiveUser && (await checkActiveUser(user._id));
 		const accessToken = generateAccessToken({ id: user._id, role: user.role });
 		const refreshToken = generateRefreshToken({
 			id: user._id,
@@ -475,7 +475,7 @@ const verifyPhoneOtp = asyncHandler(async (req, res) => {
 				404,
 			);
 		}
-		checkActiveUser && (await checkActiveUser(user._id));
+		// checkActiveUser && (await checkActiveUser(user._id));
 		const accessToken = generateAccessToken({ id: user._id, role: user.role });
 		const refreshToken = generateRefreshToken({
 			id: user._id,
