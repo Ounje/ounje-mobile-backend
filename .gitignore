@@ -46,3 +46,5 @@ services/cleanup.js
 services/const.js
 services/data.js
 services/test.js
+
+add-search-index.js
