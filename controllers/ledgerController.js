@@ -1,5 +1,5 @@
 const { LedgerAccount, LedgerEntry } = require("../models");
-const { paginate } = require("../utilis/paginate");
+const { paginate } = require("../utils/paginate");
 /**
  * Move funds from pending -> available when order completes
  */

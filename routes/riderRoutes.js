@@ -3,7 +3,11 @@
 const express = require("express");
 const router = express.Router(); // FIX 1: Must initialize the router
 const db = require("../config/db"); // FIX 2: Assuming 'db' helper is accessible/imported here
-const { authMiddleware, roleGuard } = require("../middleware/auth");
+const {
+	authMiddleware,
+	roleGuard,
+	checkActiveUser,
+} = require("../middleware/auth");
 const { riderUpload } = require("../config/cloudinary");
 const {
 	updateBankDetails,
@@ -11,6 +15,9 @@ const {
 	completeRiderRegistration,
 	getRiderProfile,
 	getRiderWallet,
+	getOperatingArea,
+	updateOperatingArea,
+	deactivateRiderAccount,
 } = require("../controllers/riderController");
 
 // FIX 3: Endpoint corrected to '/location' since the server.js prefix is '/api/riders'
@@ -148,8 +155,40 @@ router.post(
  *         description: Leaderboard data
  */
 router.get("/leaderboard", riderLeaderBoard);
+/**
+ * @route   GET /api/riders/operating-area
+ * @desc    Get rider's current operating area/zones
+ * @access  Private (Rider only)
+ */
+router.get("/operating-area", authMiddleware, getOperatingArea);
 
-router.get("/profile", authMiddleware, roleGuard(["rider"]), getRiderProfile);
+/**
+ * @route   PUT /api/riders/profile/operating-area
+ * @desc    Update rider's operating area (max 2 zones)
+ * @access  Private (Rider only)
+ * @body    { operatingArea: ["Zone1", "Zone2"] }
+ */
+router.put(
+	"/profile/operating-area",
+	authMiddleware,
+	roleGuard(["rider"]),
+	updateOperatingArea,
+);
+
+router.delete(
+	"/profile/deactivate",
+	authMiddleware,
+	roleGuard(["rider"]),
+	deactivateRiderAccount,
+);
+
+router.get(
+	"/profile",
+	authMiddleware,
+	checkActiveUser,
+	roleGuard(["rider"]),
+	getRiderProfile,
+);
 
 // Rider Wallet & Earnings
 router.get("/wallet", authMiddleware, roleGuard(["rider"]), getRiderWallet);

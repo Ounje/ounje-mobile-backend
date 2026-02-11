@@ -9,8 +9,13 @@ const {
 	completeVendorRegistration,
 	updateVendorProfileImage,
 	deleteVendorProfileImage,
+	deactivateVendorAccount,
 } = require("../controllers/vendorController");
-const { authMiddleware, roleGuard } = require("../middleware/auth");
+const {
+	authMiddleware,
+	roleGuard,
+	checkActiveUser,
+} = require("../middleware/auth");
 
 const router = express.Router();
 
@@ -47,7 +52,7 @@ router.get("/popular", getPopularVendors);
  *       404:
  *         description: Vendor not found
  */
-router.get("/profile", authMiddleware, getVendor);
+router.get("/profile", authMiddleware, checkActiveUser, getVendor);
 
 // Vendor updates their bank details and trigger retries of pending payouts
 /**
@@ -84,7 +89,8 @@ router.get("/profile", authMiddleware, getVendor);
 router.put(
 	"/profile/bank-details",
 	authMiddleware,
-	roleGuard(["Vendor"]),
+	checkActiveUser,
+	roleGuard(["vendor"]),
 	updateBankDetails,
 );
 
@@ -177,7 +183,8 @@ router.get("/nearby", authMiddleware, getNearbyVendors);
 router.post(
 	"/complete-registration",
 	authMiddleware,
-	roleGuard(["Vendor"]),
+	checkActiveUser,
+	roleGuard(["vendor"]),
 	NINStorage.single("ninID"),
 	completeVendorRegistration,
 );
@@ -185,16 +192,25 @@ router.post(
 router.put(
 	"/profile/upload/image",
 	authMiddleware,
-	roleGuard(["Vendor"]),
-	vendorImageUpload.single("img"),
+	checkActiveUser,
+	roleGuard(["vendor"]),
+	vendorImageUpload.single("profileImage"),
 	updateVendorProfileImage,
 );
 
 router.delete(
 	"/profile/delete/image",
 	authMiddleware,
-	roleGuard(["Vendor"]),
+	checkActiveUser,
+	roleGuard(["vendor"]),
 	deleteVendorProfileImage,
+);
+
+router.delete(
+	"/profile/deactivate",
+	authMiddleware,
+	roleGuard(["vendor"]),
+	deactivateVendorAccount,
 );
 
 module.exports = router;

@@ -1,18 +1,18 @@
-const { Vendor, FoodItem, Combo } = require("../models");
-const { FOOD_ENUMS } = require("../utilis/foodEnums");
-const { paginate } = require("../utilis/paginate");
+const { VendorProfile, FoodItem, Combo } = require("../models");
+const { FOOD_ENUMS } = require("../utils/foodEnums");
+const { paginate } = require("../utils/paginate");
 
 const createFoodItem = async (req, res) => {
 	try {
 		const { name, price, description, category, subCategory, preparationTime } =
 			req.body;
 		const vendorId = req.user.id;
-		const vendor = await Vendor.findById(vendorId);
+		const vendor = await VendorProfile.findOne({ owner: vendorId });
 		if (!vendor)
 			return res
 				.status(404)
-				.json({ success: false, message: "Vendor not found." });
-		if (!vendor.storeDetails || vendor.storeDetails.length === 0)
+				.json({ success: false, message: "Vendor profile not found." });
+		if (!vendor.isActive)
 			return res.status(403).json({
 				success: false,
 				message:
@@ -55,7 +55,7 @@ const createFoodItem = async (req, res) => {
 			category,
 			subCategory,
 			preparationTime,
-			vendor: vendorId,
+			vendor: vendor._id, // Use VendorProfile ID, not User ID
 			img: req.file.path,
 		});
 
@@ -73,12 +73,13 @@ const createFoodItem = async (req, res) => {
 const updateFoodItem = async (req, res) => {
 	try {
 		const { foodItemId } = req.params;
-		const foodItem = await FoodItem.findById(foodItemId);
+		const foodItem = await FoodItem.findById(foodItemId).populate('vendor');
 		if (!foodItem)
 			return res
 				.status(404)
 				.json({ success: false, message: "Food item not found" });
-		if (!foodItem.vendor.equals(req.user.id))
+		// Check if current user owns the vendor profile
+		if (!foodItem.vendor.owner.equals(req.user.id))
 			return res.status(403).json({
 				success: false,
 				message: "Not authorized to update this food item",
@@ -131,12 +132,13 @@ const updateFoodItem = async (req, res) => {
 const deleteFoodItem = async (req, res) => {
 	try {
 		const { foodItemId } = req.params;
-		const foodItem = await FoodItem.findById(foodItemId);
+		const foodItem = await FoodItem.findById(foodItemId).populate('vendor');
 		if (!foodItem)
 			return res
 				.status(404)
 				.json({ success: false, message: "Food item not found" });
-		if (!foodItem.vendor.equals(req.user.id))
+		// Check if current user owns the vendor profile
+		if (!foodItem.vendor.owner.equals(req.user.id))
 			return res.status(403).json({
 				success: false,
 				message: "Not authorized to delete this food item",
@@ -185,8 +187,13 @@ const getFoodItemById = async (req, res) => {
 
 const getMyFoodItems = async (req, res) => {
 	try {
-		// Create a filter so the utility only finds THIS vendor's food
-		const filter = { vendor: req.user.id };
+		// Find the vendor profile for this user
+		const vendor = await VendorProfile.findOne({ owner: req.user.id });
+		if (!vendor) {
+			return res.status(404).json({ success: false, message: "Vendor profile not found" });
+		}
+		// Create a filter using VendorProfile ID
+		const filter = { vendor: vendor._id };
 
 		const result = await paginate(FoodItem, req.query, null, filter);
 
@@ -194,6 +201,61 @@ const getMyFoodItems = async (req, res) => {
 	} catch (err) {
 		res.status(500).json({ success: false, error: err.message });
 	}
+};
+
+// Helper to process selections
+const processSelections = async (selections, vendorId) => {
+	if (!selections) return [];
+
+	let parsedSelections = selections;
+	if (typeof selections === "string") {
+		try {
+			parsedSelections = JSON.parse(selections);
+		} catch {
+			throw new Error("Invalid selections format");
+		}
+	}
+
+	if (!Array.isArray(parsedSelections)) return [];
+
+	// Extract all item IDs
+	const itemIds = [];
+	parsedSelections.forEach((group) => {
+		if (group.items && Array.isArray(group.items)) {
+			group.items.forEach((selectionItem) => {
+				if (selectionItem.item) itemIds.push(selectionItem.item);
+			});
+		}
+	});
+
+	if (itemIds.length === 0) return parsedSelections;
+
+	// Fetch all items
+	const foodItems = await FoodItem.find({
+		_id: { $in: itemIds },
+		vendor: vendorId, // Ensure items belong to this vendor profile
+	});
+
+	const foodItemMap = new Map(foodItems.map((item) => [item.id, item]));
+
+	// Reconstruct selections with populated data
+	return parsedSelections.map((group) => {
+		const populatedItems = [];
+		if (group.items && Array.isArray(group.items)) {
+			group.items.forEach((selectionItem) => {
+				const foodItem = foodItemMap.get(selectionItem.item.toString());
+				if (foodItem) {
+					populatedItems.push({
+						item: foodItem._id,
+						name: foodItem.name,
+						price: foodItem.price,
+						isAvailable: foodItem.isAvailable,
+					});
+				}
+			});
+		}
+		return { ...group, items: populatedItems };
+	});
 };
 
 const createCombo = async (req, res) => {
@@ -205,14 +267,15 @@ const createCombo = async (req, res) => {
 			selections,
 			time,
 			deliveryTime,
+			comboGroup,
 		} = req.body;
 		const vendorId = req.user.id;
-		const vendor = await Vendor.findById(vendorId);
+		const vendor = await VendorProfile.findOne({ owner: vendorId });
 		if (!vendor)
 			return res
 				.status(404)
-				.json({ success: false, message: "Vendor not found." });
-		if (!vendor.storeDetails || vendor.storeDetails.length === 0)
+				.json({ success: false, message: "Vendor profile not found." });
+		if (!vendor.isActive)
 			return res.status(403).json({
 				success: false,
 				message: "Please complete your vendor profile before creating combos.",
@@ -227,26 +290,21 @@ const createCombo = async (req, res) => {
 				.status(400)
 				.json({ success: false, message: "Base price must be greater than 0" });
 
-		let parsedSelections = selections || {};
-		if (typeof selections === "string") {
-			try {
-				parsedSelections = JSON.parse(selections);
-			} catch {
-				return res
-					.status(400)
-					.json({ success: false, message: "Invalid selections format" });
-			}
-		}
+		const processedSelections = await processSelections(
+			selections,
+			vendor._id, // Pass VendorProfile ID
+		);
 
 		const combo = await Combo.create({
 			comboName,
 			description,
 			basePrice,
-			selections: parsedSelections,
-			vendor: vendorId,
+			selections: processedSelections,
+			vendor: vendor._id, // Use VendorProfile ID, not User ID
 			img: req.file.path,
 			time,
 			deliveryTime,
+			comboGroup, // Optional field
 		});
 		res.status(201).json({
 			success: true,
@@ -260,12 +318,13 @@ const createCombo = async (req, res) => {
 
 const updateCombo = async (req, res) => {
 	try {
-		const combo = await Combo.findById(req.params.id);
+		const combo = await Combo.findById(req.params.comboId).populate("vendor");
 		if (!combo)
 			return res
 				.status(404)
 				.json({ success: false, message: "Combo not found" });
-		if (!combo.vendor.equals(req.user.id))
+		// Check if current user owns the vendor profile
+		if (!combo.vendor.owner.equals(req.user.id))
 			return res.status(403).json({
 				success: false,
 				message: "Not authorized to update this combo",
@@ -275,17 +334,20 @@ const updateCombo = async (req, res) => {
 				.status(400)
 				.json({ success: false, message: "Base price must be greater than 0" });
 
-		if (req.body.selections && typeof req.body.selections === "string") {
-			try {
-				req.body.selections = JSON.parse(req.body.selections);
-			} catch {
-				return res
-					.status(400)
-					.json({ success: false, message: "Invalid selections format" });
-			}
+		const { vendor, selections, ...updateData } = req.body;
+
+		if (selections) {
+			updateData.selections = await processSelections(
+				selections,
+				combo.vendor._id, // Use VendorProfile ID from populated combo
+			);
 		}
 
-		const { vendor, ...updateData } = req.body;
+		// Ensure comboGroup is updated if provided
+		if (req.body.comboGroup !== undefined) {
+			updateData.comboGroup = req.body.comboGroup;
+		}
+
 		Object.assign(combo, updateData);
 		if (req.file) combo.img = req.file.path;
 		await combo.save();
@@ -301,12 +363,13 @@ const updateCombo = async (req, res) => {
 
 const deleteCombo = async (req, res) => {
 	try {
-		const combo = await Combo.findById(req.params.id);
+		const combo = await Combo.findById(req.params.comboId).populate('vendor');
 		if (!combo)
 			return res
 				.status(404)
 				.json({ success: false, message: "Combo not found" });
-		if (!combo.vendor.equals(req.user.id))
+		// Check if current user owns the vendor profile
+		if (!combo.vendor.owner.equals(req.user.id))
 			return res.status(403).json({
 				success: false,
 				message: "Not authorized to delete this combo",
@@ -327,7 +390,8 @@ const getAllCombos = async (req, res) => {
 			{
 				path: "selections.items.item",
 				select: "name img description price"
-			}
+			},
+			{ path: "comboGroup", select: "name description" } // Populate comboGroup
 		];
 
 		const result = await paginate(Combo, req.query, populateOptions);
@@ -339,11 +403,20 @@ const getAllCombos = async (req, res) => {
 
 const getMyCombos = async (req, res) => {
 	try {
-		const filter = { vendor: req.user.id };
-		const populateOptions = {
-			path: "selections.items.item",
-			select: "name img description price"
-		};
+		// Find the vendor profile for this user
+		const vendor = await VendorProfile.findOne({ owner: req.user.id });
+		if (!vendor) {
+			return res.status(404).json({ success: false, message: "Vendor profile not found" });
+		}
+		// Create a filter using VendorProfile ID
+		const filter = { vendor: vendor._id };
+		const populateOptions = [
+			{
+				path: "selections.items.item",
+				select: "name img description price"
+			},
+			{ path: "comboGroup", select: "name description" }
+		];
 
 		const result = await paginate(Combo, req.query, populateOptions, filter);
 		res.status(200).json(result);
@@ -362,7 +435,8 @@ const getComboById = async (req, res) => {
 			.populate({
 				path: "selections.items.item",
 				select: "name img description price"
-			});
+			})
+			.populate("comboGroup", "name description");
 		if (!combo)
 			return res
 				.status(404)
@@ -380,11 +454,63 @@ const getVendorCombos = async (req, res) => {
 			{
 				path: "selections.items.item",
 				select: "name img description price"
-			}
+			},
+			{ path: "comboGroup", select: "name description" }
 		];
 
 		const result = await paginate(Combo, req.query, populateOptions, filter);
 		res.status(200).json(result);
+	} catch (error) {
+		res.status(500).json({ success: false, message: error.message });
+	}
+};
+
+const getVendorCombosGrouped = async (req, res) => {
+	try {
+		const { vendorId } = req.params;
+
+		// Fetch all combos for the vendor
+		const combos = await Combo.find({ vendor: vendorId })
+			.populate("comboGroup", "name description")
+			.populate({
+				path: "selections.items.item",
+				select: "name img description price"
+			});
+
+		// Group by ComboGroup name
+		const grouped = {};
+		const uncategorized = [];
+
+		combos.forEach(combo => {
+			if (combo.comboGroup) {
+				const groupName = combo.comboGroup.name;
+				const groupId = combo.comboGroup.id; // toJSON plugin uses id
+
+				if (!grouped[groupId]) {
+					grouped[groupId] = {
+						groupInfo: combo.comboGroup,
+						items: []
+					};
+				}
+				grouped[groupId].items.push(combo);
+			} else {
+				uncategorized.push(combo);
+			}
+		});
+
+		// Convert object to array for easier frontend consumption
+		const groupsArray = Object.values(grouped).sort((a, b) =>
+			a.groupInfo.name.localeCompare(b.groupInfo.name)
+		);
+
+		if (uncategorized.length > 0) {
+			groupsArray.push({
+				groupInfo: { id: "uncategorized", name: "Uncategorized" },
+				items: uncategorized
+			});
+		}
+
+		res.status(200).json({ success: true, data: groupsArray });
 	} catch (error) {
 		res.status(500).json({ success: false, message: error.message });
 	}
@@ -402,5 +528,7 @@ module.exports = {
 	getAllCombos,
 	getComboById,
 	getMyCombos,
+	getMyCombos,
 	getVendorCombos,
+	getVendorCombosGrouped,
 };

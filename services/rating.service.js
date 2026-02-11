@@ -1,26 +1,24 @@
 const mongoose = require("mongoose");
 const { Types } = mongoose;
-const {
-	Rating,
-	Order,
-	FoodItem,
-	Combo,
-	Vendor,
-	Rider,
-} = require("../models");
+const logger = require("../utils/logger");
 
 class RatingService {
 	constructor() {
-		this.models = {
-			FoodItem,
-			Combo,
-			Vendor,
-			Rider,
-		};
 		this.collectionNames = {
 			//Vendor: "users",
 			Rider: "users",
 		};
+	}
+
+	getModel(targetType) {
+		try {
+			if (targetType === "Vendor") return mongoose.model("VendorProfile");
+			if (targetType === "Rider") return mongoose.model("RiderProfile");
+			return mongoose.model(targetType);
+		} catch (error) {
+			logger.error(`Error getting model for ${targetType}: ${error.message}`);
+			return null;
+		}
 	}
 
 	// Safe ObjectId conversion
@@ -29,15 +27,18 @@ class RatingService {
 	}
 
 	async rateEntity(customerId, targetType, targetId, { rating, comment }) {
-		const Model = this.models[targetType];
+		const Model = this.getModel(targetType);
 		if (!Model) {
+			logger.error(`RatingService: Invalid target type ${targetType}`);
 			throw new Error(`Invalid target type: ${targetType}`);
 		}
 
 		if (!this.toObjectId(targetId)) {
+			logger.error(`RatingService: Invalid target ID ${targetId}`);
 			throw new Error("Invalid target ID");
 		}
 
+		// targetId is now expected to be the Profile ID (for Vendor/Rider) or Item ID
 		const target = await Model.findById(targetId);
 		if (!target) {
 			throw new Error(`${targetType} not found`);
@@ -57,6 +58,9 @@ class RatingService {
 
 		// Return updated stats
 		const updatedTarget = await Model.findById(targetId);
+		logger.info(
+			`Entity rated: ${targetType} ${targetId} by Customer ${customerId}`,
+		);
 		return {
 			averageRating: updatedTarget.averageRating || 0,
 			totalRatings: updatedTarget.ratingCount || 0,
@@ -96,8 +100,9 @@ class RatingService {
 			throw new Error("Please provide a rating or comment");
 		}
 
+		const Rating = mongoose.model("Rating");
 		await Rating.findOneAndUpdate(
-			{ targetType, target: targetId, customer: customerId },
+			{ targetType, targetType: targetType === "Plate" ? "Plate" : targetType, target: targetId, customer: customerId },
 			updateData,
 			{
 				upsert: true,
@@ -107,14 +112,11 @@ class RatingService {
 			},
 		);
 
-		await this.updateEntityRatingStats(
-			targetType,
-			targetId,
-			this.models[targetType],
-		);
+		await this.updateEntityRatingStats(targetType, targetId, this.getModel(targetType));
 	}
 
 	async updateEntityRatingStats(targetType, targetId, Model) {
+		const Rating = mongoose.model("Rating");
 		const stats = await Rating.aggregate([
 			{ $match: { targetType, target: this.toObjectId(targetId) } },
 			{
@@ -128,11 +130,28 @@ class RatingService {
 
 		const { avg = 0, count = 0 } = stats[0] || {};
 
+		// Standard fields for all models
+		updateData.averageRating = avg;
+		updateData.ratingCount = count;
+
+		// BACKWARD COMPATIBILITY
+		// For RiderProfile: update nested fields
+		if (targetType === "Rider") {
+			updateData["ratings.average"] = avg;
+			updateData["ratings.count"] = count;
+		}
+		// For VendorProfile: keep 'rating' in sync
+		if (targetType === "Vendor") {
+			updateData.rating = avg;
+		}
+		// Plate: 'rating' was used before standardizing, keep it synced if needed, but averageRating is now source of truth
+		if (targetType === "Plate") {
+			updateData.rating = avg;
+		}
+
+
 		// Update target model with new stats
-		await Model.findByIdAndUpdate(targetId, {
-			averageRating: avg,
-			ratingCount: count,
-		});
+		await Model.findByIdAndUpdate(targetId, updateData);
 
 		return { averageRating: avg, totalRatings: count };
 	}
@@ -147,15 +166,20 @@ class RatingService {
 
 		switch (targetType) {
 			case "Vendor":
-				// Check for orders from this vendor
+				// Check for orders from this vendor (Order.vendor is VendorProfile ID)
 				query.vendor = tId;
 				break;
 			case "Rider":
-				// Check for orders delivered by this rider
-				query.rider = tId;
+				if (target && target.user) {
+					query.rider = target.user; // Assuming Order.rider matches RiderProfile.user (User ID)
+				} else {
+					// Fallback to profile ID if target.user isn't available (shouldn't happen for RiderProfile)
+					query.rider = tId;
+				}
 				break;
 			case "FoodItem":
 			case "Combo":
+			case "Plate":
 				// Check for orders containing this item
 				query["items.item"] = tId;
 				query["items.itemType"] = targetType;
@@ -164,13 +188,14 @@ class RatingService {
 				return false;
 		}
 
+		const Order = mongoose.model("Order");
 		const exists = await Order.exists(query);
 		return !!exists;
 	}
 
 	// Expose for usage in deleteReview or other places if needed
 	async updateAverage(targetType, targetId) {
-		const Model = this.models[targetType];
+		const Model = this.getModel(targetType);
 		if (Model) {
 			return this.updateEntityRatingStats(targetType, targetId, Model);
 		}
@@ -178,16 +203,19 @@ class RatingService {
 	}
 
 	async getReviews(targetType, targetId, { page = 1, limit = 10 }) {
-		if (!this.toObjectId(targetId)) throw new Error("Invalid target ID");
+		if (!this.toObjectId(targetId)) {
+			logger.error(`GetReviews: Invalid target ID ${targetId}`);
+			throw new Error("Invalid target ID");
+		}
 
-		const validTypes = Object.keys(this.models);
+		const validTypes = ["FoodItem", "Combo", "Vendor", "Rider", "Plate"];
 		if (!validTypes.includes(targetType)) {
 			throw new Error(
 				`Invalid target type. Must be one of: ${validTypes.join(", ")}`,
 			);
 		}
 
-		const Model = this.models[targetType];
+		const Model = this.getModel(targetType);
 		const targetEntity = await Model.findById(targetId).select(
 			"averageRating ratingCount",
 		);
@@ -201,6 +229,7 @@ class RatingService {
 
 		const filter = { targetType, target: targetId };
 
+		const Rating = mongoose.model("Rating");
 		const [reviews, total] = await Promise.all([
 			Rating.find(filter)
 				.populate("customer", "name img")
@@ -239,6 +268,7 @@ class RatingService {
 	}
 
 	async deleteReview(reviewId, userId) {
+		const Rating = mongoose.model("Rating");
 		const review = await Rating.findById(reviewId);
 		if (!review) {
 			throw new Error("Review not found");
@@ -250,7 +280,7 @@ class RatingService {
 
 		await review.deleteOne();
 
-		const Model = this.models[review.targetType];
+		const Model = this.getModel(review.targetType);
 		if (Model) {
 			await this.updateEntityRatingStats(
 				review.targetType,
@@ -258,11 +288,14 @@ class RatingService {
 				Model,
 			);
 		}
+		logger.info(`Review ${reviewId} deleted by User ${userId}`);
 	}
 	async getRiderLeaderboard() {
 		const fourteenDaysAgo = new Date();
 		fourteenDaysAgo.setDate(fourteenDaysAgo.getDate() - 14);
 
+		const Rating = mongoose.model("Rating");
+		// Aggregate ratings on Profile ID directly
 		const leaderboard = await Rating.aggregate([
 			{
 				$match: {
@@ -272,19 +305,30 @@ class RatingService {
 			},
 			{
 				$group: {
-					_id: "$target",
+					_id: "$target", // usage of Profile ID
 					averageRating: { $avg: "$rating" },
 					totalRatings: { $sum: 1 },
 				},
 			},
 		]);
 
-		for (const rider of leaderboard) {
-			await Rider.findByIdAndUpdate(rider._id, {
-				averageRating: rider.averageRating,
-				ratingCount: rider.totalRatings,
-			});
+		// Update stats for all riders in leaderboard
+		for (const riderStat of leaderboard) {
+			// Check if rider still exists and is valid
+			const Rider = mongoose.model("RiderProfile");
+			const riderProfile = await Rider.findById(riderStat._id);
+			if (riderProfile) {
+				// We reuse updateEntityRatingStats to ensure consistency
+				await this.updateEntityRatingStats("Rider", riderStat._id, Rider);
+			}
 		}
+
+		// Re-fetch sorted leaderboard with user details
+		// We know that _id in Rating is now RiderProfile ID.
+		// We need to lookup RiderProfile first, then look up "User" from RiderProfile.user
+
+		// However, standard $lookup from Rating directly to User won't work easily if Rating.target is ProfileID and User is separate.
+		// We need: Rating (target=ProfileId) -> RiderProfile (_id=ProfileId, user=UserId) -> User (_id=UserId)
 
 		const leaderboardWithRiderInfo = await Rating.aggregate([
 			{
@@ -295,26 +339,40 @@ class RatingService {
 			},
 			{
 				$group: {
-					_id: "$target",
+					_id: "$target", // Profile ID
 					averageRating: { $avg: "$rating" },
 					totalRatings: { $sum: 1 },
 				},
 			},
+			// Lookup RiderProfile
+			{
+				$lookup: {
+					from: "riderprofiles", // Make sure collection name is correct (usually lowercase plural)
+					// If unsure, we can try to rely on mongoose model name conventions, usually "riderprofiles" or similar. 
+					// Let's assume standard mongoose naming: RiderProfile -> riderprofiles (or riders?)
+					// Inspecting models/RiderProfile.js doesn't show collection name explicitly, so default is 'riderprofiles'.
+					localField: "_id",
+					foreignField: "_id",
+					as: "profile"
+				}
+			},
+			{ $unwind: "$profile" },
+			// Lookup User from RiderProfile
 			{
 				$lookup: {
 					from: "users",
-					localField: "_id",
+					localField: "profile.user",
 					foreignField: "_id",
-					as: "rider",
-				},
+					as: "user"
+				}
 			},
-			{ $unwind: "$rider" },
-			{ $match: { "rider.role": "rider" } },
+			{ $unwind: "$user" },
+			{ $match: { "user.role": "rider" } },
 			{ $sort: { averageRating: -1, totalRatings: -1 } },
 			{ $limit: 5 },
 			{
 				$project: {
-					rider: { _id: "$rider._id", name: "$rider.name" },
+					rider: { _id: "$user._id", name: "$user.name", profileId: "$profile._id" },
 					averageRating: { $round: ["$averageRating", 2] },
 					totalRatings: 1,
 				},

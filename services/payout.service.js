@@ -1,19 +1,19 @@
 const mongoose = require('mongoose');
 const Payout = require('../models/Payout');
 const User = require('../models/User');
-const Vendor = require('../models/Vendor');
-const Rider = require('../models/Rider');
+const VendorProfile = require('../models/VendorProfile');
+const RiderProfile = require('../models/RiderProfile');
 const Order = require('../models/Order');
-const paystack = require('../utilis/paystack');
+const paystack = require('../utils/paystack');
 const ledgerService = require('./ledger.service');
 const { LedgerEntry } = require('../models/LedgerEntry');
 
 // Ensure critical models are registered
-if (!mongoose.models.Vendor) {
-  try { require('../models/Vendor'); } catch (e) { console.warn('Vendor model load error:', e.message); }
+if (!mongoose.models.VendorProfile) {
+  try { require('../models/VendorProfile'); } catch (e) { console.warn('VendorProfile model load error:', e.message); }
 }
-if (!mongoose.models.rider) {
-  try { require('../models/Rider'); } catch (e) { console.warn('Rider model load error:', e.message); }
+if (!mongoose.models.RiderProfile) {
+  try { require('../models/RiderProfile'); } catch (e) { console.warn('RiderProfile model load error:', e.message); }
 }
 
 /**
@@ -92,15 +92,13 @@ const processSinglePayout = async ({ userId, userType, amount, bankDetails, name
     return { success: false, reason: 'insufficient_funds', payout: failed };
   }
 
-  let payout = await Payout.create({ 
-    user: userId, 
-    userType, 
-    order: orderId, 
-    amount, 
-    feeDeducted: fees.total,
-    netAmount: netAmount,
-    bankDetails, 
-    status: 'processing', 
+  let payout = await Payout.create({
+    user: userId,
+    userType,
+    order: orderId,
+    amount,
+    bankDetails,
+    status: 'processing',
     ledgerEntry: reserved.entry._id,
     idempotencyKey: `payout_${new Date().getTime()}_${userId}`
   });
@@ -108,16 +106,16 @@ const processSinglePayout = async ({ userId, userType, amount, bankDetails, name
   try {
     // 2. Resolve Paystack Recipient
     let recipientCode;
-    const model = userType === 'VENDOR' ? Vendor : Rider;
+    const model = userType === 'VENDOR' ? VendorProfile : RiderProfile;
     const user = await model.findById(userId);
 
     if (user.paystackRecipientCode) {
       recipientCode = user.paystackRecipientCode;
     } else {
-      const recipient = await paystack.recipients.create({ 
-        name: name || user.name || 'Recipient', 
-        account_number: bankDetails.accountNumber, 
-        bank_code: bankDetails.bankCode 
+      const recipient = await paystack.recipients.create({
+        name: name || user.name || 'Recipient',
+        account_number: bankDetails.accountNumber,
+        bank_code: bankDetails.bankCode
       });
       recipientCode = recipient?.data?.recipient_code;
       if (!recipientCode) throw new Error('Failed to get recipient code');
@@ -125,12 +123,21 @@ const processSinglePayout = async ({ userId, userType, amount, bankDetails, name
       await user.save();
     }
 
+<<<<<<< HEAD
     // 3. Trigger Transfer using NET AMOUNT (after fees)
     const transfer = await paystack.transfer.initiate({ 
       amount: Math.round(netAmount * 100), // User gets what is left after deductions
       recipient: recipientCode, 
       reason: `Withdrawal: Gross ${amount} (Fees: ${fees.total})`, 
       idempotencyKey: payout.idempotencyKey 
+=======
+    // 3. Trigger Transfer
+    const transfer = await paystack.transfer.initiate({
+      amount: Math.round(amount * 100),
+      recipient: recipientCode,
+      reason: `Wallet Withdrawal`,
+      idempotencyKey: payout.idempotencyKey
+>>>>>>> 18ea6936e8eba8e3dd38ec90d432a6e8c0045307
     });
 
     const transferCode = transfer?.data?.transfer_code;

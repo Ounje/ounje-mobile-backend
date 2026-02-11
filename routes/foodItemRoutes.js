@@ -1,5 +1,9 @@
 const express = require("express");
-const { authMiddleware, roleGuard } = require("../middleware/auth");
+const {
+	authMiddleware,
+	roleGuard,
+	checkActiveUser,
+} = require("../middleware/auth");
 const {
 	createFoodItem,
 	updateFoodItem,
@@ -88,6 +92,7 @@ router.get(
 	"/vendor/my-items",
 	authMiddleware,
 	roleGuard(["vendor"]),
+	checkActiveUser,
 	getMyFoodItems,
 );
 
@@ -139,6 +144,7 @@ router.post(
 	"/",
 	authMiddleware,
 	roleGuard(["vendor"]),
+	checkActiveUser,
 	foodItemUpload.single("img"),
 	createFoodItem,
 );
@@ -192,6 +198,7 @@ router.put(
 	"/:foodItemId",
 	authMiddleware,
 	roleGuard(["vendor"]),
+	checkActiveUser,
 	foodItemUpload.single("img"),
 	updateFoodItem,
 );
@@ -222,6 +229,7 @@ router.delete(
 	"/:foodItemId",
 	authMiddleware,
 	roleGuard(["vendor"]),
+	checkActiveUser,
 	deleteFoodItem,
 );
 

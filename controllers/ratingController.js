@@ -1,5 +1,31 @@
 const ratingService = require("../services/rating.service");
 const likeService = require("../services/like.service");
+const logger = require("../utils/logger");
+const mongoose = require("mongoose");
+
+// Helper: Convert User ID to Profile ID for Vendor/Rider
+const getProfileId = async (targetType, userId) => {
+	if (targetType === "Vendor") {
+		const VendorProfile = mongoose.model("VendorProfile");
+		const vendor = await VendorProfile.findOne({ owner: userId });
+		if (vendor) return vendor._id.toString();
+
+		const byId = await VendorProfile.findById(userId);
+		if (byId) return byId._id.toString();
+
+		throw new Error("Vendor profile not found for this user");
+	} else if (targetType === "Rider") {
+		const RiderProfile = mongoose.model("RiderProfile");
+		const rider = await RiderProfile.findOne({ user: userId });
+		if (rider) return rider._id.toString();
+
+		const byId = await RiderProfile.findById(userId);
+		if (byId) return byId._id.toString();
+
+		throw new Error("Rider profile not found for this user");
+	}
+	return userId; // FoodItem and Combo use their own IDs directly
+};
 
 // Main handler for rating & likes
 const rateEntity = async ({ req, res, targetType }) => {
@@ -7,12 +33,15 @@ const rateEntity = async ({ req, res, targetType }) => {
 		const { rating, comment, like } = req.body;
 		let result = {};
 
+		// Convert User ID to Profile ID if needed
+		const profileId = await getProfileId(targetType, req.params.id);
+
 		// 1. Handle Like
 		if (like !== undefined) {
 			const likeResult = await likeService.toggleLike(
 				req.user.id,
 				targetType,
-				req.params.id,
+				profileId,
 				like,
 			);
 			result = { ...result, ...likeResult };
@@ -23,23 +52,17 @@ const rateEntity = async ({ req, res, targetType }) => {
 			const ratingResult = await ratingService.rateEntity(
 				req.user.id,
 				targetType,
-				req.params.id,
+				profileId,
 				{ rating, comment },
 			);
 			result = { ...result, ...ratingResult };
 		}
 
-		// If both are undefined, it's a bad request, but the services or previous logic handled simple checks.
-		// The previous controller didn't explicitly check if BOTH were missing at the top level,
-		// but the individual checks inside would catch it or do nothing.
-		// Let's ensure we did something.
 		if (like === undefined && rating === undefined && comment === undefined) {
-			return res
-				.status(400)
-				.json({
-					success: false,
-					message: "No rating, comment, or like provided",
-				});
+			return res.status(400).json({
+				success: false,
+				message: "No rating, comment, or like provided",
+			});
 		}
 
 		return res.status(200).json({
@@ -48,11 +71,11 @@ const rateEntity = async ({ req, res, targetType }) => {
 			data: result,
 		});
 	} catch (err) {
-		console.error(`Rate ${targetType} Error:`, err);
+		logger.error(`Rate ${targetType} Error: ${err.message}`);
 		const status = err.message.includes("not found")
 			? 404
 			: err.message.includes("Invalid") ||
-				  err.message.includes("Rating must be")
+				err.message.includes("Rating must be")
 				? 400
 				: err.message.includes("can only rate")
 					? 403
@@ -71,7 +94,10 @@ const getReviews = async (req, res) => {
 		const { targetType, targetId } = req.params;
 		const { page, limit } = req.query;
 
-		const result = await ratingService.getReviews(targetType, targetId, {
+		// Convert provided ID (likely User ID) to Profile ID
+		const profileId = await getProfileId(targetType, targetId);
+
+		const result = await ratingService.getReviews(targetType, profileId, {
 			page,
 			limit,
 		});
@@ -81,7 +107,7 @@ const getReviews = async (req, res) => {
 			...result,
 		});
 	} catch (err) {
-		console.error("Get Reviews Error:", err);
+		logger.error(`Get Reviews Error: ${err.message}`);
 		return res.status(500).json({
 			success: false,
 			message: "Error fetching reviews",
@@ -100,7 +126,7 @@ const deleteReview = async (req, res) => {
 			.status(200)
 			.json({ success: true, message: "Review deleted successfully" });
 	} catch (err) {
-		console.error("Delete Review Error:", err);
+		logger.error(`Delete Review Error: ${err.message}`);
 		const status = err.message.includes("not found")
 			? 404
 			: err.message.includes("only delete your own")
@@ -119,6 +145,7 @@ module.exports = {
 	rateCombo: (req, res) => rateEntity({ req, res, targetType: "Combo" }),
 	rateVendor: (req, res) => rateEntity({ req, res, targetType: "Vendor" }),
 	rateRider: (req, res) => rateEntity({ req, res, targetType: "Rider" }),
+	ratePlate: (req, res) => rateEntity({ req, res, targetType: "Plate" }),
 	getReviews,
 	deleteReview,
 };

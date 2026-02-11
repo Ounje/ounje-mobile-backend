@@ -1,5 +1,5 @@
 // config/db.js
-const logger = require("../utilis/logger");
+const logger = require("../utils/logger");
 
 // Import all necessary Mongoose Models so they can be accessed globally
 
@@ -12,9 +12,9 @@ try {
         Order: require('../models/Order'),
 
         // Vendor and Logistics Models
-        restaurants: require('../models/Vendor'), // Assuming Vendor model handles restaurant data
+        restaurants: require('../models/VendorProfile'), // VendorProfile handles restaurant data
 
-        riders: require('../models/Rider'),
+        riders: require('../models/RiderProfile'),
 
     };
 

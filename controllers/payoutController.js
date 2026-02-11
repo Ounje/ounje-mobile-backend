@@ -1,5 +1,5 @@
 const ledgerService = require("../services/ledger.service");
-const { Payout, Rider, Vendor } = require("../models");
+const { Payout } = require("../models");
 const payoutService = require("../services/payout.service");
 
 /**

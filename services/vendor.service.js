@@ -1,4 +1,4 @@
-const { Vendor, Customer } = require("../models");
+const { VendorProfile, Customer } = require("../models");
 const { deleteImage } = require("../config/cloudinary");
 const payoutService = require("./payout.service");
 
@@ -7,19 +7,18 @@ class VendorService {
 	 * Get nearby vendors based on location
 	 */
 	async getNearbyVendors({ lat, lng, userId }) {
-		// ... (Keep existing logic, it was fine)
 		try {
 			if ((!lat || !lng) && userId) {
-				const customer = await Customer.findById(userId);
-				if (customer?.location?.coordinates) {
-					lng = customer.location.coordinates[0];
-					lat = customer.location.coordinates[1];
+				const customer = await Customer.findOne({ user: userId });
+				if (customer?.savedAddresses?.[0]?.coordinates) {
+					lng = customer.savedAddresses[0].coordinates[0];
+					lat = customer.savedAddresses[0].coordinates[1];
 				}
 			}
 
 			if (lat && lng) {
-				const vendors = await Vendor.find({
-					isAvailable: { $ne: false },
+				const vendors = await VendorProfile.find({
+					isActive: true,
 					location: {
 						$near: {
 							$geometry: {
@@ -41,9 +40,10 @@ class VendorService {
 				}
 			}
 
-			const allVendors = await Vendor.find({
-				isAvailable: { $ne: false },
+			const allVendors = await VendorProfile.find({
+				isActive: true,
 			}).limit(20);
+
 			return {
 				status: "success",
 				source: "default-fallback",
@@ -56,77 +56,113 @@ class VendorService {
 	}
 
 	async getPopularVendors() {
-		return await Vendor.find().sort({ totalOrders: -1 });
+		return await VendorProfile.find().sort({ totalOrders: -1 });
 	}
 
-	async getVendorProfile(vendorId) {
-		const vendor = await Vendor.findById(vendorId).populate("menu");
+	/**
+	 * Vendor private profile (for vendor viewing their own profile)
+	 * Includes sensitive info like bank details
+	 * @param {string} userId - The User ID (from req.user.id)
+	 */
+	async getVendorProfile(userId) {
+		const vendor = await VendorProfile.findOne({ owner: userId }).select(
+			"+bankDetails",
+		); // Include bank details for vendor's own view
+
 		if (!vendor) throw new Error("Vendor not found");
 		return vendor;
 	}
 
+	/**
+	 * Get vendor details with products (for customers viewing vendor)
+	 * @param {string} vendorId - The VendorProfile document ID
+	 */
 	async getVendorWithProducts(vendorId) {
-		const vendor = await Vendor.findById(vendorId)
-			.populate("menu")
-			.populate("foodItems");
+		// Exclude sensitive fields: balance, earnings, storeDetails
+		const vendor = await VendorProfile.findById(vendorId).select(
+			"-balance -earnings -storeDetails",
+		);
 		if (!vendor) throw new Error("Vendor not found");
-		return vendor;
+
+		// Fetch food items and combos for this vendor
+		// FoodItem and Combo reference the vendor by the User ID (owner field)
+		const FoodItem = require("../models").FoodItem;
+		const Combo = require("../models").Combo;
+
+		const [foodItems, combos] = await Promise.all([
+			FoodItem.find({ vendor: vendor._id, isAvailable: true }).select(
+				"name price description category subCategory img preparationTime",
+			),
+			Combo.find({ vendor: vendor._id, isAvailable: { $ne: false } }).select(
+				"comboName basePrice description img time selections",
+			),
+		]);
+
+		// Return vendor profile with products
+		return {
+			...vendor.toJSON(),
+			foodItems,
+			combos,
+		};
 	}
 
-	async updateBankDetails(vendorId, { accountNumber, bankCode, accountName }) {
+	async updateBankDetails(userId, { accountNumber, bankCode, accountName }) {
 		if (!accountNumber || !bankCode || !accountName) {
 			throw new Error("accountNumber, bankCode, accountName required");
 		}
-		const vendor = await Vendor.findByIdAndUpdate(
-			vendorId,
-			{ bankDetails: { accountNumber, bankCode, accountName } },
+
+		const vendor = await VendorProfile.findOneAndUpdate(
+			{ owner: userId },
+			{
+				bankDetails: {
+					accountNumber,
+					bankCode,
+					accountName,
+				},
+			},
 			{ new: true },
-		);
+		).select("+bankDetails");
+
 		if (!vendor) throw new Error("Vendor not found");
 
 		const retryResults = await payoutService.processPendingPayoutsForUser(
 			vendor._id,
 			"VENDOR",
 		);
+
 		return { vendor, retryResults };
 	}
 
 	/**
 	 * Complete vendor registration
+	 * @param {string} userId - The User ID (from req.user.id)
 	 */
-	async completeRegistration(vendorId, data, fileUrl) {
-		// 1. Validate Initial Input
+	async completeRegistration(userId, data, fileUrl) {
 		this._validateBasicRegistrationData(data, fileUrl);
 
-		// 2. Fetch and Validate Vendor State
-		const vendor = await Vendor.findById(vendorId);
+		const vendor = await VendorProfile.findOne({ owner: userId });
 		if (!vendor) throw new Error("Vendor not found");
 		if (vendor.storeDetails && vendor.storeDetails.length > 0) {
 			throw new Error("Vendor profile already completed");
 		}
 
-		// 3. Determine Account Status logic
 		const statusResult = this._determineAccountStatus(data);
 		if (statusResult.shouldReturnError) {
 			return statusResult.response;
 		}
 
-		// 4. Build Store Details
 		const storeDetailsData = this._buildStoreDetails(
 			data,
 			fileUrl,
 			statusResult,
 		);
 
-		// 5. Build Period Data (Pre-order or Instant)
 		this._attachServicePeriods(storeDetailsData, data);
 
-		// 6. Save
 		vendor.storeDetails = [storeDetailsData];
 		if (vendor.balance == null) vendor.balance = 0;
 		await vendor.save();
 
-		// 7. Format Response
 		return this._formatRegistrationResponse(
 			vendor,
 			storeDetailsData,
@@ -142,22 +178,51 @@ class VendorService {
 				"Store name, store type and services offered are required",
 			);
 		}
+
 		if (!["physicalStore", "onlineStore"].includes(storeType)) {
-			throw new Error(
-				"Invalid store type. Must be 'physicalStore' or 'onlineStore'",
-			);
+			throw new Error("Invalid store type");
 		}
+
 		if (
 			!["InstantMeals", "preOrderMeals", "hybridMeals"].includes(
 				servicesOffered,
 			)
 		) {
-			throw new Error(
-				"Invalid services offered. Must be 'InstantMeals', 'preOrderMeals', or 'hybridMeals'",
-			);
+			throw new Error("Invalid services offered");
 		}
+
 		if (!fileUrl) {
 			throw new Error("NIN ID document is required");
+		}
+
+		// Validate service periods based on service type
+		if (servicesOffered === "preOrderMeals") {
+			if (!data.preorderPeriods) {
+				throw new Error(
+					"At least one preorder period is required for pre-order meals",
+				);
+			}
+			const periods = this._parsePreorderPeriods(data);
+			if (!Array.isArray(periods) || periods.length === 0) {
+				throw new Error(
+					"At least one preorder period is required for pre-order meals",
+				);
+			}
+		} else if (
+			servicesOffered === "InstantMeals" ||
+			servicesOffered === "hybridMeals"
+		) {
+			if (!data.timePeriod) {
+				throw new Error(
+					"At least one time period is required for instant/hybrid meals",
+				);
+			}
+			const periods = this._parseTimePeriods(data);
+			if (!Array.isArray(periods) || periods.length === 0) {
+				throw new Error(
+					"At least one time period is required for instant/hybrid meals",
+				);
+			}
 		}
 	}
 
@@ -179,31 +244,23 @@ class VendorService {
 					},
 				};
 			}
-			// Pending status logic
-			const status = "pending";
-			const needsCACSupport = needCACHelp === "yes";
-			let warningMessage = "";
 
-			if (needsCACSupport) {
-				warningMessage =
-					"Your account is pending. Our support team will contact you regarding CAC registration assistance.";
-			} else {
-				warningMessage =
-					"Please do well to complete your CAC registration so that your business will be safe from legal fines.";
-			}
 			return {
 				shouldReturnError: false,
-				status,
-				needsCACSupport,
-				warningMessage,
+				status: "pending",
+				needsCACSupport: needCACHelp === "yes",
+				warningMessage:
+					needCACHelp === "yes"
+						? "Our support team will contact you regarding CAC registration assistance."
+						: "Please complete your CAC registration.",
 				isVerifiedBusiness,
 			};
 		}
 
-		// Verified Business Logic
 		if (!CACNumber) {
-			throw new Error("CAC number is required for verified businesses");
+			throw new Error("CAC number is required");
 		}
+
 		return {
 			shouldReturnError: false,
 			status: "active",
@@ -234,186 +291,190 @@ class VendorService {
 		}
 	}
 
+	/**
+	 * Parse preorder periods from request data
+	 * Expected format: data.preorderPeriods as array or JSON string
+	 * Schema expects: Array of { orderingTime, preparationTime, period }
+	 */
 	_parsePreorderPeriods(data) {
-		let periods = [];
-		if (data.preorderPeriods && Array.isArray(data.preorderPeriods)) {
-			periods = data.preorderPeriods;
-		} else {
-			// Flatten generic parsing logic if possible, or keep as is if input format varies
-			let i = 0;
-			while (data[`preorderPeriods[${i}][orderingTime]`]) {
-				periods.push({
-					orderingTime: data[`preorderPeriods[${i}][orderingTime]`],
-					preparationTime: data[`preorderPeriods[${i}][preparationTime]`],
-					period: data[`preorderPeriods[${i}][period]`],
-				});
-				i++;
-			}
-			// Logic for single fields fallback (orderingTime, preparationTime, period)
-			if (
-				periods.length === 0 &&
-				data.orderingTime &&
-				data.preparationTime &&
-				data.period
-			) {
-				periods.push({
-					orderingTime: data.orderingTime,
-					preparationTime: data.preparationTime,
-					period: data.period,
-				});
-			}
+		if (!data.preorderPeriods) {
+			return [];
 		}
 
-		if (periods.length === 0) {
-			throw new Error(
-				"At least one preorder period (orderingTime, preparationTime, and period) is required for pre-order services",
-			);
-		}
+		try {
+			let periods = [];
 
-		for (const pp of periods) {
-			if (!pp.orderingTime || !pp.preparationTime || !pp.period) {
-				throw new Error(
-					"Each preorder period must include orderingTime, preparationTime, and period",
-				);
+			// If it's already an array, use it
+			if (Array.isArray(data.preorderPeriods)) {
+				periods = data.preorderPeriods;
 			}
-			if (!["breakfast", "lunch", "dinner"].includes(pp.period)) {
-				throw new Error(
-					`Invalid period: ${pp.period}. Must be one of 'breakfast', 'lunch', or 'dinner'`,
-				);
+			// If it's a JSON string, parse it
+			else if (typeof data.preorderPeriods === "string") {
+				periods = JSON.parse(data.preorderPeriods);
 			}
+
+			// Validate each period has required fields
+			if (Array.isArray(periods)) {
+				periods.forEach((period, index) => {
+					if (
+						!period.orderingTime ||
+						!period.preparationTime ||
+						!period.period
+					) {
+						throw new Error(
+							`Preorder period at index ${index} is missing required fields (orderingTime, preparationTime, period)`,
+						);
+					}
+					if (!["breakfast", "lunch", "dinner"].includes(period.period)) {
+						throw new Error(
+							`Preorder period at index ${index} has invalid period value. Must be 'breakfast', 'lunch', or 'dinner'`,
+						);
+					}
+				});
+				return periods;
+			}
+
+			return [];
+		} catch (error) {
+			console.error("Error parsing preorder periods:", error);
+			throw error;
 		}
-		return periods;
 	}
 
+	/**
+	 * Parse time periods from request data
+	 * Expected format: data.timePeriod as array or JSON string
+	 * Schema expects: Array of { day, openingHour, closingHour }
+	 */
 	_parseTimePeriods(data) {
-		let periods = [];
-		if (data.timePeriod && Array.isArray(data.timePeriod)) {
-			periods = data.timePeriod;
-		} else {
-			let i = 0;
-			while (data[`timePeriod[${i}][day]`]) {
-				periods.push({
-					day: data[`timePeriod[${i}][day]`],
-					openingHour: data[`timePeriod[${i}][openingHour]`],
-					closingHour: data[`timePeriod[${i}][closingHour]`],
-				});
-				i++;
+		if (!data.timePeriod) {
+			return [];
+		}
+
+		try {
+			let periods = [];
+
+			// If it's already an array, use it
+			if (Array.isArray(data.timePeriod)) {
+				periods = data.timePeriod;
 			}
-			if (
-				periods.length === 0 &&
-				data.day &&
-				data.openingHour &&
-				data.closingHour
+			// If it's a JSON string, parse it
+			else if (typeof data.timePeriod === "string") {
+				const parsed = JSON.parse(data.timePeriod);
+				// If parsed result is an array, use it
+				if (Array.isArray(parsed)) {
+					periods = parsed;
+				}
+				// If it's an object with array properties, try to extract the array
+				else if (typeof parsed === "object" && parsed !== null) {
+					// Check if it has a periods or items property that's an array
+					if (Array.isArray(parsed.periods)) {
+						periods = parsed.periods;
+					} else if (Array.isArray(parsed.items)) {
+						periods = parsed.items;
+					}
+					// Otherwise wrap single object in array
+					else {
+						periods = [parsed];
+					}
+				}
+			}
+			// If it's a single object, wrap it in an array
+			else if (
+				typeof data.timePeriod === "object" &&
+				!Array.isArray(data.timePeriod)
 			) {
-				periods.push({
-					day: data.day,
-					openingHour: data.openingHour,
-					closingHour: data.closingHour,
+				periods = [data.timePeriod];
+			}
+
+			// Validate each period has required fields
+			if (Array.isArray(periods)) {
+				const validDays = [
+					"sunday",
+					"monday",
+					"tuesday",
+					"wednesday",
+					"thursday",
+					"friday",
+					"saturday",
+				];
+
+				periods.forEach((period, index) => {
+					if (!period.day || !period.openingHour || !period.closingHour) {
+						throw new Error(
+							`Time period at index ${index} is missing required fields (day, openingHour, closingHour)`,
+						);
+					}
+					if (!validDays.includes(period.day.toLowerCase())) {
+						throw new Error(
+							`Time period at index ${index} has invalid day value. Must be one of: ${validDays.join(", ")}`,
+						);
+					}
 				});
+				return periods;
 			}
+
+			return [];
+		} catch (error) {
+			console.error("Error parsing time periods:", error);
+			throw error;
 		}
-
-		if (periods.length === 0) {
-			throw new Error(
-				"At least one time period is required for instant/hybrid meal services",
-			);
-		}
-
-		const validDays = [
-			"sunday",
-			"monday",
-			"tuesday",
-			"wednesday",
-			"thursday",
-			"friday",
-			"saturday",
-		];
-
-		return periods.map((tp) => {
-			if (!tp.day || !tp.openingHour || !tp.closingHour) {
-				throw new Error(
-					"Each time period must include day, openingHour, and closingHour",
-				);
-			}
-			const day = tp.day.toLowerCase();
-			if (!validDays.includes(day)) {
-				throw new Error(
-					`Invalid day: ${tp.day}. Must be one of: ${validDays.join(", ")}`,
-				);
-			}
-			return { ...tp, day };
-		});
 	}
 
+	/**
+	 * Format the registration response
+	 */
 	_formatRegistrationResponse(vendor, storeDetailsData, statusResult) {
-		const responseData = {
-			vendorId: vendor._id,
-			storeName: storeDetailsData.storeName,
-			storeType: storeDetailsData.storeType,
-			servicesOffered: storeDetailsData.servicesOffered,
-			status: statusResult.status,
-		};
-
-		if (storeDetailsData.servicesOffered === "preOrderMeals") {
-			responseData.preorderPeriods = storeDetailsData.preorderPeriods;
-		} else if (storeDetailsData.timePeriod) {
-			responseData.timePeriod = storeDetailsData.timePeriod;
-		}
-
-		return {
+		const response = {
 			success: true,
-			accountStatus: statusResult.status,
 			message:
-				statusResult.status === "pending"
-					? `Vendor registration completed successfully. ${statusResult.warningMessage}`
-					: "Vendor registration completed successfully",
-			needsCACSupport: statusResult.needsCACSupport,
-			data: responseData,
+				statusResult.status === "active"
+					? "Vendor registration completed successfully"
+					: "Vendor registration submitted and pending verification",
+			vendor: {
+				id: vendor._id,
+				name: vendor.name,
+				email: vendor.email,
+				phone: vendor.phone,
+				storeDetails: storeDetailsData,
+			},
+			accountStatus: statusResult.status,
 		};
+
+		if (statusResult.warningMessage) {
+			response.warning = statusResult.warningMessage;
+		}
+
+		return response;
 	}
-	async uploadAndUpdateVendorProfileImage(vendorId, file) {
-		const vendor = await Vendor.findById(vendorId);
-		if (!vendor) {
-			throw new Error("Vendor not found");
-		}
 
-		if (vendor.img) {
-			await this._deleteOldImage(vendor.img);
-		}
+	async uploadAndUpdateVendorProfileImage(userId, file) {
+		const vendor = await VendorProfile.findOne({ owner: userId });
+		if (!vendor) throw new Error("Vendor not found");
 
-		vendor.img = file.path;
+		if (vendor.profileImage) await this._deleteOldImage(vendor.profileImage);
+
+		vendor.profileImage = file.path;
 		await vendor.save();
 
 		return {
 			success: true,
 			message: "Profile image updated successfully",
 			imageUrl: file.path,
-			// vendor: {
-			// 	id: vendor._id,
-			// 	name: vendor.name,
-			// 	img: vendor.img,
-			// 	storeName: vendor.storeDetails?.[0]?.storeName,
-			// },
 		};
 	}
 
-	async deleteVendorProfileImage(vendorId) {
-		const vendor = await Vendor.findById(vendorId);
-		if (!vendor) {
-			throw new Error("Vendor not found");
-		}
+	async deleteVendorProfileImage(userId) {
+		const vendor = await VendorProfile.findOne({ owner: userId });
+		if (!vendor) throw new Error("Vendor not found");
 
-		if (!vendor.img) {
-			throw new Error("No profile image to delete");
-		}
-		await this._deleteOldImage(vendor.img);
+		if (!vendor.profileImage) throw new Error("No profile image to delete");
 
-		vendor.img = null;
+		await this._deleteOldImage(vendor.profileImage);
+		vendor.profileImage = null;
 		await vendor.save();
-		return {
-			success: true,
-			message: "Profile image deleted successfully",
-		};
+
+		return { success: true, message: "Profile image deleted successfully" };
 	}
 
 	async _deleteOldImage(imageUrl) {
@@ -422,11 +483,26 @@ class VendorService {
 			const publicIdWithExtension = urlParts[urlParts.length - 1];
 			const publicId = publicIdWithExtension.split(".")[0];
 			const folder = urlParts[urlParts.length - 2];
-			const fullPublicId = `${folder}/${publicId}`;
-
-			await deleteImage(fullPublicId);
+			await deleteImage(`${folder}/${publicId}`);
 		} catch (error) {
 			console.error("Error deleting old image:", error);
+		}
+	}
+
+	async deactivateVendorAccount(userId) {
+		try {
+			const vendor = await VendorProfile.findOne({ owner: userId });
+			if (!vendor) throw new Error("Vendor not found");
+			vendor.storeDetails[0].status = "deactivated";
+			if (vendor.isActive) vendor.isActive = false;
+			await vendor.save();
+			return {
+				success: true,
+				message: "Vendor account deactivated successfully",
+			};
+		} catch (error) {
+			console.error("Error deactivating vendor account:", error);
+			throw error;
 		}
 	}
 }

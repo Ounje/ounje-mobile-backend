@@ -3,7 +3,7 @@ const toJSON = require("./plugins/toJSON.plugin");
 // const {
 // 	getCategoryValues,
 // 	getSubCategoryValues,
-// } = require("../utilis/foodEnums");
+// } = require("../utils/foodEnums");
 
 // Schema for individual items within a selection
 const SelectionItemSchema = new mongoose.Schema({
@@ -12,6 +12,7 @@ const SelectionItemSchema = new mongoose.Schema({
 		ref: "FoodItem",
 		required: true,
 	},
+	name: { type: String }, // Denormalized name from FoodItem for quick access
 	price: {
 		type: Number,
 		default: 0,
@@ -35,19 +36,23 @@ const ComboSchema = new mongoose.Schema(
 		description: { type: String },
 		basePrice: { type: Number, required: true }, // Base price of the combo
 		selections: [SelectionGroupSchema], // Changed from Map to Array for better population support
+		comboGroup: {
+			type: mongoose.Schema.Types.ObjectId,
+			ref: "ComboGroup",
+		},
 		vendor: {
 			type: mongoose.Schema.Types.ObjectId,
-			ref: "Vendor",
+			ref: "VendorProfile",
 			required: true,
 		},
 		img: { type: String, required: true },
 		time: { type: String, required: true }, // Preparation time
 		deliveryTime: { type: String },
 		ordersCount: { type: Number, default: 0 },
-		//isAvailable: { type: Boolean, default: true },
+		isAvailable: { type: Boolean, default: true },
 		averageRating: { type: Number, default: 0 },
 		ratingCount: { type: Number, default: 0 },
-		likes: [{ type: mongoose.Schema.Types.ObjectId, ref: "customer" }],
+		likes: [{ type: mongoose.Schema.Types.ObjectId, ref: "Customer" }],
 	},
 	{ timestamps: true },
 );

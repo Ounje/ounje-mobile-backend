@@ -1,33 +1,56 @@
-const { Plate, FoodItem } = require("../models");
+const { Plate, FoodItem, Customer } = require("../models");
 const { deleteImage } = require("../config/cloudinary");
-const { paginate } = require("../utilis/paginate");
+const { paginate } = require("../utils/paginate");
 
 const buildPlate = async (req, res) => {
     try {
-        const { name, price, timeToMake, items, vendor } = req.body;
+        let { name, items, vendor } = req.body;
 
         if (typeof items === 'string') {
             try {
                 items = JSON.parse(items);
             } catch (e) {
-                // if it's just a single ID string, wrap it in an array
-                items = [items];
+                // Check if it's a comma-separated list
+                if (items.includes(',')) {
+                    items = items.split(',').map(item => item.trim());
+                } else {
+                    // if it's just a single ID string, wrap it in an array
+                    items = [items];
+                }
             }
         }
 
-        // Fetch item names to create the description
-        // 'items' is likely an array of IDs from the frontend
+        // Lookup Customer ID from User ID
+        const customer = await Customer.findOne({ user: req.user.id });
+        if (!customer) {
+            return res.status(404).json({ error: "Customer profile not found" });
+        }
+
+        // Fetch item details to calculate price and description
         const selectedItems = await FoodItem.find({ _id: { $in: items } });
 
         // Debugging: See if items are actually being found in your terminal
         console.log("Items found in DB:", selectedItems.length);
+
+        if (selectedItems.length === 0) {
+            return res.status(400).json({ error: "No valid food items selected" });
+        }
+
+        // Calculate total price
+        const price = selectedItems.reduce((sum, item) => sum + item.price, 0);
+
+        // Calculate max preparation time (assuming parallel preparation, or sum if sequential - usually max for plates)
+        // Parse "30 mins" or "30" to numbers
+        const times = selectedItems.map(item => parseInt(item.preparationTime) || 0);
+        const maxTime = Math.max(...times);
+        const timeToMake = `${maxTime} mins`;
 
         const description = selectedItems.map(item => item.name).join(", ");
 
         // Logic to build a plate using plateData
         const newPlate = await Plate.create({
             name,
-            customer: req.user.id,
+            customer: customer._id, // Use Customer document ID, not User ID
             vendor,
             price,
             img: req.file ? req.file.path : undefined,
@@ -44,7 +67,7 @@ const buildPlate = async (req, res) => {
 const getAllPlates = async (req, res) => {
     try {
         const populateOptions = [
-            "items",
+            { path: "items", select: "-vendor -averageRating -ratingCount -likes" },
             { path: "vendor", select: "storeDetails img description" },
             { path: "customer", select: "firstName lastName img" }
         ];
@@ -61,7 +84,7 @@ const getSpecificPlate = async (req, res) => {
     try {
         const { plateId } = req.params;
         const plate = await Plate.findById(plateId)
-            .populate("items")
+            .populate("items", "-vendor -averageRating -ratingCount -likes")
             .populate("vendor", "storeDetails img description")
             .populate("customer", "firstName lastName img");
         if (!plate) {
@@ -76,12 +99,13 @@ const getSpecificPlate = async (req, res) => {
 const deletePlate = async (req, res) => {
     try {
         const { plateId } = req.params;
-        const plate = await Plate.findById(plateId);
+        const plate = await Plate.findById(plateId).populate('customer', 'user');
         if (!plate) {
             return res.status(404).json({ error: "Plate not found" });
         }
-        console.log(plate.customer.toString())
-        if (req.user.id !== plate.customer.toString()) {
+        console.log(plate.customer.user.toString())
+        // Compare User IDs since req.user.id is User ID
+        if (req.user.id !== plate.customer.user.toString()) {
             return res.status(403).json({ error: "Forbidden: You can only delete your own plates" });
         }
         if (plate.img) {

@@ -2,7 +2,7 @@
  * Global Error Handler Middleware
  * Captures all errors passing through the middleware chain.
  */
-const logger = require("../utilis/logger");
+const logger = require("../utils/logger");
 
 const errorHandler = (err, req, res, next) => {
     // 1. Log the error details

@@ -1,7 +1,8 @@
 const vendorService = require("../services/vendor.service");
 const mongoose = require("mongoose"); // needed only for ObjectId validation in userGetVendor (or move validation to service)
-const { Vendor } = require("../models");
-const { paginate } = require("../utilis/paginate");
+const { VendorProfile } = require("../models");
+const { paginate } = require("../utils/paginate");
+const logger = require("../utils/logger");
 
 // Get popular vendors
 const getPopularVendors = async (req, res) => {
@@ -31,7 +32,7 @@ const getVendors = async (req, res) => {
 	try {
 		// No filter needed here because we want to see all vendors
 		// No populate needed yet, unless you want to see their menu items immediately
-		const result = await paginate(Vendor, req.query);
+		const result = await paginate(VendorProfile, req.query);
 
 		res.status(200).json(result);
 	} catch (err) {
@@ -56,7 +57,7 @@ const userGetVendor = async (req, res) => {
 		// Always return a proper JSON object
 		res.status(200).json(vendor);
 	} catch (err) {
-		console.error("USER_GET_VENDOR_ERROR:", err);
+		logger.error(`USER_GET_VENDOR_ERROR: ${err.message}`);
 		if (err.message === "Vendor not found")
 			return res.status(404).json({ message: err.message });
 
@@ -71,7 +72,7 @@ const updateBankDetails = async (req, res) => {
 		const result = await vendorService.updateBankDetails(req.user.id, req.body);
 		res.json(result);
 	} catch (err) {
-		console.error("Update bank details failed:", err.message);
+		logger.error(`Update bank details failed: ${err.message}`);
 		if (err.message.includes("required"))
 			return res.status(400).json({ error: err.message });
 		res.status(500).json({ error: err.message });
@@ -92,7 +93,7 @@ const getNearbyVendors = async (req, res) => {
 
 		res.status(200).json(result);
 	} catch (err) {
-		console.error("Nearby Vendors Error:", err.message);
+		logger.error(`Nearby Vendors Error: ${err.message}`);
 		res.status(500).json({
 			message: "Error retrieving vendors",
 			error: err.message,
@@ -124,8 +125,9 @@ const completeVendorRegistration = async (req, res) => {
 		}
 
 		res.status(200).json(result);
+		logger.info(`Vendor registration completed: ${req.user.id}`);
 	} catch (error) {
-		console.error("Error completing vendor registration:", error);
+		logger.error(`Error completing vendor registration: ${error.message}`);
 
 		if (
 			error.message.includes("required") ||
@@ -166,7 +168,7 @@ const updateVendorProfileImage = async (req, res) => {
 
 		return res.status(200).json(result);
 	} catch (error) {
-		console.error("Update Vendor Profile Image Error:", error);
+		logger.error(`Update Vendor Profile Image Error: ${error.message}`);
 		return res.status(500).json({
 			success: false,
 			message: error.message || "Error updating profile image",
@@ -182,14 +184,26 @@ const deleteVendorProfileImage = async (req, res) => {
 
 		return res.status(200).json(result);
 	} catch (error) {
-		console.error("Delete Vendor Profile Image Error:", error);
+		logger.error(`Delete Vendor Profile Image Error: ${error.message}`);
 		return res.status(500).json({
 			success: false,
 			message: error.message || "Error deleting profile image",
 		});
 	}
 };
-
+const deactivateVendorAccount = async (req, res) => {
+	try {
+		const vendorId = req.user.id;
+		const result = await vendorService.deactivateVendorAccount(vendorId);
+		return res.status(200).json(result);
+	} catch (error) {
+		logger.error(`Deactivate Vendor Account Error: ${error.message}`);
+		return res.status(500).json({
+			success: false,
+			message: error.message || "Error deactivating vendor account",
+		});
+	}
+};
 module.exports = {
 	completeVendorRegistration,
 	getPopularVendors,
@@ -200,4 +214,5 @@ module.exports = {
 	updateVendorProfileImage,
 	deleteVendorProfileImage,
 	getVendors,
+	deactivateVendorAccount,
 };

@@ -2,21 +2,21 @@ const mongoose = require("mongoose");
 const Plate = require("./Plate");
 const FoodItem = require("./FoodItem");
 const Dish = require("./Combo");
-const { ORDER_STATUS, ORDER_SUB_STATUS } = require("../utilis/constants");
+const { ORDER_STATUS, ORDER_SUB_STATUS } = require("../utils/constants");
 
 const orderSchema = new mongoose.Schema({
 	customer: {
 		type: mongoose.Schema.Types.ObjectId,
-		ref: "customer",
+		ref: "Customer",
 		required: true,
 	},
 	vendor: {
 		type: mongoose.Schema.Types.ObjectId,
-		ref: "Vendor",
+		ref: "VendorProfile",
 		required: true,
 	},
 	items: [
-		{
+		new mongoose.Schema({
 			itemType: {
 				type: String,
 				enum: ["FoodItem", "Combo", "Plate"],
@@ -37,7 +37,7 @@ const orderSchema = new mongoose.Schema({
 				required: true,
 			},
 			notes: String, // optional instructions
-		},
+		}, { _id: false }) // Disable automatic _id for subdocuments
 	],
 	totalPrice: {
 		type: Number,
@@ -56,7 +56,7 @@ const orderSchema = new mongoose.Schema({
 	}, // e.g., "Ikeja"
 	deliveryLatitude: Number,
 	deliveryLongitude: Number,
-	rider: { type: mongoose.Schema.Types.ObjectId, ref: "rider" },
+	rider: { type: mongoose.Schema.Types.ObjectId, ref: "RiderProfile" },
 	status: {
 		type: String,
 		enum: Object.values(ORDER_STATUS),
@@ -77,7 +77,7 @@ const orderSchema = new mongoose.Schema({
 	deliveryOtpSentAt: Date,
 	deliveryOtpExpiresAt: Date,
 	deliveryConfirmedAt: Date,
-	deliveryConfirmedBy: { type: mongoose.Schema.Types.ObjectId, ref: "rider" },
+	deliveryConfirmedBy: { type: mongoose.Schema.Types.ObjectId, ref: "RiderProfile" },
 	paymentStatus: {
 		type: String,
 		enum: ["unpaid", "paid", "refunded"],
@@ -94,6 +94,11 @@ orderSchema.set("toJSON", {
 	versionKey: false,
 	transform: function (doc, ret) {
 		delete ret._id;
+		if (ret.items && Array.isArray(ret.items)) {
+			ret.items.forEach((item) => {
+				delete item._id;
+			});
+		}
 	},
 });
 

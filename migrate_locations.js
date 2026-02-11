@@ -1,14 +1,11 @@
 const mongoose = require('mongoose');
-require('dotenv').config();
-const Vendor = require('./models/Vendor'); // Double check this path matches your folder structure
+require('./config/db'); // Connect to MongoDB
+const VendorProfile = require('./models/VendorProfile'); // Use VendorProfile instead of Vendor
 
 const migrate = async () => {
   try {
-    await mongoose.connect(process.env.MONGO_DB_URI);
-    console.log("Connected to Database...");
-
     // This finds all Vendors who don't have a 'location' field yet
-    const vendorsToUpdate = await Vendor.find({ 
+    const vendorsToUpdate = await Vendor.find({
       $or: [
         { location: { $exists: false } },
         { "location.coordinates": { $size: 0 } }

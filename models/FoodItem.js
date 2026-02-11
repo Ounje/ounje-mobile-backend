@@ -3,7 +3,7 @@ const {
 	getCategoryValues,
 	getSubCategoryValues,
 	//getSellingUnitValues,
-} = require("../utilis/foodEnums");
+} = require("../utils/foodEnums");
 const toJSON = require("./plugins/toJSON.plugin");
 
 const FoodItemSchema = new mongoose.Schema(
@@ -14,7 +14,7 @@ const FoodItemSchema = new mongoose.Schema(
 		description: { type: String },
 		vendor: {
 			type: mongoose.Schema.Types.ObjectId,
-			ref: "Vendor",
+			ref: "VendorProfile",
 			required: true,
 		},
 		category: {
@@ -36,7 +36,6 @@ const FoodItemSchema = new mongoose.Schema(
 		ordersCount: { type: Number, default: 0 },
 		averageRating: { type: Number, default: 0 },
 		ratingCount: { type: Number, default: 0 },
-		likes: [{ type: mongoose.Schema.Types.ObjectId, ref: "customer" }],
 	},
 	{ timestamps: true },
 );
