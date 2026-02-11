@@ -44,6 +44,11 @@ const supportWhatsAppRedirect = async (req, res) => {
 					subject = "Vendor Account Reactivation";
 					category = "Account";
 					messageBody += "I would like to reactivate my vendor account.\n";
+				}
+				if (req.query.type === "updateProfile") {
+					subject = "Profile Update";
+					category = "Account";
+					messageBody += "I would like to update my profile.";
 				} else {
 					subject = "Delivery Issue (Vendor)";
 					category = "Order";
@@ -58,6 +63,11 @@ const supportWhatsAppRedirect = async (req, res) => {
 					subject = "Rider Account Reactivation";
 					category = "Account";
 					messageBody += "I would like to reactivate my rider account.\n";
+				}
+				if (req.query.type === "updateProfile") {
+					subject = "Profile Update";
+					category = "Account";
+					messageBody += "I would like to update my profile.";
 				} else {
 					subject = "Delivery Issue (Rider)";
 					category = "Order";
@@ -68,10 +78,11 @@ const supportWhatsAppRedirect = async (req, res) => {
 			case "customer":
 				messageBody += "I am a customer.\n";
 				if (req.query.issue === "menu") {
-					subject = "I Cannot Update Menu";
+					subject = "I cannot Update Menu";
 					category = "Technical";
-					messageBody += "i am unable to update my menu.\n";
-				} else {
+					messageBody += "I am unable to update my menu.\n";
+				}
+				if (req.query.issue === "order") {
 					subject = "Food Not Delivered";
 					category = "Order";
 					messageBody += "The rider has not delivered my food.\n";
