@@ -5,7 +5,7 @@ const { supportWhatsAppRedirect } = require("../controllers/supportController");
 const router = express.Router();
 
 /**
- * Vendor & Rider WhatsApp Support
+ * Customer,Vendor & Rider WhatsApp Support
  * GET api/support/whatsapp
  */
 /**
@@ -30,7 +30,7 @@ const router = express.Router();
 router.get(
 	"/whatsapp",
 	authMiddleware,
-	roleGuard(["vendor", "rider"]),
+	roleGuard(["vendor", "rider", "customer"]),
 	supportWhatsAppRedirect,
 );
 
