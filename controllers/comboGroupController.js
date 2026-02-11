@@ -141,7 +141,7 @@ const getMyComboGroups = async (req, res) => {
 const getComboGroupById = async (req, res) => {
     try {
         const { groupId } = req.params;
-        const comboGroup = await ComboGroup.findById(groupId).populate("vendor");
+        const comboGroup = await ComboGroup.findById(groupId).populate("vendor", "name _id storeDetails");
 
         if (!comboGroup) {
             return res
@@ -149,7 +149,19 @@ const getComboGroupById = async (req, res) => {
                 .json({ success: false, message: "Combo group not found" });
         }
 
-        res.status(200).json({ success: true, data: comboGroup });
+        // Fetch combos associated with this group
+        const combos = await Combo.find({ comboGroup: groupId }).populate({
+            path: "selections.items.item",
+            select: "name img description price"
+        });
+
+        res.status(200).json({
+            success: true,
+            data: {
+                ...comboGroup.toObject(),
+                combos
+            }
+        });
     } catch (error) {
         res.status(500).json({ success: false, message: error.message });
     }
@@ -180,8 +192,16 @@ const manageGroupItems = async (req, res) => {
 
         try {
             if (add && add.length > 0) {
+                // Remove duplicates from input
+                const uniqueAdd = [...new Set(add)];
+
                 // Verify combos belong to same vendor
-                const combosToAdd = await Combo.find({ _id: { $in: add } }).session(session);
+                const combosToAdd = await Combo.find({ _id: { $in: uniqueAdd } }).session(session);
+
+                if (combosToAdd.length !== uniqueAdd.length) {
+                    throw new Error("One or more combos not found");
+                }
+
                 const invalidCombos = combosToAdd.filter(c => !c.vendor.equals(comboGroup.vendor._id));
 
                 if (invalidCombos.length > 0) {
@@ -189,7 +209,7 @@ const manageGroupItems = async (req, res) => {
                 }
 
                 await Combo.updateMany(
-                    { _id: { $in: add } },
+                    { _id: { $in: uniqueAdd } },
                     { $set: { comboGroup: groupId } },
                     { session }
                 );

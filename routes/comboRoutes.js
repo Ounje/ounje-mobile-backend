@@ -171,6 +171,9 @@ router.get(
  *               img:
  *                 type: string
  *                 format: binary
+ *               comboGroup:
+ *                 type: string
+ *                 description: ID of the combo group (optional)
  *     responses:
  *       201:
  *         description: Combo created
@@ -224,6 +227,9 @@ router.post(
  *               img:
  *                 type: string
  *                 format: binary
+ *               comboGroup:
+ *                 type: string
+ *                 description: ID of the combo group (optional)
  *     responses:
  *       200:
  *         description: Combo updated
