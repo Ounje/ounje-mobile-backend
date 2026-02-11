@@ -13,6 +13,7 @@ const supportWhatsAppRedirect = async (req, res) => {
 
 		const user = req.user;
 		const userId = user._id || user.id;
+
 		if (!userId) {
 			return res.status(401).json({
 				success: false,
@@ -38,6 +39,7 @@ const supportWhatsAppRedirect = async (req, res) => {
 		switch (user.role) {
 			case "vendor":
 				messageBody += "I am a vendor.\n";
+
 				if (supportType === "deactivated") {
 					subject = "Vendor Account Reactivation";
 					category = "Account";
@@ -51,6 +53,7 @@ const supportWhatsAppRedirect = async (req, res) => {
 
 			case "rider":
 				messageBody += "I am a rider.\n";
+
 				if (supportType === "deactivated") {
 					subject = "Rider Account Reactivation";
 					category = "Account";
@@ -62,6 +65,19 @@ const supportWhatsAppRedirect = async (req, res) => {
 				}
 				break;
 
+			case "customer":
+				messageBody += "I am a customer.\n";
+				if (req.query.issue === "menu") {
+					subject = "I Cannot Update Menu";
+					category = "Technical";
+					messageBody += "i am unable to update my menu.\n";
+				} else {
+					subject = "Food Not Delivered";
+					category = "Order";
+					messageBody += "The rider has not delivered my food.\n";
+				}
+				break;
+
 			default:
 				return res.status(403).json({
 					success: false,
@@ -69,18 +85,20 @@ const supportWhatsAppRedirect = async (req, res) => {
 				});
 		}
 
-		const existingTicket = await SupportTicket.findOne({
-			user: userId, // Mongoose will automatically cast string to ObjectId
-			category,
-			status: { $in: ["Open", "In-Progress", "Pending-Reply"] },
-		});
-
-		if (existingTicket) {
-			return res.status(409).json({
-				success: false,
-				message: "You already have an open support ticket for this issue.",
-				ticketId: existingTicket._id,
+		if (supportType === "deactivated") {
+			const existingTicket = await SupportTicket.findOne({
+				user: userId,
+				category: "Account",
+				status: { $in: ["Open", "In-Progress", "Pending-Reply"] },
 			});
+
+			if (existingTicket) {
+				return res.status(409).json({
+					success: false,
+					message: "You already have an open account support ticket.",
+					ticketId: existingTicket._id,
+				});
+			}
 		}
 
 		let relatedVendor = null;
@@ -90,27 +108,23 @@ const supportWhatsAppRedirect = async (req, res) => {
 			const vendor = await VendorProfile.findOne({ owner: userId }).select(
 				"_id",
 			);
-
 			if (!vendor) {
 				return res.status(400).json({
 					success: false,
 					message: "Vendor profile not found",
 				});
 			}
-
 			relatedVendor = vendor._id;
 		}
 
 		if (user.role === "rider") {
 			const rider = await RiderProfile.findOne({ user: userId }).select("_id");
-
 			if (!rider) {
 				return res.status(400).json({
 					success: false,
 					message: "Rider profile not found",
 				});
 			}
-
 			relatedRider = rider._id;
 		}
 
@@ -128,7 +142,6 @@ const supportWhatsAppRedirect = async (req, res) => {
 				},
 			],
 		});
-
 		const encodedMessage = encodeURIComponent(messageBody);
 		const whatsappUrl = `https://wa.me/${phone}?text=${encodedMessage}`;
 
