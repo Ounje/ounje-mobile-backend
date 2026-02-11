@@ -23,6 +23,14 @@ const payoutSchema = new mongoose.Schema(
       required: true,
       min: 0,
     },
+    feeDeducted: {
+      type: Number,
+      default: 0,
+    },
+    netAmount: {
+      type: Number,
+      required: true,
+    },
     bankDetails: {
       accountNumber: { type: String },
       bankCode: { type: String },

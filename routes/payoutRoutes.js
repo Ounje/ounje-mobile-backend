@@ -43,6 +43,21 @@ router.get("/history", authMiddleware, payoutController.getTransactionHistory);
 
 /**
  * @swagger
+ * /api/payouts/withdrawals:
+ * get:
+ * summary: Get bank withdrawal history (Money Out)
+ * description: Returns a list of all bank transfers including Paystack fees and 2026 Stamp Duty deductions.
+ * tags: [Payouts]
+ * security:
+ * - bearerAuth: []
+ * responses:
+ * 200:
+ * description: List of withdrawals with net amounts
+ */
+router.get("/withdrawals", authMiddleware, payoutController.getPayoutHistory);
+
+/**
+ * @swagger
  * /api/payouts/pending:
  *   get:
  *     summary: Get pending payout requests

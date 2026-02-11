@@ -288,6 +288,43 @@ const retryPayout = async (req, res) => {
     res.status(500).json({ error: error.message });
   }
 };
+
+/**
+ * GET /api/payouts/history
+ * Fetch withdrawal history for the logged-in Vendor or Rider
+ */
+const getPayoutHistory = async (req, res) => {
+  try {
+    const { page = 1, limit = 10 } = req.query;
+    
+    // We identify the user by req.user (from your auth middleware)
+    const query = { 
+      user: req.user.id, 
+      userType: req.user.role // Assuming role is 'VENDOR' or 'RIDER'
+    };
+
+    const history = await Payout.find(query)
+      .sort({ createdAt: -1 }) // Newest first
+      .limit(limit * 1)
+      .skip((page - 1) * limit)
+      .exec();
+
+    const count = await Payout.countDocuments(query);
+
+    res.json({
+      success: true,
+      data: history,
+      pagination: {
+        total: count,
+        pages: Math.ceil(count / limit),
+        currentPage: page
+      }
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
 /**
  * Get account statement (for reconciliation)
  * GET /api/payouts/statement?startDate=2025-01-01&endDate=2025-12-31
@@ -330,4 +367,5 @@ module.exports = {
   processPayout,
   retryPayout,
   getStatement,
+  getPayoutHistory,
 };

@@ -74,24 +74,25 @@ const verifyPayment = async (req, res) => {
 		if (!payment)
 			return res.status(404).json({ error: "Payment record not found" });
 
-		if (data.status === "success") {
-			payment.status = "success";
-			payment.paidAt = data.paid_at;
-			await payment.save();
+		// Update our database with whatever Paystack says
+        payment.status = data.status; 
+        
+        if (data.status === "success") {
+            payment.paidAt = data.paid_at;
+            await Order.findByIdAndUpdate(payment.orderId, { paymentStatus: "paid" });
+        }
+        await payment.save();
 
-			// Update Order Status
-			await Order.findByIdAndUpdate(payment.orderId, { paymentStatus: "paid" });
-
-			return res.json({
-				success: true,
-				message: "Payment verified successfully",
-				data,
-			});
-		}
-
-		return res
-			.status(400)
-			.json({ success: false, message: "Payment was not successful" });
+        // THE MAGIC FIX: Always return 200 (Success) so the frontend can read the status
+        return res.status(200).json({
+            success: true, 
+            message: `Current payment status is ${data.status}`,
+            data: {
+                status: data.status,           // Exact strings: 'success', 'ongoing', or 'failed'
+                reason: data.gateway_response, // Exact reason: 'Insufficient Funds', etc.
+                reference: data.reference
+            }
+        });
 	} catch (err) {
 		console.error("Verification Error:", err.response?.data || err.message);
 		res.status(500).json({ error: "Payment verification failed" });
