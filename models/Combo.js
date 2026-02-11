@@ -36,6 +36,10 @@ const ComboSchema = new mongoose.Schema(
 		description: { type: String },
 		basePrice: { type: Number, required: true }, // Base price of the combo
 		selections: [SelectionGroupSchema], // Changed from Map to Array for better population support
+		comboGroup: {
+			type: mongoose.Schema.Types.ObjectId,
+			ref: "ComboGroup",
+		},
 		vendor: {
 			type: mongoose.Schema.Types.ObjectId,
 			ref: "VendorProfile",

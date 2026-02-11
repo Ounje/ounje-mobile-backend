@@ -2,6 +2,7 @@ const Admin = require("./Admin");
 const Announcement = require("./Announcement");
 const Category = require("./Category");
 const Combo = require("./Combo");
+const ComboGroup = require("./ComboGroup");
 const Customer = require("./Customer");
 const FoodItem = require("./FoodItem");
 const LedgerAccount = require("./LedgerAccount");
@@ -26,6 +27,7 @@ module.exports = {
     Announcement,
     Category,
     Combo,
+    ComboGroup,
     Customer,
     FoodItem,
     LedgerAccount,

@@ -267,6 +267,7 @@ const createCombo = async (req, res) => {
 			selections,
 			time,
 			deliveryTime,
+			comboGroup,
 		} = req.body;
 		const vendorId = req.user.id;
 		const vendor = await VendorProfile.findOne({ owner: vendorId });
@@ -303,6 +304,7 @@ const createCombo = async (req, res) => {
 			img: req.file.path,
 			time,
 			deliveryTime,
+			comboGroup, // Optional field
 		});
 		res.status(201).json({
 			success: true,
@@ -339,6 +341,11 @@ const updateCombo = async (req, res) => {
 				selections,
 				combo.vendor._id, // Use VendorProfile ID from populated combo
 			);
+		}
+
+		// Ensure comboGroup is updated if provided
+		if (req.body.comboGroup !== undefined) {
+			updateData.comboGroup = req.body.comboGroup;
 		}
 
 		Object.assign(combo, updateData);
@@ -383,7 +390,8 @@ const getAllCombos = async (req, res) => {
 			{
 				path: "selections.items.item",
 				select: "name img description price"
-			}
+			},
+			{ path: "comboGroup", select: "name description" } // Populate comboGroup
 		];
 
 		const result = await paginate(Combo, req.query, populateOptions);
@@ -402,10 +410,13 @@ const getMyCombos = async (req, res) => {
 		}
 		// Create a filter using VendorProfile ID
 		const filter = { vendor: vendor._id };
-		const populateOptions = {
-			path: "selections.items.item",
-			select: "name img description price"
-		};
+		const populateOptions = [
+			{
+				path: "selections.items.item",
+				select: "name img description price"
+			},
+			{ path: "comboGroup", select: "name description" }
+		];
 
 		const result = await paginate(Combo, req.query, populateOptions, filter);
 		res.status(200).json(result);
@@ -424,7 +435,8 @@ const getComboById = async (req, res) => {
 			.populate({
 				path: "selections.items.item",
 				select: "name img description price"
-			});
+			})
+			.populate("comboGroup", "name description");
 		if (!combo)
 			return res
 				.status(404)
@@ -442,11 +454,63 @@ const getVendorCombos = async (req, res) => {
 			{
 				path: "selections.items.item",
 				select: "name img description price"
-			}
+			},
+			{ path: "comboGroup", select: "name description" }
 		];
 
 		const result = await paginate(Combo, req.query, populateOptions, filter);
 		res.status(200).json(result);
+	} catch (error) {
+		res.status(500).json({ success: false, message: error.message });
+	}
+};
+
+const getVendorCombosGrouped = async (req, res) => {
+	try {
+		const { vendorId } = req.params;
+
+		// Fetch all combos for the vendor
+		const combos = await Combo.find({ vendor: vendorId })
+			.populate("comboGroup", "name description")
+			.populate({
+				path: "selections.items.item",
+				select: "name img description price"
+			});
+
+		// Group by ComboGroup name
+		const grouped = {};
+		const uncategorized = [];
+
+		combos.forEach(combo => {
+			if (combo.comboGroup) {
+				const groupName = combo.comboGroup.name;
+				const groupId = combo.comboGroup.id; // toJSON plugin uses id
+
+				if (!grouped[groupId]) {
+					grouped[groupId] = {
+						groupInfo: combo.comboGroup,
+						items: []
+					};
+				}
+				grouped[groupId].items.push(combo);
+			} else {
+				uncategorized.push(combo);
+			}
+		});
+
+		// Convert object to array for easier frontend consumption
+		const groupsArray = Object.values(grouped).sort((a, b) =>
+			a.groupInfo.name.localeCompare(b.groupInfo.name)
+		);
+
+		if (uncategorized.length > 0) {
+			groupsArray.push({
+				groupInfo: { id: "uncategorized", name: "Uncategorized" },
+				items: uncategorized
+			});
+		}
+
+		res.status(200).json({ success: true, data: groupsArray });
 	} catch (error) {
 		res.status(500).json({ success: false, message: error.message });
 	}
@@ -464,5 +528,7 @@ module.exports = {
 	getAllCombos,
 	getComboById,
 	getMyCombos,
+	getMyCombos,
 	getVendorCombos,
+	getVendorCombosGrouped,
 };
