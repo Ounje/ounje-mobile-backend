@@ -123,21 +123,12 @@ const processSinglePayout = async ({ userId, userType, amount, bankDetails, name
       await user.save();
     }
 
-<<<<<<< HEAD
-    // 3. Trigger Transfer using NET AMOUNT (after fees)
-    const transfer = await paystack.transfer.initiate({ 
-      amount: Math.round(netAmount * 100), // User gets what is left after deductions
-      recipient: recipientCode, 
-      reason: `Withdrawal: Gross ${amount} (Fees: ${fees.total})`, 
-      idempotencyKey: payout.idempotencyKey 
-=======
     // 3. Trigger Transfer
     const transfer = await paystack.transfer.initiate({
       amount: Math.round(amount * 100),
       recipient: recipientCode,
       reason: `Wallet Withdrawal`,
       idempotencyKey: payout.idempotencyKey
->>>>>>> 18ea6936e8eba8e3dd38ec90d432a6e8c0045307
     });
 
     const transferCode = transfer?.data?.transfer_code;
