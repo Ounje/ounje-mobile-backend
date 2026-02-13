@@ -48,3 +48,4 @@ services/data.js
 services/test.js
 
 add-search-index.js
+routes/test route.js

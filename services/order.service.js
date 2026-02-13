@@ -26,6 +26,256 @@ const generateNumericOtp = (length = 6) => {
 
 const hashOtp = (otp) => crypto.createHash("sha256").update(otp).digest("hex");
 
+// --- Vendor Functions ---
+
+const declineOrder = async (orderId, vendorId, declineData = {}) => {
+	const order = await Order.findById(orderId);
+	if (!order) throw new Error("Order not found");
+
+	if (order.vendor.toString() !== vendorId) {
+		throw new Error("You can only decline orders from your restaurant");
+	}
+
+	if (order.status !== ORDER_STATUS.CONFIRMING) {
+		throw new Error(
+			"Order can only be declined during confirmation stage (after notification, before acceptance).",
+		);
+	}
+
+	const { reason, note } = declineData;
+
+	if (!reason) throw new Error("Decline reason is required");
+
+	const validDeclineReasons = [
+		"vendor_out_of_stock",
+		"vendor_too_busy",
+		"vendor_kitchen_closed",
+		"vendor_delivery_area_not_covered",
+		"vendor_technical_issue",
+		"vendor_item_unavailable",
+		"vendor_prep_time_too_long",
+		"vendor_other",
+	];
+
+	if (!validDeclineReasons.includes(reason))
+		throw new Error("Invalid decline reason");
+
+	order.status = ORDER_STATUS.DECLINED;
+	order.subStatus = ORDER_SUB_STATUS.DECLINED;
+	order.declinedAt = new Date();
+	order.declinedBy = vendorId;
+	order.declineReason = reason;
+	order.declineNote = note || null;
+
+	await order.save();
+
+	try {
+		await notificationService.notifyCustomerOrderDeclined(
+			order.customer,
+			order,
+			{ reason: getDeclineReasonText(reason), note },
+		);
+		logger.info(
+			`Order ${orderId} declined by vendor ${vendorId} with reason: ${reason}`,
+		);
+	} catch (error) {
+		logger.error(`Failed to send decline notification: ${error.message}`);
+	}
+
+	if (global.io) {
+		global.io.to(order.customer.toString()).emit("orderDeclined", {
+			orderId: order._id,
+			vendorName: order.vendor.name,
+			reason: getDeclineReasonText(reason),
+			note,
+			timestamp: order.declinedAt,
+		});
+	}
+
+	return order;
+};
+
+const vendorAcceptOrder = async (orderId, vendorId) => {
+	const order = await Order.findById(orderId);
+	if (!order) throw new Error("Order not found");
+
+	if (order.vendor.toString() !== vendorId) {
+		throw new Error("You can only accept orders from your restaurant");
+	}
+
+	if (order.status !== ORDER_STATUS.CONFIRMING) {
+		throw new Error("Order is no longer in confirming status");
+	}
+
+	order.status = ORDER_STATUS.PENDING;
+	order.subStatus = ORDER_SUB_STATUS.LOOKING_FOR_RIDER;
+
+	await order.save();
+
+	try {
+		await notificationService.notifyCustomerOrderAccepted(
+			order.customer,
+			order,
+		);
+		logger.info(`Order ${orderId} accepted by vendor ${vendorId}`);
+	} catch (error) {
+		logger.error(`Failed to send acceptance notification: ${error.message}`);
+	}
+
+	try {
+		const vendor = await VendorProfile.findById(vendorId);
+		if (vendor && vendor.location) {
+			await findNearbyRiders(vendor.location, order._id);
+		}
+	} catch (error) {
+		logger.error(`Failed to notify riders: ${error.message}`);
+	}
+
+	if (global.io) {
+		global.io.to(order.customer.toString()).emit("orderAccepted", {
+			orderId: order._id,
+			status: order.status,
+			subStatus: order.subStatus,
+		});
+	}
+
+	return order;
+};
+
+const getDeclineReasonText = (reason) => {
+	const reasonTexts = {
+		vendor_out_of_stock: "Items are out of stock",
+		vendor_too_busy: "We're too busy right now",
+		vendor_kitchen_closed: "Kitchen is closed",
+		vendor_delivery_area_not_covered: "We don't deliver to this area",
+		vendor_technical_issue: "Technical issue occurred",
+		vendor_item_unavailable: "Some items are unavailable",
+		vendor_prep_time_too_long: "Preparation time would be too long",
+		vendor_other: "Unable to fulfill order",
+	};
+	return reasonTexts[reason] || reason;
+};
+
+const getDeclineStats = async (vendorId, filters = {}) => {
+	const { startDate, endDate } = filters;
+	const matchStage = {
+		vendor: mongoose.Types.ObjectId(vendorId),
+		status: ORDER_STATUS.DECLINED,
+	};
+
+	if (startDate && endDate) {
+		matchStage.declinedAt = {
+			$gte: new Date(startDate),
+			$lte: new Date(endDate),
+		};
+	}
+
+	const stats = await Order.aggregate([
+		{ $match: matchStage },
+		{ $group: { _id: "$declineReason", count: { $sum: 1 } } },
+		{ $sort: { count: -1 } },
+	]);
+
+	const totalDeclines = stats.reduce((sum, item) => sum + item.count, 0);
+
+	return {
+		totalDeclines,
+		byReason: stats.map((s) => ({
+			reason: s._id,
+			reasonText: getDeclineReasonText(s._id),
+			count: s.count,
+			percentage:
+				totalDeclines > 0
+					? ((s.count / totalDeclines) * 100).toFixed(2)
+					: "0.00",
+		})),
+	};
+};
+
+// --- Rider Functions ---
+
+const riderDeclineOrder = async (orderId, riderId, declineData = {}) => {
+	const order = await Order.findById(orderId);
+	if (!order) throw new Error("Order not found");
+
+	if (order.rider && order.rider.toString() !== riderId) {
+		throw new Error("You can only decline orders assigned to you");
+	}
+
+	if (order.status !== ORDER_STATUS.RIDING) {
+		throw new Error("Order can only be declined if it's in riding status");
+	}
+
+	const { reason, note } = declineData;
+
+	if (!reason) throw new Error("Decline reason is required");
+
+	const validRiderDeclineReasons = [
+		"rider_cannot_reach_vendor",
+		"rider_cannot_reach_customer",
+		"rider_vehicle_issue",
+		"rider_other",
+	];
+
+	if (!validRiderDeclineReasons.includes(reason)) {
+		throw new Error("Invalid decline reason");
+	}
+
+	order.rider = null;
+	order.status = ORDER_STATUS.RIDING;
+	order.subStatus = ORDER_SUB_STATUS.LOOKING_FOR_RIDER;
+	order.cancelledAt = new Date();
+	order.cancelledBy = riderId;
+	order.cancellationReason = reason;
+	order.cancellationNote = note || null;
+	order.cancellationCategory = "rider";
+
+	await order.save();
+
+	try {
+		await notificationService.notifyCustomerRiderDeclined(
+			order.customer,
+			order,
+			{ reason: getRiderDeclineReasonText(reason), note },
+		);
+		logger.info(
+			`Order ${orderId} declined by rider ${riderId} with reason: ${reason}`,
+		);
+	} catch (error) {
+		logger.error(`Failed to send rider decline notification: ${error.message}`);
+	}
+
+	try {
+		const vendor = await VendorProfile.findById(order.vendor);
+		if (vendor && vendor.location) {
+			await findNearbyRiders(vendor.location, order._id);
+		}
+	} catch (error) {
+		logger.error(`Failed to notify riders after decline: ${error.message}`);
+	}
+
+	if (global.io) {
+		global.io.to(order.customer.toString()).emit("riderDeclined", {
+			orderId: order._id,
+			reason: getRiderDeclineReasonText(reason),
+			note,
+			timestamp: order.cancelledAt,
+		});
+	}
+
+	return order;
+};
+
+const getRiderDeclineReasonText = (reason) => {
+	const reasonTexts = {
+		rider_cannot_reach_vendor: "Cannot reach vendor",
+		rider_cannot_reach_customer: "Cannot reach customer",
+		rider_vehicle_issue: "Vehicle issue",
+		rider_other: "Other reason",
+	};
+	return reasonTexts[reason] || reason;
+};
+
 const findNearbyRiders = async (vendorLocation, orderId) => {
 	try {
 		// 1. Find all available riders within 3km (3000 meters)
@@ -401,34 +651,30 @@ const completeDelivery = async (orderId, riderId, otp) => {
 	return order;
 };
 
-const cancelOrder = async (orderId, userId, userRole) => {
+const cancelOrder = async (orderId, customerId) => {
 	const order = await Order.findById(orderId);
 	if (!order) throw new Error("Order not found");
 
-	// Validate cancellation permissions
-	if (userRole === "customer" && order.customer.toString() !== userId) {
+	if (order.customer.toString() !== customerId) {
 		throw new Error("You can only cancel your own orders");
 	}
-	if (userRole === "vendor" && order.vendor.toString() !== userId) {
-		throw new Error("You can only cancel orders from your restaurant");
-	}
 
-	// Prevent cancellation of already delivered orders
-	if (order.status === ORDER_STATUS.DELIVERED) {
-		throw new Error("Cannot cancel a delivered order");
+	if (order.status !== ORDER_STATUS.CONFIRMING) {
+		throw new Error("You can only cancel orders before vendor accepts");
 	}
 
 	order.status = ORDER_STATUS.CANCELLED;
 	order.subStatus = ORDER_SUB_STATUS.CANCELLED;
 	order.cancelledAt = new Date();
-	order.cancelledBy = userId;
+	order.cancelledBy = customerId;
+	order.cancellationCategory = "customer";
+
 	await order.save();
 
-	// Notify vendor about cancellation
 	try {
 		await notificationService.notifyOrderCancelled(order.vendor, order);
 		logger.info(
-			`Order cancellation notification sent to vendor ${order.vendor}`,
+			`Order ${orderId} cancelled by customer ${customerId}, vendor ${order.vendor} notified`,
 		);
 	} catch (error) {
 		logger.error(`Failed to send cancellation notification: ${error.message}`);
@@ -542,4 +788,10 @@ module.exports = {
 	getRiderOrders,
 	generateNumericOtp,
 	hashOtp,
+	declineOrder,
+	vendorAcceptOrder,
+	getDeclineReasonText,
+	getDeclineStats,
+	riderDeclineOrder,
+	getRiderDeclineReasonText,
 };
