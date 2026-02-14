@@ -29,7 +29,19 @@ const plateSchema = new mongoose.Schema(
 	{ timestamps: true },
 );
 
+plateSchema.index(
+	{
+		name: "text",
+		description: "text",
+	},
+	{
+		weights: {
+			name: 10,
+			description: 5,
+		},
+		name: "plate_search_index",
+	},
+);
 plateSchema.plugin(toJSON);
-
 
 module.exports = mongoose.model("Plate", plateSchema);

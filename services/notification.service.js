@@ -183,6 +183,34 @@ class NotificationService {
 			priority: "high",
 		});
 	}
+	async notifyCustomerOrderAccepted(customerId, order, vendorName) {
+		return this.createNotification({
+			recipient: customerId,
+			recipientModel: "customer",
+			type: "vendor_accepted_order",
+			title: "Vendor has accepted your order!",
+			message: `${vendorName} has accepted your order`,
+			data: {
+				orderId: order._id,
+				vendorId: order.vendor,
+			},
+			priority: "high",
+		});
+	}
+	async notifyCustomerOrderDeclined(customerId, order, vendorName) {
+		return this.createNotification({
+			recipient: customerId,
+			recipientModel: "customer",
+			type: "vendor_accepted_order",
+			title: "Vendor has accepted your order!",
+			message: `${vendorName} declined your order`,
+			data: {
+				orderId: order._id,
+				vendorId: order.vendor,
+			},
+			priority: "high",
+		});
+	}
 
 	async notifyCustomerOrderPickedUp(customerId, order) {
 		return this.createNotification({

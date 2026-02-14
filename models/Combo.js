@@ -57,6 +57,22 @@ const ComboSchema = new mongoose.Schema(
 	{ timestamps: true },
 );
 
+ComboSchema.index(
+	{
+		comboName: "text",
+		description: "text",
+		"selections.items.name": "text",
+	},
+	{
+		weights: {
+			comboName: 10,
+			"selections.items.name": 7,
+			description: 5,
+		},
+		name: "combo_search_index",
+	},
+);
+
 ComboSchema.plugin(toJSON);
 
 ComboSchema.set("toObject", { virtuals: true });

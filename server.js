@@ -23,6 +23,7 @@ const deliveryRoutes = require("./routes/deliveryRoutes");
 const supportRoutes = require("./routes/supportRoutes");
 const ratingRouter = require("./routes/ratingsRoutes");
 const newflashRouter = require("./routes/newflash.route");
+const searchRouter = require("./routes/search.routes");
 const notificationRouter = require("./routes/notification.router");
 
 const app = express();
@@ -70,6 +71,7 @@ app.use("/api/payouts", payoutRoutes);
 app.use("/api/delivery", deliveryRoutes);
 app.use("/api/support", supportRoutes);
 app.use("/api/rating", ratingRouter);
+app.use("/api/search", searchRouter);
 app.use("/api/notifications", notificationRouter);
 // app.use("/api/test", require("./tests/test01"));
 

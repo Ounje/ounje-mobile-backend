@@ -89,7 +89,7 @@ const vendorProfileSchema = new mongoose.Schema(
 				},
 				open: String,
 				close: String,
-				isClosed: { type: Boolean, default: false },
+				isOpen: { type: Boolean, default: false },
 			},
 		],
 		bankDetails: {
@@ -101,7 +101,23 @@ const vendorProfileSchema = new mongoose.Schema(
 	},
 	{ timestamps: true },
 );
-
+vendorProfileSchema.index(
+	{
+		name: "text",
+		description: "text",
+		"storeDetails.storeName": "text",
+		"location.address": "text",
+	},
+	{
+		weights: {
+			name: 10,
+			"storeDetails.storeName": 8,
+			description: 5,
+			"location.address": 3,
+		},
+		name: "vendor_search_index",
+	},
+);
 vendorProfileSchema.plugin(toJSON);
 
 module.exports = mongoose.model("VendorProfile", vendorProfileSchema);

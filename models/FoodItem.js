@@ -42,7 +42,23 @@ const FoodItemSchema = new mongoose.Schema(
 	{ timestamps: true },
 );
 
+FoodItemSchema.index(
+	{
+		name: "text",
+		description: "text",
+		category: "text",
+		subCategory: "text",
+	},
+	{
+		weights: {
+			name: 10,
+			category: 7,
+			subCategory: 6,
+			description: 5,
+		},
+		name: "fooditem_search_index",
+	},
+);
 FoodItemSchema.plugin(toJSON);
-
 
 module.exports = mongoose.model("FoodItem", FoodItemSchema);
