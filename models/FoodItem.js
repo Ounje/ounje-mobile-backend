@@ -36,6 +36,8 @@ const FoodItemSchema = new mongoose.Schema(
 		ordersCount: { type: Number, default: 0 },
 		averageRating: { type: Number, default: 0 },
 		ratingCount: { type: Number, default: 0 },
+		minQuantity: { type: Number, default: 1 },
+		maxQuantity: { type: Number, default: null },
 	},
 	{ timestamps: true },
 );

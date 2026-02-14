@@ -4,7 +4,7 @@ const { paginate } = require("../utils/paginate");
 
 const createFoodItem = async (req, res) => {
 	try {
-		const { name, price, description, category, subCategory, preparationTime } =
+		const { name, price, description, category, subCategory, preparationTime, minQuantity, maxQuantity } =
 			req.body;
 		const vendorId = req.user.id;
 		const vendor = await VendorProfile.findOne({ owner: vendorId });
@@ -57,6 +57,8 @@ const createFoodItem = async (req, res) => {
 			preparationTime,
 			vendor: vendor._id, // Use VendorProfile ID, not User ID
 			img: req.file.path,
+			minQuantity: minQuantity || 1,
+			maxQuantity: maxQuantity || null,
 		});
 
 		await foodItem.save();
@@ -93,6 +95,8 @@ const updateFoodItem = async (req, res) => {
 			"subCategory",
 			"preparationTime",
 			"isAvailable",
+			"minQuantity",
+			"maxQuantity",
 		];
 		if (req.body.category) {
 			const validCategories = Object.values(FOOD_ENUMS.CATEGORIES);

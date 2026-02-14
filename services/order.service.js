@@ -15,6 +15,7 @@ const notificationService = require("./notification.service");
 const { ORDER_STATUS, ORDER_SUB_STATUS } = require("../utils/constants");
 const logger = require("../utils/logger");
 const mongoose = require("mongoose");
+const AppError = require("../utils/AppError");
 
 // --- Helpers ---
 
@@ -105,9 +106,23 @@ const createOrder = async (userId, data) => {
 		if (!itemId || !itemType || !models[itemType]) continue;
 
 		const ProductModel = models[itemType];
-		const product = await ProductModel.findById(itemId).select("price");
+		const product = await ProductModel.findById(itemId).select(
+			"price minQuantity maxQuantity name",
+		);
 
 		if (product) {
+			if (product.minQuantity && quantity < product.minQuantity) {
+				throw new AppError(
+					`Quantity for ${product.name} is too low. Minimum allowed is ${product.minQuantity}`,
+					400,
+				);
+			}
+			if (product.maxQuantity && quantity > product.maxQuantity) {
+				throw new AppError(
+					`Quantity for ${product.name} is too high. Maximum allowed is ${product.maxQuantity}`,
+					400,
+				);
+			}
 			const itemPrice = product.price;
 			itemsTotalPrice += itemPrice * quantity;
 			orderItems.push({
