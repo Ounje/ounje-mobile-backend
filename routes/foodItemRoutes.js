@@ -132,6 +132,10 @@ router.get(
  *               img:
  *                 type: string
  *                 format: binary
+ *               minQuantity:
+ *                 type: number
+ *               maxQuantity:
+ *                 type: number
  *     responses:
  *       201:
  *         description: Food item created successfully
@@ -186,6 +190,10 @@ router.post(
  *               img:
  *                 type: string
  *                 format: binary
+ *               minQuantity:
+ *                 type: number
+ *               maxQuantity:
+ *                 type: number
  *     responses:
  *       200:
  *         description: Food item updated

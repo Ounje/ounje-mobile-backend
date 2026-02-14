@@ -59,9 +59,38 @@ const router = express.Router();
  *           schema:
  *             type: object
  *             required: [vendorId, deliveryAddress, items]
+ *             properties:
+ *               vendorId:
+ *                 type: string
+ *                 description: ID of the vendor
+ *               deliveryAddress:
+ *                 type: string
+ *                 description: Delivery address
+ *               items:
+ *                 type: array
+ *                 items:
+ *                   type: object
+ *                   required: [itemId, itemType]
+ *                   properties:
+ *                     itemId:
+ *                       type: string
+ *                       description: ID of the FoodItem, Combo, or Plate
+ *                     itemType:
+ *                       type: string
+ *                       enum: [FoodItem, Combo, Plate]
+ *                     quantity:
+ *                       type: number
+ *                       default: 1
+ *                     notes:
+ *                       type: string
+ *                       description: Optional instructions for the item
  *     responses:
  *       201:
  *         description: Order created successfully
+ *       400:
+ *         description: Invalid input or quantity limits exceeded
+ *       404:
+ *         description: Vendor or items not found
  */
 router.post(
 	"/",
@@ -133,9 +162,15 @@ router.get(
  *       - in: path
  *         name: orderId
  *         required: true
+ *         schema:
+ *           type: string
  *     responses:
  *       200:
- *         description: Order cancelled
+ *         description: Order cancelled successfully
+ *       400:
+ *         description: Order cannot be cancelled (e.g. already accepted)
+ *       403:
+ *         description: Not authorized to cancel this order
  */
 router.put(
 	"/:orderId/cancel",
@@ -157,6 +192,19 @@ router.put(
  *     tags: [Orders]
  *     security:
  *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: orderId
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Order accepted by vendor
+ *       403:
+ *         description: Not authorized
+ *       404:
+ *         description: Order not found
  */
 router.put(
 	"/vendor/:orderId/accept",
