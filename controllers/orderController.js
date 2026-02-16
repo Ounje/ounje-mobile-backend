@@ -188,3 +188,9 @@ exports.updateOrderStatus = asyncHandler(async (req, res) => {
 	const order = await orderService.updateOrderStatus(id, status, subStatus);
 	res.status(200).json({ success: true, order });
 });
+
+// Get orders for logged-in vendor
+exports.getVendorOrders = asyncHandler(async (req, res) => {
+	const orders = await orderService.getVendorOrders(req.user.id, req.query);
+	res.status(200).json({ count: orders.length, orders });
+});

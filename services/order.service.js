@@ -788,6 +788,51 @@ const getRiderOrders = async (riderId, statusFilter) => {
 		.sort({ createdAt: -1 });
 };
 
+const getVendorOrders = async (userId, query = {}) => {
+	const { status } = query;
+
+	// 1. Find the Vendor Profile associated with this User
+	// Note: 'owner' is the field that references the User model in VendorProfile
+	const vendor = await VendorProfile.findOne({ owner: userId });
+	if (!vendor) {
+		throw new Error("Vendor profile not found for this user");
+	}
+
+	// 2. Build Query
+	// Order.vendor references the VendorProfile._id
+	const filter = { vendor: vendor._id };
+
+	if (status) {
+		// If status is provided, validate it or just pass it
+		// You might want to map 'active' to multiple statuses
+		if (status === "active") {
+			filter.status = {
+				$in: [
+					ORDER_STATUS.CONFIRMING,
+					ORDER_STATUS.PENDING,
+					ORDER_STATUS.RIDING,
+				],
+			};
+		} else if (status === "completed") {
+			filter.status = ORDER_STATUS.DELIVERED;
+		} else if (status === "cancelled") {
+			filter.status = { $in: [ORDER_STATUS.CANCELLED, ORDER_STATUS.DECLINED] };
+		} else {
+			// Fallback for specific status strings
+			filter.status = status;
+		}
+	}
+
+	// 3. Fetch Orders
+	const orders = await Order.find(filter)
+		.populate("customer", "name address phone")
+		.populate("rider", "name phone")
+		.populate("items.item") // Populate food item details
+		.sort({ createdAt: -1 }); // Newest first
+
+	return orders;
+};
+
 module.exports = {
 	createOrder,
 	updateOrderStatus,
@@ -801,6 +846,7 @@ module.exports = {
 	getCurrentRiderOrder,
 	getRiderCompletedOrdersToday,
 	getRiderOrders,
+	getVendorOrders, // Added here
 	generateNumericOtp,
 	hashOtp,
 	declineOrder,

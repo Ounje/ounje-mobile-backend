@@ -16,6 +16,7 @@ const {
 	vendorAcceptOrder,
 	vendorDeclineOrder,
 	getVendorDeclineStats,
+	getVendorOrders,
 
 	// Rider
 	acceptOrder,
@@ -252,6 +253,32 @@ router.get(
 	checkActiveUser,
 	roleGuard(["vendor"]),
 	getVendorDeclineStats,
+);
+
+/**
+ * @swagger
+ * /api/orders/vendor/orders:
+ *   get:
+ *     summary: Get all orders for logged-in vendor
+ *     tags: [Orders]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: status
+ *         schema:
+ *           type: string
+ *           description: Optional status filter (active, completed, cancelled, or specific status)
+ *     responses:
+ *       200:
+ *         description: List of vendor orders
+ */
+router.get(
+	"/vendor/orders",
+	authMiddleware,
+	checkActiveUser,
+	roleGuard(["vendor"]),
+	getVendorOrders,
 );
 
 /* ======================
