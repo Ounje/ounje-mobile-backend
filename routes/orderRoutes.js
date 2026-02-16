@@ -27,7 +27,6 @@ const {
 	getRiderCompletedOrdersToday,
 	getRiderOrders,
 
-	// Admin
 	updateOrderStatus,
 } = require("../controllers/orderController");
 
