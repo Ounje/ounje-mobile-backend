@@ -9,6 +9,7 @@ const logger = require("../utils/logger");
  * Get Rider Dashboard Data
  * Aggregates Wallet info and daily earnings.
  */
+
 const getRiderDashboard = async (riderId) => {
 	// 1. Get Wallet Balances
 	const balanceInfo = await ledgerService.getAccountBalance(riderId, "RIDER");
@@ -18,20 +19,19 @@ const getRiderDashboard = async (riderId) => {
 
 	return {
 		wallet: {
-			availableBalance: balanceInfo.availableBalance,
-			pendingBalance: balanceInfo.pendingBalance,
-			totalBalance: balanceInfo.totalBalance,
+			availableBalance: balanceInfo.availableBalance || 0,
+			pendingBalance: balanceInfo.pendingBalance || 0,
+			totalBalance: balanceInfo.totalBalance || 0,
 			currency: "NGN",
 		},
 		stats: {
-			todayEarnings,
+			todayEarnings: todayEarnings || 0,
 		},
 	};
 };
 
 /**
  * Complete Rider Registration
- * Handles file uploads and saves rider profile data
  */
 const completeRiderRegistration = async (userId, data, files) => {
 	const {
@@ -41,13 +41,11 @@ const completeRiderRegistration = async (userId, data, files) => {
 		guarantorNin: guarantorNinNumber,
 	} = data;
 
-	// Find the user account and verify it's a rider
 	const user = await User.findById(userId);
 	if (!user) {
 		throw new Error("User account not found");
 	}
 
-	// Find or create rider profile
 	let riderProfile = await RiderProfile.findOne({ user: userId });
 	if (!riderProfile) {
 		riderProfile = new RiderProfile({ user: userId });
@@ -72,22 +70,22 @@ const completeRiderRegistration = async (userId, data, files) => {
 	if (!files || !files.guarantorNin || !files.guarantorNin[0]) {
 		throw new Error("Guarantor NIN document is required");
 	}
-	const guarantorNinUrl = files.guarantorNin[0].path;
 
+	const guarantorNinUrl = files.guarantorNin[0].path;
 	let driversLicense = null;
 	let nin = null;
 
 	if (modeOfDelivery === "Motorcycle") {
-		if (!files || !files.driversLicense || !files.driversLicense[0]) {
+		if (!files.driversLicense || !files.driversLicense[0]) {
 			throw new Error(
-				"Drivers license document is required for Motorcycle riders",
+				"Driver's license document is required for Motorcycle riders",
 			);
 		}
 		driversLicense = files.driversLicense[0].path;
 	}
 
 	if (modeOfDelivery === "Bicycle") {
-		if (!files || !files.nin || !files.nin[0]) {
+		if (!files.nin || !files.nin[0]) {
 			throw new Error("NIN document is required for Bicycle riders");
 		}
 		nin = files.nin[0].path;
@@ -104,6 +102,8 @@ const completeRiderRegistration = async (userId, data, files) => {
 	if (nin) riderProfile.nin = nin;
 
 	await riderProfile.save();
+
+	logger.info(`Rider registration completed for user ${userId}`);
 
 	return {
 		riderId: riderProfile._id,
@@ -127,7 +127,6 @@ const completeRiderRegistration = async (userId, data, files) => {
 
 /**
  * Get Rider Profile
- * Fetches profile and checks for missing fields.
  */
 const getRiderProfile = async (userId) => {
 	const riderProfile = await RiderProfile.findOne({ user: userId })
@@ -138,13 +137,10 @@ const getRiderProfile = async (userId) => {
 
 	if (!riderProfile) throw new Error("Rider profile not found");
 
-	let setupComplete = false;
-	let missingFields = [];
+	const missingFields = [];
 
-	// Check basic fields
 	if (!riderProfile.modeOfDelivery) missingFields.push("modeOfDelivery");
 
-	// Check guarantor information
 	if (!riderProfile.guarantor) {
 		missingFields.push("Guarantor information");
 	} else {
@@ -154,29 +150,30 @@ const getRiderProfile = async (userId) => {
 			missingFields.push("guarantor NIN document");
 	}
 
-	// Check mode-specific documents
-	if (riderProfile.modeOfDelivery === "Motorcycle") {
-		if (!riderProfile.driversLicense)
-			missingFields.push("driversLicense document");
-	} else if (riderProfile.modeOfDelivery === "Bicycle") {
-		if (!riderProfile.nin) missingFields.push("NIN document");
+	if (
+		riderProfile.modeOfDelivery === "Motorcycle" &&
+		!riderProfile.driversLicense
+	) {
+		missingFields.push("driver's license document");
 	}
 
-	// Check operating area
+	if (riderProfile.modeOfDelivery === "Bicycle" && !riderProfile.nin) {
+		missingFields.push("NIN document");
+	}
+
 	if (!riderProfile.operatingArea || riderProfile.operatingArea.length === 0) {
 		missingFields.push("operatingArea");
 	}
 
-	setupComplete = missingFields.length === 0;
+	const setupComplete = missingFields.length === 0;
 
-	// Activate rider if setup is complete
 	if (setupComplete && !riderProfile.isActive) {
 		riderProfile.isActive = true;
 		riderProfile.status = "available";
 		await riderProfile.save();
 	}
 
-	const responseData = {
+	return {
 		name: riderProfile.user.name,
 		phone: riderProfile.user.phone,
 		email: riderProfile.user.email,
@@ -186,39 +183,28 @@ const getRiderProfile = async (userId) => {
 		status: riderProfile.status,
 		isActive: riderProfile.isActive,
 		setupComplete,
-		earnings: riderProfile.earnings,
+		missingFields: setupComplete ? undefined : missingFields,
+		earnings: riderProfile.earnings || 0,
 		ratings: {
 			average: riderProfile.ratings?.average || riderProfile.averageRating || 0,
 			count: riderProfile.ratings?.count || riderProfile.ratingCount || 0,
 		},
+		documentsUploaded: {
+			driversLicense: !!riderProfile.driversLicense,
+			nin: !!riderProfile.nin,
+			guarantorNin: !!riderProfile.guarantor?.nin,
+		},
 	};
-
-	if (!setupComplete) {
-		responseData.missingFields = missingFields;
-	}
-
-	responseData.documentsUploaded = {
-		driversLicense: !!riderProfile.driversLicense,
-		nin: !!riderProfile.nin,
-		guarantorNin: !!riderProfile.guarantor?.nin,
-	};
-
-	return responseData;
 };
 
 /**
- * Update/Set Operating Area for Rider
- * Allows riders to select their operating zones (max 2)
+ * Update Operating Area
  */
 const updateOperatingArea = async (userId, body) => {
 	const { operatingArea } = body;
 
-	if (!operatingArea || !Array.isArray(operatingArea)) {
-		throw new Error("Operating area must be an array of zones");
-	}
-
-	if (operatingArea.length === 0) {
-		throw new Error("At least one delivery zone must be selected");
+	if (!Array.isArray(operatingArea) || operatingArea.length === 0) {
+		throw new Error("Operating area must be a non-empty array");
 	}
 
 	if (operatingArea.length > 2) {
@@ -231,13 +217,7 @@ const updateOperatingArea = async (userId, body) => {
 		{ new: true },
 	).populate("user", "name phone");
 
-	if (!riderProfile) {
-		throw new Error("Rider profile not found");
-	}
-
-	logger.info(
-		`Rider ${userId} updated operating area: ${operatingArea.join(", ")}`,
-	);
+	if (!riderProfile) throw new Error("Rider profile not found");
 
 	return {
 		success: true,
@@ -251,17 +231,13 @@ const updateOperatingArea = async (userId, body) => {
 };
 
 /**
- * Get Rider Operating Area
- * Fetches the current operating zones for a rider
+ * Get Operating Area
  */
 const getOperatingArea = async (userId) => {
 	const riderProfile = await RiderProfile.findOne({ user: userId }).select(
 		"operatingArea",
 	);
-
-	if (!riderProfile) {
-		throw new Error("Rider profile not found");
-	}
+	if (!riderProfile) throw new Error("Rider profile not found");
 
 	return {
 		success: true,
@@ -272,14 +248,20 @@ const getOperatingArea = async (userId) => {
 };
 
 /**
- * Update Rider Current Location
+ * Update Current Location
  */
 const updateCurrentLocation = async (userId, longitude, latitude) => {
 	if (typeof longitude !== "number" || typeof latitude !== "number") {
-		throw new Error(
-			"Invalid coordinates. Longitude and latitude must be numbers",
-		);
+		throw new Error("Longitude and latitude must be numbers");
 	}
+
+	// if (longitude < -180 || longitude > 180) {
+	// 	throw new Error("Longitude must be between -180 and 180");
+	// }
+
+	// if (latitude < -90 || latitude > 90) {
+	// 	throw new Error("Latitude must be between -90 and 90");
+	// }
 
 	const riderProfile = await RiderProfile.findOne({ user: userId });
 	if (!riderProfile) throw new Error("Rider profile not found");
@@ -319,26 +301,35 @@ const updateRiderStatus = async (userId, status) => {
 	const riderProfile = await RiderProfile.findOne({ user: userId });
 	if (!riderProfile) throw new Error("Rider profile not found");
 
+	if (riderProfile.status === "deactivated" && status !== "deactivated") {
+		throw new Error("Cannot change status of deactivated rider");
+	}
+
 	riderProfile.status = status;
+	riderProfile.isActive = ["available", "busy"].includes(status);
+
 	await riderProfile.save();
 
 	return {
 		success: true,
 		message: "Status updated successfully",
 		status: riderProfile.status,
+		isActive: riderProfile.isActive,
 	};
 };
 
 /**
  * Update Bank Details
- * Bank details are stored in the Payout model, not in RiderProfile
- * This function stores them for future payout processing
  */
 const updateBankDetails = async (userId, bankDetails) => {
 	const { accountNumber, bankCode, accountName } = bankDetails;
 
 	if (!accountNumber || !bankCode || !accountName) {
-		throw new Error("accountNumber, bankCode, accountName required");
+		throw new Error("accountNumber, bankCode, and accountName are required");
+	}
+
+	if (!/^\d{10}$/.test(accountNumber)) {
+		throw new Error("Account number must be exactly 10 digits");
 	}
 
 	const riderProfile = await RiderProfile.findOne({ user: userId });
@@ -358,14 +349,14 @@ const updateBankDetails = async (userId, bankDetails) => {
 };
 
 /**
- * Get Rider Leaderboard
+ * Leaderboard
  */
 const getRiderLeaderboard = async () => {
-	return await ratingService.getRiderLeaderboard();
+	return ratingService.getRiderLeaderboard();
 };
 
 /**
- * Deactivate Rider Account
+ * Deactivate Account
  */
 const deactivateRiderAccount = async (userId) => {
 	const riderProfile = await RiderProfile.findOneAndUpdate(
@@ -373,9 +364,8 @@ const deactivateRiderAccount = async (userId) => {
 		{ status: "deactivated", isActive: false },
 		{ new: true },
 	);
-	if (!riderProfile) throw new Error("Rider profile not found");
 
-	logger.info(`Rider ${userId} account deactivated`);
+	if (!riderProfile) throw new Error("Rider profile not found");
 
 	return {
 		success: true,
