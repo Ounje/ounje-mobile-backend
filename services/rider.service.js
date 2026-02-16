@@ -242,6 +242,7 @@ const updateOperatingArea = async (userId, body) => {
 			riderId: riderProfile._id,
 			name: riderProfile.user.name,
 			operatingArea: riderProfile.operatingArea,
+			setupComplete,
 		},
 	};
 };
