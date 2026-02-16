@@ -15,6 +15,7 @@ const riderProfileSchema = new mongoose.Schema(
 		},
 		operatingArea: [],
 		isActive: { type: Boolean, default: false },
+		setupComplete: { type: Boolean, default: false },
 		currentLocation: {
 			type: { type: String, enum: ["Point"], default: "Point" },
 			coordinates: { type: [Number], default: [0, 0] }, // [longitude, latitude]

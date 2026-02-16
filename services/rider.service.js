@@ -165,11 +165,29 @@ const getRiderProfile = async (userId) => {
 		missingFields.push("operatingArea");
 	}
 
-	const setupComplete = missingFields.length === 0;
+	// Check if setup complete based on missing fields or persisted flag
+	let setupComplete = missingFields.length === 0;
+
+	// If the flag is explicitly true, respect it (handles cases where dynamic check fails)
+	if (riderProfile.setupComplete) {
+		setupComplete = true;
+	}
+
+	// Update persisted flag if dynamic check passes but flag is false
+	let shouldSave = false;
+
+	if (setupComplete && !riderProfile.setupComplete) {
+		riderProfile.setupComplete = true;
+		shouldSave = true;
+	}
 
 	if (setupComplete && !riderProfile.isActive) {
 		riderProfile.isActive = true;
 		riderProfile.status = "available";
+		shouldSave = true;
+	}
+
+	if (shouldSave) {
 		await riderProfile.save();
 	}
 
@@ -227,6 +245,10 @@ const updateOperatingArea = async (userId, body) => {
 
 	// Setup is complete if at least one zone is selected
 	const setupComplete = operatingArea.length >= 1;
+
+	if (setupComplete) {
+		riderProfile.setupComplete = true;
+	}
 
 	if (setupComplete && !riderProfile.isActive) {
 		riderProfile.isActive = true;
