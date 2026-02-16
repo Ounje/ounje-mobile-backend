@@ -203,21 +203,37 @@ const getRiderProfile = async (userId) => {
 const updateOperatingArea = async (userId, body) => {
 	const { operatingArea } = body;
 
-	if (!Array.isArray(operatingArea) || operatingArea.length === 0) {
-		throw new Error("Operating area must be a non-empty array");
+	// Validate input
+	if (!Array.isArray(operatingArea)) {
+		throw new Error("Operating area must be an array");
 	}
 
-	if (operatingArea.length > 2) {
-		throw new Error("You can only select a maximum of 2 delivery zones");
+	if (operatingArea.length < 1 || operatingArea.length > 2) {
+		throw new Error("You must select 1 or 2 delivery zones");
 	}
 
-	const riderProfile = await RiderProfile.findOneAndUpdate(
-		{ user: userId },
-		{ operatingArea },
-		{ new: true },
-	).populate("user", "name phone");
+	// Fetch rider profile
+	const riderProfile = await RiderProfile.findOne({ user: userId }).populate(
+		"user",
+		"name phone",
+	);
 
-	if (!riderProfile) throw new Error("Rider profile not found");
+	if (!riderProfile) {
+		throw new Error("Rider profile not found");
+	}
+
+	// Update operating area
+	riderProfile.operatingArea = operatingArea;
+
+	// Setup is complete if at least one zone is selected
+	const setupComplete = operatingArea.length >= 1;
+
+	if (setupComplete && !riderProfile.isActive) {
+		riderProfile.isActive = true;
+		riderProfile.status = "available";
+	}
+
+	await riderProfile.save();
 
 	return {
 		success: true,
