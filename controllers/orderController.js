@@ -31,8 +31,9 @@ exports.cancelOrder = asyncHandler(async (req, res) => {
 exports.getMyOrders = asyncHandler(async (req, res) => {
 	const result = await paginate(
 		Order,
-		{ ...req.query, customer: req.user.id },
+		req.query,
 		[{ path: "vendor", select: "name" }, { path: "items.item" }],
+		{ customer: req.user.id },
 	);
 
 	res.status(200).json(result);
