@@ -132,64 +132,25 @@ const getRiderProfile = async (userId) => {
 	const riderProfile = await RiderProfile.findOne({ user: userId })
 		.populate("user", "name phone email")
 		.select(
-			"modeOfDelivery guarantor driversLicense nin status operatingArea isActive currentLocation earnings ratings averageRating ratingCount",
+			"modeOfDelivery guarantor driversLicense nin status operatingArea isActive currentLocation earnings ratings averageRating ratingCount setupComplete",
 		);
 
 	if (!riderProfile) throw new Error("Rider profile not found");
 
-	const missingFields = [];
+	// Trust the persisted setupComplete flag
+	// The operating area update is the final step and sets this flag.
+	const setupComplete = riderProfile.setupComplete === true;
+	const missingFields = []; // No longer dynamically calculating this as it causes loops
 
-	if (!riderProfile.modeOfDelivery) missingFields.push("modeOfDelivery");
-
-	if (!riderProfile.guarantor) {
-		missingFields.push("Guarantor information");
-	} else {
-		if (!riderProfile.guarantor.name) missingFields.push("guarantor name");
-		if (!riderProfile.guarantor.phone) missingFields.push("guarantor phone");
-		if (!riderProfile.guarantor.nin)
-			missingFields.push("guarantor NIN document");
-	}
-
-	if (
-		riderProfile.modeOfDelivery === "Motorcycle" &&
-		!riderProfile.driversLicense
-	) {
-		missingFields.push("driver's license document");
-	}
-
-	if (riderProfile.modeOfDelivery === "Bicycle" && !riderProfile.nin) {
-		missingFields.push("NIN document");
-	}
-
-	if (!riderProfile.operatingArea || riderProfile.operatingArea.length === 0) {
-		missingFields.push("operatingArea");
-	}
-
-	// Check if setup complete based on missing fields or persisted flag
-	let setupComplete = missingFields.length === 0;
-
-	// If the flag is explicitly true, respect it (handles cases where dynamic check fails)
-	if (riderProfile.setupComplete) {
-		setupComplete = true;
-	}
-
-	// Update persisted flag if dynamic check passes but flag is false
-	let shouldSave = false;
-
-	if (setupComplete && !riderProfile.setupComplete) {
-		riderProfile.setupComplete = true;
-		shouldSave = true;
-	}
-
+	// Ensure isActive is consistent with setupComplete
 	if (setupComplete && !riderProfile.isActive) {
 		riderProfile.isActive = true;
 		riderProfile.status = "available";
-		shouldSave = true;
-	}
-
-	if (shouldSave) {
 		await riderProfile.save();
 	}
+
+	// Fetch wallet balance
+	const balance = await ledgerService.getAccountBalance(riderProfile.user._id, "RIDER");
 
 	return {
 		name: riderProfile.user.name,
@@ -207,6 +168,22 @@ const getRiderProfile = async (userId) => {
 			average: riderProfile.ratings?.average || riderProfile.averageRating || 0,
 			count: riderProfile.ratings?.count || riderProfile.ratingCount || 0,
 		},
+		totalDeliveries: riderProfile.totalDeliveries || 0,
+		rank: riderProfile.rank || "New Rider",
+		wallet: {
+			availableBalance: balance.availableBalance,
+			pendingBalance: balance.pendingBalance,
+			totalBalance: balance.totalBalance,
+			currency: "NGN",
+		},
+		bankDetails: riderProfile.bankDetails
+			? {
+				accountName: riderProfile.bankDetails.accountName,
+				accountNumber: riderProfile.bankDetails.accountNumber,
+				bankName: riderProfile.bankDetails.bankName || "",
+				bankCode: riderProfile.bankDetails.bankCode || "",
+			}
+			: null,
 		documentsUploaded: {
 			driversLicense: !!riderProfile.driversLicense,
 			nin: !!riderProfile.nin,
@@ -373,6 +350,15 @@ const updateBankDetails = async (userId, bankDetails) => {
 
 	const riderProfile = await RiderProfile.findOne({ user: userId });
 	if (!riderProfile) throw new Error("Rider profile not found");
+
+	riderProfile.bankDetails = {
+		accountNumber,
+		bankCode,
+		accountName,
+		bankName: bankDetails.bankName || "",
+	};
+
+	await riderProfile.save();
 
 	const retryResults = await payoutService.processPendingPayoutsForUser(
 		riderProfile._id,

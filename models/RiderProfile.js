@@ -39,6 +39,14 @@ const riderProfileSchema = new mongoose.Schema(
 			average: { type: Number, default: 0 },
 			count: { type: Number, default: 0 },
 		},
+		totalDeliveries: {
+			type: Number,
+			default: 0,
+		},
+		rank: {
+			type: String,
+			default: "New Rider",
+		},
 		averageRating: { type: Number, default: 0 },
 		ratingCount: { type: Number, default: 0 },
 		// Personal Verification Documents
@@ -46,6 +54,12 @@ const riderProfileSchema = new mongoose.Schema(
 			name: { type: String },
 			phone: { type: String },
 			nin: { type: String },
+		},
+		bankDetails: {
+			accountName: String,
+			accountNumber: String,
+			bankName: String,
+			bankCode: String,
 		},
 		driversLicense: String, // URL or ID
 		nin: String, // National Identity Number
