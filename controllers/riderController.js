@@ -1,4 +1,5 @@
 const riderService = require("../services/rider.service");
+const ledgerService = require("../services/ledger.service");
 const logger = require("../utils/logger");
 
 /**
@@ -7,10 +8,15 @@ const logger = require("../utils/logger");
 const getRiderWallet = async (req, res) => {
 	try {
 		const riderId = req.user.id;
-		const walletData = await riderService.getRiderDashboard(riderId);
+		const balance = await ledgerService.getAccountBalance(riderId, "RIDER");
+
 		res.status(200).json({
-			success: true,
-			...walletData,
+			wallet: {
+				availableBalance: balance.availableBalance,
+				pendingBalance: balance.pendingBalance,
+				totalBalance: balance.totalBalance,
+				currency: "NGN",
+			},
 		});
 	} catch (err) {
 		logger.error(`Get Rider Wallet Error: ${err.message}`);

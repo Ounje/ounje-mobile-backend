@@ -149,6 +149,9 @@ const getRiderProfile = async (userId) => {
 		await riderProfile.save();
 	}
 
+	// Fetch wallet balance
+	const balance = await ledgerService.getAccountBalance(riderProfile.user._id, "RIDER");
+
 	return {
 		name: riderProfile.user.name,
 		phone: riderProfile.user.phone,
@@ -165,6 +168,22 @@ const getRiderProfile = async (userId) => {
 			average: riderProfile.ratings?.average || riderProfile.averageRating || 0,
 			count: riderProfile.ratings?.count || riderProfile.ratingCount || 0,
 		},
+		totalDeliveries: riderProfile.totalDeliveries || 0,
+		rank: riderProfile.rank || "New Rider",
+		wallet: {
+			availableBalance: balance.availableBalance,
+			pendingBalance: balance.pendingBalance,
+			totalBalance: balance.totalBalance,
+			currency: "NGN",
+		},
+		bankDetails: riderProfile.bankDetails
+			? {
+				accountName: riderProfile.bankDetails.accountName,
+				accountNumber: riderProfile.bankDetails.accountNumber,
+				bankName: riderProfile.bankDetails.bankName || "",
+				bankCode: riderProfile.bankDetails.bankCode || "",
+			}
+			: null,
 		documentsUploaded: {
 			driversLicense: !!riderProfile.driversLicense,
 			nin: !!riderProfile.nin,
@@ -331,6 +350,15 @@ const updateBankDetails = async (userId, bankDetails) => {
 
 	const riderProfile = await RiderProfile.findOne({ user: userId });
 	if (!riderProfile) throw new Error("Rider profile not found");
+
+	riderProfile.bankDetails = {
+		accountNumber,
+		bankCode,
+		accountName,
+		bankName: bankDetails.bankName || "",
+	};
+
+	await riderProfile.save();
 
 	const retryResults = await payoutService.processPendingPayoutsForUser(
 		riderProfile._id,

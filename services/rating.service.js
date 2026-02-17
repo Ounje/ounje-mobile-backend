@@ -324,13 +324,40 @@ class RatingService {
 		}
 
 		// Re-fetch sorted leaderboard with user details
-		// We know that _id in Rating is now RiderProfile ID.
-		// We need to lookup RiderProfile first, then look up "User" from RiderProfile.user
+		const RiderProfile = mongoose.model("RiderProfile");
+		const leaderboardWithRiderInfo = await RiderProfile.aggregate([
+			{
+				$lookup: {
+					from: "users",
+					localField: "user",
+					foreignField: "_id",
+					as: "userInfo",
+				},
+			},
+			{ $unwind: "$userInfo" },
+			{
+				$project: {
+					riderId: "$userInfo._id",
+					name: "$userInfo.name",
+					rank: { $ifNull: ["$rank", "New Rider"] },
+					totalDeliveries: { $ifNull: ["$totalDeliveries", 0] },
+					rating: {
+						$ifNull: [
+							"$ratings.average",
+							{ $ifNull: ["$averageRating", 0] },
+						],
+					},
+					ratingCount: {
+						$ifNull: ["$ratings.count", { $ifNull: ["$ratingCount", 0] }],
+					},
+				},
+			},
+			{ $sort: { totalDeliveries: -1, rating: -1 } },
+		]);
 
-		// However, standard $lookup from Rating directly to User won't work easily if Rating.target is ProfileID and User is separate.
-		// We need: Rating (target=ProfileId) -> RiderProfile (_id=ProfileId, user=UserId) -> User (_id=UserId)
+		// Let's stick to the existing aggregation on Rating but just add the fields.
 
-		const leaderboardWithRiderInfo = await Rating.aggregate([
+		const ratingLeaderboard = await Rating.aggregate([
 			{
 				$match: {
 					targetType: "Rider",
@@ -344,45 +371,43 @@ class RatingService {
 					totalRatings: { $sum: 1 },
 				},
 			},
-			// Lookup RiderProfile
 			{
 				$lookup: {
-					from: "riderprofiles", // Make sure collection name is correct (usually lowercase plural)
-					// If unsure, we can try to rely on mongoose model name conventions, usually "riderprofiles" or similar. 
-					// Let's assume standard mongoose naming: RiderProfile -> riderprofiles (or riders?)
-					// Inspecting models/RiderProfile.js doesn't show collection name explicitly, so default is 'riderprofiles'.
+					from: "riderprofiles",
 					localField: "_id",
 					foreignField: "_id",
-					as: "profile"
-				}
+					as: "profile",
+				},
 			},
 			{ $unwind: "$profile" },
-			// Lookup User from RiderProfile
 			{
 				$lookup: {
 					from: "users",
 					localField: "profile.user",
 					foreignField: "_id",
-					as: "user"
-				}
+					as: "user",
+				},
 			},
 			{ $unwind: "$user" },
 			{ $match: { "user.role": "rider" } },
 			{ $sort: { averageRating: -1, totalRatings: -1 } },
-			{ $limit: 5 },
+			{ $limit: 10 },
 			{
 				$project: {
-					rider: { _id: "$user._id", name: "$user.name", profileId: "$profile._id" },
-					averageRating: { $round: ["$averageRating", 2] },
-					totalRatings: 1,
+					_id: 0,
+					riderId: "$user._id",
+					name: "$user.name",
+					rank: { $ifNull: ["$profile.rank", "New Rider"] },
+					totalDeliveries: { $ifNull: ["$profile.totalDeliveries", 0] },
+					rating: { $round: ["$averageRating", 2] },
 				},
 			},
 		]);
 
 		return {
 			success: true,
-			count: leaderboardWithRiderInfo.length,
-			data: leaderboardWithRiderInfo,
+			count: ratingLeaderboard.length,
+			data: ratingLeaderboard,
 		};
 	}
 }
