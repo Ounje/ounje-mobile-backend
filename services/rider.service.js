@@ -150,46 +150,61 @@ const getRiderProfile = async (userId) => {
 	}
 
 	// Fetch wallet balance
-	const balance = await ledgerService.getAccountBalance(riderProfile.user._id, "RIDER");
+	const balanceInfo = await ledgerService.getAccountBalance(riderProfile.user._id, "RIDER");
 
-	return {
+	const responseData = {
 		name: riderProfile.user.name,
 		phone: riderProfile.user.phone,
 		email: riderProfile.user.email,
+
+		wallet: {
+			availableBalance: balanceInfo.availableBalance,
+			pendingBalance: balanceInfo.pendingBalance,
+			totalBalance: balanceInfo.totalBalance,
+			currency: "NGN",
+		},
+
 		modeOfDelivery: riderProfile.modeOfDelivery,
 		operatingArea: riderProfile.operatingArea || [],
 		guarantor: riderProfile.guarantor || null,
 		status: riderProfile.status,
 		isActive: riderProfile.isActive,
 		setupComplete,
-		missingFields: setupComplete ? undefined : missingFields,
-		earnings: riderProfile.earnings || 0,
-		ratings: {
-			average: riderProfile.ratings?.average || riderProfile.averageRating || 0,
-			count: riderProfile.ratings?.count || riderProfile.ratingCount || 0,
-		},
+
 		totalDeliveries: riderProfile.totalDeliveries || 0,
 		rank: riderProfile.rank || "New Rider",
-		wallet: {
-			availableBalance: balance.availableBalance,
-			pendingBalance: balance.pendingBalance,
-			totalBalance: balance.totalBalance,
-			currency: "NGN",
-		},
-		bankDetails: riderProfile.bankDetails
-			? {
-				accountName: riderProfile.bankDetails.accountName,
-				accountNumber: riderProfile.bankDetails.accountNumber,
-				bankName: riderProfile.bankDetails.bankName || "",
-				bankCode: riderProfile.bankDetails.bankCode || "",
-			}
-			: null,
-		documentsUploaded: {
-			driversLicense: !!riderProfile.driversLicense,
-			nin: !!riderProfile.nin,
-			guarantorNin: !!riderProfile.guarantor?.nin,
+
+		ratings: {
+			average:
+				riderProfile.ratings?.average ||
+				riderProfile.averageRating ||
+				0,
+			count:
+				riderProfile.ratings?.count ||
+				riderProfile.ratingCount ||
+				0,
 		},
 	};
+
+	responseData.bankDetails = riderProfile.bankDetails
+		? {
+			accountName: riderProfile.bankDetails.accountName,
+			accountNumber: riderProfile.bankDetails.accountNumber,
+			bankName: riderProfile.bankDetails.bankName,
+		}
+		: null;
+
+	// In case frontend needs docs status
+	responseData.documentsUploaded = {
+		driversLicense: !!riderProfile.driversLicense,
+		nin: !!riderProfile.nin,
+		guarantorNin: !!riderProfile.guarantor?.nin,
+	};
+
+	// In case frontend was using earnings from here
+	responseData.earnings = riderProfile.earnings || 0;
+
+	return responseData;
 };
 
 /**
@@ -221,16 +236,10 @@ const updateOperatingArea = async (userId, body) => {
 	riderProfile.operatingArea = operatingArea;
 
 	// Setup is complete if at least one zone is selected
-	const setupComplete = operatingArea.length >= 1;
 
-	if (setupComplete) {
-		riderProfile.setupComplete = true;
-	}
-
-	if (setupComplete && !riderProfile.isActive) {
-		riderProfile.isActive = true;
-		riderProfile.status = "available";
-	}
+	riderProfile.setupComplete = true;
+	riderProfile.isActive = true;
+	riderProfile.status = "available";
 
 	await riderProfile.save();
 
