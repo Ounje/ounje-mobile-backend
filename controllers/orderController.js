@@ -5,6 +5,26 @@ const { paginate } = require("../utils/paginate");
 const asyncHandler = require("../utils/asyncHandler");
 const AppError = require("../utils/AppError");
 
+// Helper: Standardize Rider Order Response
+const formatRiderOrder = (order) => {
+	if (!order) return null;
+	const orderObj = order.toObject ? order.toObject() : order;
+	return {
+		...orderObj,
+		id: orderObj._id,
+		amount: orderObj.totalPrice,
+		vendor: orderObj.vendor
+			? {
+				id: orderObj.vendor._id || orderObj.vendor,
+				name: orderObj.vendor.name || "Unknown Vendor",
+				address: orderObj.vendor.address || "",
+				phone: orderObj.vendor.phone || "",
+				location: orderObj.vendor.location || null,
+			}
+			: null,
+	};
+};
+
 // Create Order
 exports.createOrder = asyncHandler(async (req, res) => {
 	const userId = req.user.id;
@@ -31,8 +51,9 @@ exports.cancelOrder = asyncHandler(async (req, res) => {
 exports.getMyOrders = asyncHandler(async (req, res) => {
 	const result = await paginate(
 		Order,
-		{ ...req.query, customer: req.user.id },
+		req.query,
 		[{ path: "vendor", select: "name" }, { path: "items.item" }],
+		{ customer: req.user.id },
 	);
 
 	res.status(200).json(result);
@@ -97,7 +118,7 @@ exports.acceptOrder = asyncHandler(async (req, res) => {
 	res.status(200).json({
 		success: true,
 		message: "Order accepted",
-		order,
+		order: formatRiderOrder(order),
 	});
 });
 
@@ -115,7 +136,7 @@ exports.riderDeclineOrder = asyncHandler(async (req, res) => {
 	res.status(200).json({
 		success: true,
 		message: "Order declined successfully",
-		order,
+		order: formatRiderOrder(order),
 	});
 });
 
@@ -128,7 +149,7 @@ exports.pickUpOrder = asyncHandler(async (req, res) => {
 	res.status(200).json({
 		success: true,
 		message: "Order picked up. OTP sent to customer.",
-		order,
+		order: formatRiderOrder(order),
 	});
 });
 
@@ -142,14 +163,17 @@ exports.completeDelivery = asyncHandler(async (req, res) => {
 	res.status(200).json({
 		success: true,
 		message: "Delivery completed successfully",
-		order,
+		order: formatRiderOrder(order),
 	});
 });
 
 // Get available rider requests
 exports.getAvailableRiderRequests = asyncHandler(async (req, res) => {
 	const orders = await orderService.getAvailableRiderRequests();
-	res.status(200).json({ count: orders.length, orders });
+	res.status(200).json({
+		count: orders.length,
+		orders: orders.map(formatRiderOrder),
+	});
 });
 
 // Get current active rider order
@@ -158,7 +182,7 @@ exports.getCurrentRiderOrder = asyncHandler(async (req, res) => {
 	const order = await orderService.getCurrentRiderOrder(riderId);
 
 	res.status(200).json({
-		order,
+		order: formatRiderOrder(order),
 		message: order ? undefined : "No active order",
 	});
 });
@@ -168,7 +192,7 @@ exports.getRiderCompletedOrdersToday = asyncHandler(async (req, res) => {
 	const orders = await orderService.getRiderCompletedOrdersToday(req.user.id);
 	res.status(200).json({
 		count: orders.length,
-		orders,
+		orders: orders.map(formatRiderOrder),
 	});
 });
 
@@ -178,7 +202,7 @@ exports.getRiderOrders = asyncHandler(async (req, res) => {
 	const { status } = req.query;
 
 	const orders = await orderService.getRiderOrders(riderId, status);
-	res.status(200).json({ count: orders.length, orders });
+	res.status(200).json({ count: orders.length, orders: orders.map(formatRiderOrder) });
 });
 
 exports.updateOrderStatus = asyncHandler(async (req, res) => {

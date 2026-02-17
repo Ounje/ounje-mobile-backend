@@ -111,6 +111,9 @@ router.post("/location", async (req, res) => {
  *                 type: string
  *               accountName:
  *                 type: string
+ *               bankName:
+ *                 type: string
+ *                 description: Optional bank name
  *     responses:
  *       200:
  *         description: Bank details updated
@@ -182,6 +185,41 @@ router.delete(
 	deactivateRiderAccount,
 );
 
+/**
+ * @swagger
+ * /api/riders/profile:
+ *   get:
+ *     summary: Get rider profile including wallet and stats
+ *     tags: [Riders]
+ *     responses:
+ *       200:
+ *         description: Rider profile data
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     wallet:
+ *                       type: object
+ *                       properties:
+ *                         availableBalance:
+ *                           type: number
+ *                         pendingBalance:
+ *                           type: number
+ *                         totalBalance:
+ *                           type: number
+ *                         currency:
+ *                           type: string
+ *                     stats:
+ *                       type: object
+ *                     bankDetails:
+ *                       type: object
+ * */
 router.get(
 	"/profile",
 	authMiddleware,
@@ -191,6 +229,32 @@ router.get(
 );
 
 // Rider Wallet & Earnings
+/**
+ * @swagger
+ * /api/riders/wallet:
+ *   get:
+ *     summary: Get rider wallet balance and earnings
+ *     tags: [Riders]
+ *     responses:
+ *       200:
+ *         description: Wallet information
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 wallet:
+ *                   type: object
+ *                   properties:
+ *                     availableBalance:
+ *                       type: number
+ *                     pendingBalance:
+ *                       type: number
+ *                     totalBalance:
+ *                       type: number
+ *                     currency:
+ *                       type: string
+ * */
 router.get("/wallet", authMiddleware, roleGuard(["rider"]), getRiderWallet);
 
 module.exports = router;

@@ -521,9 +521,14 @@ const verifyDeliveryOtp = async (order, otp, riderId) => {
 		logger.info(`Triggering auto payouts for order ${order._id}`);
 		if (order.rider) {
 			await ledgerService.releaseRiderFee(order.rider, order._id);
+
+			// Increment totalDeliveries for the rider
+			await RiderProfile.findByIdAndUpdate(order.rider, {
+				$inc: { totalDeliveries: 1 },
+			});
 		}
 	} catch (err) {
-		logger.error(`Auto payout failed for order ${order._id}: ${err.message}`);
+		logger.error(`Auto payout or stats update failed for order ${order._id}: ${err.message}`);
 	}
 
 	return { success: true };
@@ -759,7 +764,9 @@ const getRiderCompletedOrdersToday = async (userId) => {
 		rider: riderProfile._id,
 		status: ORDER_STATUS.DELIVERED,
 		deliveryConfirmedAt: { $gte: startOfDay, $lte: endOfDay },
-	}).select("totalPrice deliveryFee deliveryConfirmedAt");
+	})
+		.select("totalPrice deliveryFee deliveryConfirmedAt vendor")
+		.populate("vendor", "name");
 };
 
 const getRiderOrders = async (riderId, statusFilter) => {
