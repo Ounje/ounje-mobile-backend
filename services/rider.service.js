@@ -132,7 +132,7 @@ const getRiderProfile = async (userId) => {
 	const riderProfile = await RiderProfile.findOne({ user: userId })
 		.populate("user", "name phone email")
 		.select(
-			"modeOfDelivery guarantor driversLicense nin status operatingArea isActive currentLocation earnings ratings averageRating ratingCount",
+			"modeOfDelivery guarantor driversLicense nin status operatingArea isActive currentLocation earnings ratings averageRating ratingCount setupComplete",
 		);
 
 	if (!riderProfile) throw new Error("Rider profile not found");
