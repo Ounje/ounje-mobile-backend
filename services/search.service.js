@@ -126,6 +126,7 @@ const searchPlates = async (query, limit) => {
 					name: 1,
 					image: "$img",
 					price: 1,
+					description: 1,
 					_id: 0,
 				},
 			},

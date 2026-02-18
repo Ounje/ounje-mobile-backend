@@ -12,14 +12,11 @@ const formatRiderOrder = (order) => {
 	return {
 		...orderObj,
 		id: orderObj._id,
-		amount: orderObj.totalPrice,
+		amount: orderObj.totalPrice, // Map totalPrice to amount
 		vendor: orderObj.vendor
 			? {
 				id: orderObj.vendor._id || orderObj.vendor,
 				name: orderObj.vendor.name || "Unknown Vendor",
-				address: orderObj.vendor.address || "",
-				phone: orderObj.vendor.phone || "",
-				location: orderObj.vendor.location || null,
 			}
 			: null,
 	};
