@@ -342,48 +342,50 @@ const createOrder = async (userId, data) => {
 	const fee = await calculateOunjeFee(vendorAddress, deliveryAddress);
 	// calculateOunjeFee now throws specific errors, so no need to check for null
 
-	let itemsTotalPrice = 0;
-	const orderItems = [];
-	const models = { FoodItem, Dish: Combo, Plate };
+	// --- Updated Logic inside createOrder ---
 
-	for (const item of items) {
-		const { itemId, itemType, quantity = 1, notes } = item;
+    let itemsTotalPrice = 0;
+    const orderItems = [];
+    
+    // Change 'Dish' to 'Combo' to match the frontend payload itemType
+    const models = { FoodItem, Combo, Plate }; 
 
-		if (!mongoose.isValidObjectId(itemId)) {
-			throw new Error(`Invalid Item ID: ${itemId}`);
-		}
+    for (const item of items) {
+        const { itemId, itemType, quantity = 1, notes } = item;
 
-		if (!itemId || !itemType || !models[itemType]) continue;
+        if (!mongoose.isValidObjectId(itemId)) {
+            throw new AppError(`Invalid Item ID: ${itemId}`, 400);
+        }
 
-		const ProductModel = models[itemType];
-		const product = await ProductModel.findById(itemId).select(
-			"price minQuantity maxQuantity name",
-		);
+        // If the itemType sent doesn't exist in our mapping, we stop early
+        if (!models[itemType]) {
+            throw new AppError(`Invalid itemType: ${itemType}`, 400);
+        }
 
-		if (product) {
-			if (product.minQuantity && quantity < product.minQuantity) {
-				throw new AppError(
-					`Quantity for ${product.name} is too low. Minimum allowed is ${product.minQuantity}`,
-					400,
-				);
-			}
-			if (product.maxQuantity && quantity > product.maxQuantity) {
-				throw new AppError(
-					`Quantity for ${product.name} is too high. Maximum allowed is ${product.maxQuantity}`,
-					400,
-				);
-			}
-			const itemPrice = product.price;
-			itemsTotalPrice += itemPrice * quantity;
-			orderItems.push({
-				itemType,
-				item: itemId,
-				quantity,
-				price: itemPrice,
-				notes,
-			});
-		}
-	}
+        const ProductModel = models[itemType];
+        
+        // Combos use 'basePrice', FoodItems use 'price'. 
+        // We select both to be safe or select based on type.
+        const product = await ProductModel.findById(itemId).select(
+            "price basePrice minQuantity maxQuantity name"
+        );
+
+        if (!product) {
+            throw new AppError(`${itemType} with ID ${itemId} not found`, 404);
+        }
+
+        // Handle the price field difference (Combo uses basePrice)
+        const itemPrice = itemType === "Combo" ? product.basePrice : product.price;
+
+        itemsTotalPrice += itemPrice * quantity;
+        orderItems.push({
+            itemType,
+            item: itemId,
+            quantity,
+            price: itemPrice,
+            notes,
+        });
+    }
 
 	// 4. Lookup Customer document ID from User ID
 	const customer = await Customer.findOne({ user: userId });
