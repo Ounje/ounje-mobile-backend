@@ -11,6 +11,7 @@ const FoodItemSchema = new mongoose.Schema(
 		name: { type: String, required: true },
 		price: { type: Number, required: true },
 		img: { type: String, required: true },
+		sideeImage: { type: String }, // subcategory image
 		description: { type: String },
 		vendor: {
 			type: mongoose.Schema.Types.ObjectId,
@@ -31,6 +32,7 @@ const FoodItemSchema = new mongoose.Schema(
 		// 	required: true,
 		// 	enum: getSellingUnitValues(),
 		// },
+		isCompulsory: { type: Boolean, required: true, default: false },
 		preparationTime: { type: String, required: true },
 		isAvailable: { type: Boolean, default: true },
 		ordersCount: { type: Number, default: 0 },
