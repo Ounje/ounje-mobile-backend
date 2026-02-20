@@ -102,6 +102,7 @@ const searchCombos = async (query, limit, includeUnavailable) => {
 					name: "$comboName",
 					image: "$img",
 					basePrice: 1,
+					description: 1,
 					_id: 0,
 				},
 			},
