@@ -73,6 +73,7 @@ app.use("/api/support", supportRoutes);
 app.use("/api/rating", ratingRouter);
 app.use("/api/search", searchRouter);
 app.use("/api/notifications", notificationRouter);
+app.use("/api/announcements", require("./routes/announcement.routes"));
 // app.use("/api/test", require("./tests/test01"));
 
 logger.info(`Frontend URL: ${process.env.FRONTEND_URL}`);
