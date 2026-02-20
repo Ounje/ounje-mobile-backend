@@ -4,6 +4,7 @@ const {
 	roleGuard,
 	checkActiveUser,
 } = require("../middleware/auth");
+
 const {
 	createFoodItem,
 	updateFoodItem,
@@ -12,6 +13,7 @@ const {
 	getFoodItemById,
 	getMyFoodItems,
 } = require("../controllers/foodItemController");
+
 const { foodItemUpload } = require("../config/cloudinary");
 
 const router = express.Router();
@@ -87,7 +89,6 @@ router.get("/:foodItemId", getFoodItemById);
  *       403:
  *         description: Unauthorized
  */
-// Specific route before parameterized route!
 router.get(
 	"/vendor/my-items",
 	authMiddleware,
@@ -116,6 +117,7 @@ router.get(
  *               - category
  *               - preparationTime
  *               - img
+ *               - sideImage
  *             properties:
  *               name:
  *                 type: string
@@ -129,13 +131,21 @@ router.get(
  *                 type: string
  *               preparationTime:
  *                 type: string
- *               img:
- *                 type: string
- *                 format: binary
  *               minQuantity:
  *                 type: number
  *               maxQuantity:
  *                 type: number
+ *               isCompulsory:
+ *                 type: boolean
+ *                 description: Whether subcategory must be purchased
+ *               img:
+ *                 type: string
+ *                 format: binary
+ *                 description: Main food image
+ *               sideImage:
+ *                 type: string
+ *                 format: binary
+ *                 description: Subcategory image
  *     responses:
  *       201:
  *         description: Food item created successfully
@@ -149,7 +159,7 @@ router.post(
 	authMiddleware,
 	roleGuard(["vendor"]),
 	checkActiveUser,
-	foodItemUpload.single("img"),
+	foodItemUpload,
 	createFoodItem,
 );
 
@@ -185,15 +195,20 @@ router.post(
  *                 type: string
  *               preparationTime:
  *                 type: string
- *               isAvailable:
- *                 type: boolean
- *               img:
- *                 type: string
- *                 format: binary
  *               minQuantity:
  *                 type: number
  *               maxQuantity:
  *                 type: number
+ *               isCompulsory:
+ *                 type: boolean
+ *               img:
+ *                 type: string
+ *                 format: binary
+ *                 description: Main food image
+ *               sideImage:
+ *                 type: string
+ *                 format: binary
+ *                 description: Subcategory image
  *     responses:
  *       200:
  *         description: Food item updated
@@ -207,7 +222,7 @@ router.put(
 	authMiddleware,
 	roleGuard(["vendor"]),
 	checkActiveUser,
-	foodItemUpload.single("img"),
+	foodItemUpload,
 	updateFoodItem,
 );
 
