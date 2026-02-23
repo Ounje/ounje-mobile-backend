@@ -106,74 +106,96 @@ const createFoodItem = async (req, res) => {
 };
 
 const addSubCategories = async (req, res) => {
-	try {
-		const { foodItemId } = req.params;
-		const { subCategory, isCompulsory } = req.body;
-		const vendorId = req.user.id;
+    try {
+        const { foodItemId } = req.params;
+        const {
+            subCategory,
+            isCompulsory,
+            name,
+            price,
+            description,
+            preparationTime,
+            minQuantity,
+            maxQuantity,
+        } = req.body;
+        const vendorId = req.user.id;
 
-		const vendor = await VendorProfile.findOne({ owner: vendorId });
-		if (!vendor)
-			return res
-				.status(404)
-				.json({ success: false, message: "Vendor profile not found." });
+        const vendor = await VendorProfile.findOne({ owner: vendorId });
+        if (!vendor)
+            return res.status(404).json({ success: false, message: "Vendor profile not found." });
 
-		const foodItem = await FoodItem.findOne({
-			_id: foodItemId,
-			vendor: vendor._id,
-		});
-		if (!foodItem)
-			return res
-				.status(404)
-				.json({ success: false, message: "Food item not found." });
+        if (!vendor.isActive)
+            return res.status(403).json({
+                success: false,
+                message: "Please complete your vendor profile before updating food items.",
+            });
 
-		if (!subCategory)
-			return res
-				.status(400)
-				.json({ success: false, message: "subCategory is required." });
+        const foodItem = await FoodItem.findOne({ _id: foodItemId, vendor: vendor._id });
+        if (!foodItem)
+            return res.status(404).json({ success: false, message: "Food item not found." });
 
-		const incomingSubs = Array.isArray(subCategory)
-			? subCategory
-			: [subCategory];
+        // Validate required fields
+        if (!name || !price || !preparationTime)
+            return res.status(400).json({
+                success: false,
+                message: "Name, price, and preparationTime are required.",
+            });
 
-		for (const sub of incomingSubs) {
-			if (!getSubCategoryValues().includes(sub))
-				return res.status(400).json({
-					success: false,
-					message: `Invalid subCategory "${sub}". Must be one of: ${getSubCategoryValues().join(", ")}`,
-				});
-		}
+        if (price <= 0)
+            return res.status(400).json({ success: false, message: "Price must be greater than 0." });
 
-		// Merge existing and incoming, filter out duplicates
-		const merged = [...new Set([...foodItem.subCategory, ...incomingSubs])];
+        if (!subCategory)
+            return res.status(400).json({ success: false, message: "subCategory is required." });
 
-		foodItem.subCategory = merged;
+        const incomingSubs = Array.isArray(subCategory) ? subCategory : [subCategory];
 
-		// isCompulsory means customer must buy the food with ALL listed subcategories
-		// only update if explicitly passed in the request
-		if (typeof isCompulsory === "boolean") {
-			if (
-				isCompulsory &&
-				foodItem.subCategory.length === 0 &&
-				merged.length === 0
-			)
-				return res.status(400).json({
-					success: false,
-					message: "Subcategory is required when isCompulsory is true.",
-				});
-			foodItem.isCompulsory = isCompulsory;
-		}
+        // Validate each subcategory value
+        for (const sub of incomingSubs) {
+            if (!getSubCategoryValues().includes(sub))
+                return res.status(400).json({
+                    success: false,
+                    message: `Invalid subCategory "${sub}". Must be one of: ${getSubCategoryValues().join(", ")}`,
+                });
+        }
 
-		await foodItem.save();
+        // Merge existing and incoming, filter out duplicates
+        const merged = [...new Set([...foodItem.subCategory, ...incomingSubs])];
 
-		res.status(200).json({
-			success: true,
-			message: "Subcategories updated successfully",
-			data: foodItem,
-		});
-	} catch (err) {
-		res.status(500).json({ success: false, error: err.message });
-	}
+        // Validate image
+        if (!req.files || !req.files.img || !req.files.img[0])
+            return res.status(400).json({ success: false, message: "Main image is required." });
+
+        // Update food item fields
+        foodItem.name = name;
+        foodItem.price = price;
+        foodItem.description = description || foodItem.description;
+        foodItem.preparationTime = preparationTime;
+        foodItem.minQuantity = minQuantity || foodItem.minQuantity;
+        foodItem.maxQuantity = maxQuantity || foodItem.maxQuantity;
+        foodItem.img = req.files.img[0].path;
+        foodItem.subCategory = merged;
+
+        if (typeof isCompulsory === "boolean") {
+            if (isCompulsory && merged.length === 0)
+                return res.status(400).json({
+                    success: false,
+                    message: "Subcategory is required when isCompulsory is true.",
+                });
+            foodItem.isCompulsory = isCompulsory;
+        }
+
+        await foodItem.save();
+
+        res.status(200).json({
+            success: true,
+            message: "Food item subcategories updated successfully",
+            data: foodItem,
+        });
+    } catch (err) {
+        res.status(500).json({ success: false, error: err.message });
+    }
 };
+
 const deleteSubCategory = async (req, res) => {
 	try {
 		const { foodItemId } = req.params;
