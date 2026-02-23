@@ -5,12 +5,34 @@ const {
 } = require("../utils/foodEnums");
 const toJSON = require("./plugins/toJSON.plugin");
 
-const FoodItemSchema = new mongoose.Schema(
+const SubCategoryItemSchema = new mongoose.Schema(
 	{
 		name: { type: String, required: true },
 		price: { type: Number, required: true },
 		img: { type: String, required: true },
 		description: { type: String },
+		preparationTime: { type: String, required: true },
+		minQuantity: { type: Number, default: 1 },
+		maxQuantity: { type: Number, default: null },
+		isAvailable: { type: Boolean, default: true },
+	},
+	{ timestamps: true },
+);
+
+const SubCategorySchema = new mongoose.Schema(
+	{
+		name: {
+			type: String,
+			required: true,
+			enum: getSubCategoryValues(),
+		},
+		items: [SubCategoryItemSchema],
+	},
+	{ timestamps: true },
+);
+
+const FoodItemSchema = new mongoose.Schema(
+	{
 		vendor: {
 			type: mongoose.Schema.Types.ObjectId,
 			ref: "VendorProfile",
@@ -21,40 +43,29 @@ const FoodItemSchema = new mongoose.Schema(
 			required: true,
 			enum: getCategoryValues(),
 		},
-		subCategory: {
-			type: [
-				{
-					type: String,
-					enum: getSubCategoryValues(),
-				},
-			],
-			default: [],
-		},
+		subCategory: [SubCategorySchema],
 		isCompulsory: { type: Boolean, default: false },
-		preparationTime: { type: String, required: true },
 		isAvailable: { type: Boolean, default: true },
 		ordersCount: { type: Number, default: 0 },
 		averageRating: { type: Number, default: 0 },
 		ratingCount: { type: Number, default: 0 },
-		minQuantity: { type: Number, default: 1 },
-		maxQuantity: { type: Number, default: null },
 	},
 	{ timestamps: true },
 );
 
 FoodItemSchema.index(
 	{
-		name: "text",
-		description: "text",
 		category: "text",
-		subCategory: "text",
+		"subCategory.name": "text",
+		"subCategory.items.name": "text",
+		"subCategory.items.description": "text",
 	},
 	{
 		weights: {
-			name: 10,
 			category: 7,
-			subCategory: 6,
-			description: 5,
+			"subCategory.name": 6,
+			"subCategory.items.name": 10,
+			"subCategory.items.description": 4,
 		},
 		name: "fooditem_search_index",
 	},

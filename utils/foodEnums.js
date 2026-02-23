@@ -1,5 +1,6 @@
 const FOOD_ENUMS = {
 	CATEGORIES: {
+		MEAT: "meat",
 		PASTRIES: "pastries",
 		DRINKS: "drinks",
 		SWALLOW: "swallow",

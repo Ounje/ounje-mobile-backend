@@ -83,7 +83,7 @@ router.get(
  * @swagger
  * /api/food-items:
  *   post:
- *     summary: Create a food item
+ *     summary: Create a food item with first subcategory item
  *     tags: [FoodItems]
  *     security:
  *       - bearerAuth: []
@@ -94,38 +94,38 @@ router.get(
  *           schema:
  *             type: object
  *             required:
- *               - name
- *               - price
  *               - category
+ *               - subCategoryName
+ *               - itemName
+ *               - price
  *               - preparationTime
  *               - img
  *             properties:
- *               name:
+ *               category:
  *                 type: string
+ *               isCompulsory:
+ *                 type: boolean
+ *                 description: Whether customer must pick from subcategory items
+ *               subCategoryName:
+ *                 type: string
+ *                 description: Subcategory group name e.g. "Meat"
+ *               itemName:
+ *                 type: string
+ *                 description: Item name e.g. "Goat Meat"
  *               price:
  *                 type: number
  *               description:
  *                 type: string
- *               category:
- *                 type: string
- *               subCategory:
- *                 type: array
- *                 items:
- *                   type: string
- *                 description: Optional subcategories
  *               preparationTime:
  *                 type: string
  *               minQuantity:
  *                 type: number
  *               maxQuantity:
  *                 type: number
- *               isCompulsory:
- *                 type: boolean
- *                 description: Whether customer must buy the food with ALL listed subcategories
  *               img:
  *                 type: string
  *                 format: binary
- *                 description: Main food image
+ *                 description: Item image
  *     responses:
  *       201:
  *         description: Food item created successfully
@@ -142,7 +142,6 @@ router.post(
 	foodItemUpload,
 	createFoodItem,
 );
-
 /**
  * @swagger
  * /api/food-items/{foodItemId}:
@@ -167,7 +166,7 @@ router.get("/:foodItemId", getFoodItemById);
  * @swagger
  * /api/food-items/{foodItemId}/subcategories:
  *   patch:
- *     summary: Add subcategories to a food item with updated item details
+ *     summary: Add more subcategory items to an existing food item
  *     tags: [FoodItems]
  *     security:
  *       - bearerAuth: []
@@ -184,23 +183,22 @@ router.get("/:foodItemId", getFoodItemById);
  *           schema:
  *             type: object
  *             required:
- *               - name
+ *               - subCategoryName
+ *               - itemName
  *               - price
  *               - preparationTime
- *               - subCategory
  *               - img
  *             properties:
- *               name:
+ *               subCategoryName:
  *                 type: string
+ *                 description: Subcategory group e.g. "Meat" (if exists, item is added under it)
+ *               itemName:
+ *                 type: string
+ *                 description: Item name e.g. "Fish"
  *               price:
  *                 type: number
  *               description:
  *                 type: string
- *               subCategory:
- *                 type: array
- *                 items:
- *                   type: string
- *                 description: One or more subcategories to add (duplicates are ignored)
  *               preparationTime:
  *                 type: string
  *               minQuantity:
@@ -209,14 +207,13 @@ router.get("/:foodItemId", getFoodItemById);
  *                 type: number
  *               isCompulsory:
  *                 type: boolean
- *                 description: Whether customer must buy the food with ALL listed subcategories
  *               img:
  *                 type: string
  *                 format: binary
- *                 description: Main food image
+ *                 description: Item image
  *     responses:
  *       200:
- *         description: Subcategories updated successfully
+ *         description: Item added to subcategory successfully
  *       400:
  *         description: Invalid subcategory or missing fields
  *       404:
