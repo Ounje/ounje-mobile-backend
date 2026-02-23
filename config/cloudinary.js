@@ -94,8 +94,7 @@ const deleteImage = async (publicId) => {
 };
 
 const foodItemUpload = multer({ storage: foodItemsStorage }).fields([
-	{ name: "img", maxCount: 1 }, // main food image
-	{ name: "sideImage", maxCount: 1 }, // subcategory image
+	{ name: "img", maxCount: 1 },
 ]);
 
 module.exports = {

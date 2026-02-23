@@ -2,7 +2,6 @@ const mongoose = require("mongoose");
 const {
 	getCategoryValues,
 	getSubCategoryValues,
-	//getSellingUnitValues,
 } = require("../utils/foodEnums");
 const toJSON = require("./plugins/toJSON.plugin");
 
@@ -11,7 +10,6 @@ const FoodItemSchema = new mongoose.Schema(
 		name: { type: String, required: true },
 		price: { type: Number, required: true },
 		img: { type: String, required: true },
-		sideImage: { type: String }, // subcategory image
 		description: { type: String },
 		vendor: {
 			type: mongoose.Schema.Types.ObjectId,
@@ -24,14 +22,14 @@ const FoodItemSchema = new mongoose.Schema(
 			enum: getCategoryValues(),
 		},
 		subCategory: {
-			type: String,
-			enum: getSubCategoryValues(),
+			type: [
+				{
+					type: String,
+					enum: getSubCategoryValues(),
+				},
+			],
+			default: [],
 		},
-		// sellingUnit: {
-		// 	type: String,
-		// 	required: true,
-		// 	enum: getSellingUnitValues(),
-		// },
 		isCompulsory: { type: Boolean, default: false },
 		preparationTime: { type: String, required: true },
 		isAvailable: { type: Boolean, default: true },
@@ -61,6 +59,6 @@ FoodItemSchema.index(
 		name: "fooditem_search_index",
 	},
 );
-FoodItemSchema.plugin(toJSON);
 
+FoodItemSchema.plugin(toJSON);
 module.exports = mongoose.model("FoodItem", FoodItemSchema);

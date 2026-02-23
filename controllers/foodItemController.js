@@ -1,10 +1,10 @@
 const { VendorProfile, FoodItem, Combo } = require("../models");
 const {
-	//FOOD_ENUMS,
 	getCategoryValues,
 	getSubCategoryValues,
 } = require("../utils/foodEnums");
 const { paginate } = require("../utils/paginate");
+
 const createFoodItem = async (req, res) => {
 	try {
 		const {
@@ -51,11 +51,16 @@ const createFoodItem = async (req, res) => {
 				message: `Invalid category. Must be one of: ${getCategoryValues().join(", ")}`,
 			});
 
-		if (subCategory && !getSubCategoryValues().includes(subCategory))
-			return res.status(400).json({
-				success: false,
-				message: `Invalid subCategory. Must be one of: ${getSubCategoryValues().join(", ")}`,
-			});
+		if (subCategory) {
+			const subs = Array.isArray(subCategory) ? subCategory : [subCategory];
+			for (const sub of subs) {
+				if (!getSubCategoryValues().includes(sub))
+					return res.status(400).json({
+						success: false,
+						message: `Invalid subCategory "${sub}". Must be one of: ${getSubCategoryValues().join(", ")}`,
+					});
+			}
+		}
 
 		if (isCompulsory && !subCategory)
 			return res.status(400).json({
@@ -63,29 +68,28 @@ const createFoodItem = async (req, res) => {
 				message: "Subcategory is required when isCompulsory is true.",
 			});
 
-		// Ensure both images are uploaded
 		if (!req.files || !req.files.img || !req.files.img[0])
 			return res
 				.status(400)
 				.json({ success: false, message: "Main image is required." });
 
-		if (!req.files || !req.files.sideImage || !req.files.sideImage[0])
-			return res
-				.status(400)
-				.json({ success: false, message: "Subcategory image is required." });
+		const subCategoryArr = subCategory
+			? Array.isArray(subCategory)
+				? subCategory
+				: [subCategory]
+			: [];
 
 		const foodItem = new FoodItem({
 			name,
 			price,
 			description,
 			category,
-			subCategory: subCategory || null,
+			subCategory: subCategoryArr,
 			preparationTime,
 			minQuantity: minQuantity || 1,
 			maxQuantity: maxQuantity || null,
 			vendor: vendor._id,
 			img: req.files.img[0].path,
-			sideImage: req.files.sideImage[0].path,
 			isCompulsory: !!isCompulsory,
 		});
 
@@ -94,6 +98,137 @@ const createFoodItem = async (req, res) => {
 		res.status(201).json({
 			success: true,
 			message: "Food item created successfully",
+			data: foodItem,
+		});
+	} catch (err) {
+		res.status(500).json({ success: false, error: err.message });
+	}
+};
+
+const addSubCategories = async (req, res) => {
+	try {
+		const { foodItemId } = req.params;
+		const { subCategory, isCompulsory } = req.body;
+		const vendorId = req.user.id;
+
+		const vendor = await VendorProfile.findOne({ owner: vendorId });
+		if (!vendor)
+			return res
+				.status(404)
+				.json({ success: false, message: "Vendor profile not found." });
+
+		const foodItem = await FoodItem.findOne({
+			_id: foodItemId,
+			vendor: vendor._id,
+		});
+		if (!foodItem)
+			return res
+				.status(404)
+				.json({ success: false, message: "Food item not found." });
+
+		if (!subCategory)
+			return res
+				.status(400)
+				.json({ success: false, message: "subCategory is required." });
+
+		const incomingSubs = Array.isArray(subCategory)
+			? subCategory
+			: [subCategory];
+
+		for (const sub of incomingSubs) {
+			if (!getSubCategoryValues().includes(sub))
+				return res.status(400).json({
+					success: false,
+					message: `Invalid subCategory "${sub}". Must be one of: ${getSubCategoryValues().join(", ")}`,
+				});
+		}
+
+		// Merge existing and incoming, filter out duplicates
+		const merged = [...new Set([...foodItem.subCategory, ...incomingSubs])];
+
+		foodItem.subCategory = merged;
+
+		// isCompulsory means customer must buy the food with ALL listed subcategories
+		// only update if explicitly passed in the request
+		if (typeof isCompulsory === "boolean") {
+			if (
+				isCompulsory &&
+				foodItem.subCategory.length === 0 &&
+				merged.length === 0
+			)
+				return res.status(400).json({
+					success: false,
+					message: "Subcategory is required when isCompulsory is true.",
+				});
+			foodItem.isCompulsory = isCompulsory;
+		}
+
+		await foodItem.save();
+
+		res.status(200).json({
+			success: true,
+			message: "Subcategories updated successfully",
+			data: foodItem,
+		});
+	} catch (err) {
+		res.status(500).json({ success: false, error: err.message });
+	}
+};
+const deleteSubCategory = async (req, res) => {
+	try {
+		const { foodItemId } = req.params;
+		const { subCategory } = req.body;
+		const vendorId = req.user.id;
+
+		const vendor = await VendorProfile.findOne({ owner: vendorId });
+		if (!vendor)
+			return res
+				.status(404)
+				.json({ success: false, message: "Vendor profile not found." });
+
+		const foodItem = await FoodItem.findOne({
+			_id: foodItemId,
+			vendor: vendor._id,
+		});
+		if (!foodItem)
+			return res
+				.status(404)
+				.json({ success: false, message: "Food item not found." });
+
+		if (!subCategory)
+			return res
+				.status(400)
+				.json({ success: false, message: "subCategory is required." });
+
+		const subsToRemove = Array.isArray(subCategory)
+			? subCategory
+			: [subCategory];
+
+		// Check if all subcategories to remove actually exist on the food item
+		const notFound = subsToRemove.filter(
+			(sub) => !foodItem.subCategory.includes(sub),
+		);
+		if (notFound.length > 0)
+			return res.status(400).json({
+				success: false,
+				message: `These subcategories were not found on this food item: ${notFound.join(", ")}`,
+			});
+
+		// Filter out the subcategories to remove
+		foodItem.subCategory = foodItem.subCategory.filter(
+			(sub) => !subsToRemove.includes(sub),
+		);
+
+		// If no subcategories left, isCompulsory must be false
+		if (foodItem.subCategory.length === 0) {
+			foodItem.isCompulsory = false;
+		}
+
+		await foodItem.save();
+
+		res.status(200).json({
+			success: true,
+			message: "Subcategories removed successfully",
 			data: foodItem,
 		});
 	} catch (err) {
@@ -567,6 +702,8 @@ const getVendorCombosGrouped = async (req, res) => {
 module.exports = {
 	createFoodItem,
 	updateFoodItem,
+	addSubCategories,
+	deleteSubCategory,
 	deleteFoodItem,
 	getAllFoodItems,
 	getFoodItemById,

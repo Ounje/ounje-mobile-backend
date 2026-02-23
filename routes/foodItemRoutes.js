@@ -12,6 +12,8 @@ const {
 	getAllFoodItems,
 	getFoodItemById,
 	getMyFoodItems,
+	addSubCategories,
+	deleteSubCategory,
 } = require("../controllers/foodItemController");
 
 const { foodItemUpload } = require("../config/cloudinary");
@@ -117,7 +119,6 @@ router.get(
  *               - category
  *               - preparationTime
  *               - img
- *               - sideImage
  *             properties:
  *               name:
  *                 type: string
@@ -128,7 +129,10 @@ router.get(
  *               category:
  *                 type: string
  *               subCategory:
- *                 type: string
+ *                 type: array
+ *                 items:
+ *                   type: string
+ *                 description: Optional subcategories (no limit)
  *               preparationTime:
  *                 type: string
  *               minQuantity:
@@ -137,15 +141,11 @@ router.get(
  *                 type: number
  *               isCompulsory:
  *                 type: boolean
- *                 description: Whether subcategory must be purchased
+ *                 description: Whether customer must buy the food with ALL listed subcategories
  *               img:
  *                 type: string
  *                 format: binary
  *                 description: Main food image
- *               sideImage:
- *                 type: string
- *                 format: binary
- *                 description: Subcategory image
  *     responses:
  *       201:
  *         description: Food item created successfully
@@ -161,6 +161,96 @@ router.post(
 	checkActiveUser,
 	foodItemUpload,
 	createFoodItem,
+);
+
+/**
+ * @swagger
+ * /api/food-items/{foodItemId}/subcategories:
+ *   patch:
+ *     summary: Add subcategories to a food item
+ *     tags: [FoodItems]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: foodItemId
+ *         required: true
+ *         schema:
+ *           type: string
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - subCategory
+ *             properties:
+ *               subCategory:
+ *                 type: array
+ *                 items:
+ *                   type: string
+ *                 description: One or more subcategories to add (duplicates are ignored)
+ *               isCompulsory:
+ *                 type: boolean
+ *                 description: Whether customer must buy the food with ALL listed subcategories
+ *     responses:
+ *       200:
+ *         description: Subcategories updated successfully
+ *       400:
+ *         description: Invalid subcategory
+ *       404:
+ *         description: Food item not found
+ */
+router.patch(
+	"/:foodItemId/subcategories",
+	authMiddleware,
+	roleGuard(["vendor"]),
+	checkActiveUser,
+	addSubCategories,
+);
+/**
+ * @swagger
+ * /api/food-items/{foodItemId}/subcategories:
+ *   delete:
+ *     summary: Remove subcategories from a food item
+ *     tags: [FoodItems]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: foodItemId
+ *         required: true
+ *         schema:
+ *           type: string
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - subCategory
+ *             properties:
+ *               subCategory:
+ *                 type: array
+ *                 items:
+ *                   type: string
+ *                 description: One or more subcategories to remove
+ *     responses:
+ *       200:
+ *         description: Subcategories removed successfully
+ *       400:
+ *         description: Subcategory not found on food item
+ *       404:
+ *         description: Food item not found
+ */
+router.delete(
+	"/:foodItemId/subcategories",
+	authMiddleware,
+	roleGuard(["vendor"]),
+	checkActiveUser,
+	deleteSubCategory,
 );
 
 /**
@@ -192,7 +282,10 @@ router.post(
  *               category:
  *                 type: string
  *               subCategory:
- *                 type: string
+ *                 type: array
+ *                 items:
+ *                   type: string
+ *                 description: Subcategories (no limit)
  *               preparationTime:
  *                 type: string
  *               minQuantity:
@@ -201,14 +294,11 @@ router.post(
  *                 type: number
  *               isCompulsory:
  *                 type: boolean
+ *                 description: Whether customer must buy the food with ALL listed subcategories
  *               img:
  *                 type: string
  *                 format: binary
  *                 description: Main food image
- *               sideImage:
- *                 type: string
- *                 format: binary
- *                 description: Subcategory image
  *     responses:
  *       200:
  *         description: Food item updated
