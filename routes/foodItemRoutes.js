@@ -50,26 +50,6 @@ router.get("/", getAllFoodItems);
 
 /**
  * @swagger
- * /api/food-items/{foodItemId}:
- *   get:
- *     summary: Get food item by ID
- *     tags: [FoodItems]
- *     parameters:
- *       - in: path
- *         name: foodItemId
- *         required: true
- *         schema:
- *           type: string
- *     responses:
- *       200:
- *         description: Food item details
- *       404:
- *         description: Food item not found
- */
-router.get("/:foodItemId", getFoodItemById);
-
-/**
- * @swagger
  * /api/food-items/vendor/my-items:
  *   get:
  *     summary: Get logged-in vendor's food items
@@ -132,7 +112,7 @@ router.get(
  *                 type: array
  *                 items:
  *                   type: string
- *                 description: Optional subcategories (no limit)
+ *                 description: Optional subcategories
  *               preparationTime:
  *                 type: string
  *               minQuantity:
@@ -165,9 +145,29 @@ router.post(
 
 /**
  * @swagger
+ * /api/food-items/{foodItemId}:
+ *   get:
+ *     summary: Get food item by ID
+ *     tags: [FoodItems]
+ *     parameters:
+ *       - in: path
+ *         name: foodItemId
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Food item details
+ *       404:
+ *         description: Food item not found
+ */
+router.get("/:foodItemId", getFoodItemById);
+
+/**
+ * @swagger
  * /api/food-items/{foodItemId}/subcategories:
  *   patch:
- *     summary: Add subcategories to a food item
+ *     summary: Add subcategories to a food item with updated item details
  *     tags: [FoodItems]
  *     security:
  *       - bearerAuth: []
@@ -180,25 +180,45 @@ router.post(
  *     requestBody:
  *       required: true
  *       content:
- *         application/json:
+ *         multipart/form-data:
  *           schema:
  *             type: object
  *             required:
+ *               - name
+ *               - price
+ *               - preparationTime
  *               - subCategory
+ *               - img
  *             properties:
+ *               name:
+ *                 type: string
+ *               price:
+ *                 type: number
+ *               description:
+ *                 type: string
  *               subCategory:
  *                 type: array
  *                 items:
  *                   type: string
  *                 description: One or more subcategories to add (duplicates are ignored)
+ *               preparationTime:
+ *                 type: string
+ *               minQuantity:
+ *                 type: number
+ *               maxQuantity:
+ *                 type: number
  *               isCompulsory:
  *                 type: boolean
  *                 description: Whether customer must buy the food with ALL listed subcategories
+ *               img:
+ *                 type: string
+ *                 format: binary
+ *                 description: Main food image
  *     responses:
  *       200:
  *         description: Subcategories updated successfully
  *       400:
- *         description: Invalid subcategory
+ *         description: Invalid subcategory or missing fields
  *       404:
  *         description: Food item not found
  */
@@ -207,8 +227,10 @@ router.patch(
 	authMiddleware,
 	roleGuard(["vendor"]),
 	checkActiveUser,
+	foodItemUpload,
 	addSubCategories,
 );
+
 /**
  * @swagger
  * /api/food-items/{foodItemId}/subcategories:
@@ -285,7 +307,7 @@ router.delete(
  *                 type: array
  *                 items:
  *                   type: string
- *                 description: Subcategories (no limit)
+ *                 description: Subcategories
  *               preparationTime:
  *                 type: string
  *               minQuantity:
