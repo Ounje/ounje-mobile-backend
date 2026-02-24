@@ -55,6 +55,13 @@ const searchFoodItems = async (query, limit, includeUnavailable) => {
 
 		const foods = await FoodItem.aggregate([
 			{ $match: matchStage },
+			// Unwind subcategories and their items to get individual items
+			{ $unwind: "$subCategory" },
+			{ $unwind: "$subCategory.items" },
+			// If unavailable filter applies, also filter subcategory items
+			...(includeUnavailable
+				? []
+				: [{ $match: { "subCategory.items.isAvailable": true } }]),
 			{
 				$lookup: {
 					from: "vendorprofiles",
@@ -68,9 +75,14 @@ const searchFoodItems = async (query, limit, includeUnavailable) => {
 				$project: {
 					type: { $literal: "fooditems" },
 					id: "$_id",
-					name: 1,
-					image: "$img",
-					price: 1,
+					//category: 1,
+					//subCategoryName: "$subCategory.name",
+					name: "$subCategory.items.name",
+					image: "$subCategory.items.img",
+					price: "$subCategory.items.price",
+					description: "$subCategory.items.description",
+					//preparationTime: "$subCategory.items.preparationTime",
+					//isCompulsory: 1,
 					vendor: {
 						id: "$vendorInfo._id",
 						name: "$vendorInfo.name",
@@ -87,7 +99,6 @@ const searchFoodItems = async (query, limit, includeUnavailable) => {
 		return [];
 	}
 };
-
 const searchCombos = async (query, limit, includeUnavailable) => {
 	try {
 		const matchStage = { $text: { $search: query } };
