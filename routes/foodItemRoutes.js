@@ -15,6 +15,10 @@ const {
 	addSubCategories,
 	deleteSubCategory,
 } = require("../controllers/foodItemController");
+const {
+	getCategoryValues,
+	getSubCategoryValues,
+} = require("../utils/foodEnums");
 
 const { foodItemUpload } = require("../config/cloudinary");
 
@@ -81,6 +85,145 @@ router.get(
 
 /**
  * @swagger
+ * /api/food-items/enums:
+ *   get:
+ *     summary: Get all food categories and sub-categories
+ *     tags: [FoodItems]
+ *     responses:
+ *       200:
+ *         description: Successfully retrieved food enums
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 categories:
+ *                   type: array
+ *                   items:
+ *                     type: object
+ *                     properties:
+ *                       label:
+ *                         type: string
+ *                         example: "Meat"
+ *                       value:
+ *                         type: string
+ *                         example: "meat"
+ *                 subCategories:
+ *                   type: array
+ *                   items:
+ *                     type: object
+ *                     properties:
+ *                       label:
+ *                         type: string
+ *                         example: "Chicken"
+ *                       value:
+ *                         type: string
+ *                         example: "chicken"
+ *       500:
+ *         description: Internal server error
+ */
+router.get("/enums", (req, res) => {
+	try {
+		const categories = getCategoryValues().map((value) => ({
+			label: value.charAt(0).toUpperCase() + value.slice(1),
+			value,
+		}));
+
+		const subCategories = getSubCategoryValues().map((value) => ({
+			label: value.charAt(0).toUpperCase() + value.slice(1),
+			value,
+		}));
+
+		res.json({ categories, subCategories });
+	} catch (error) {
+		res.status(500).json({ message: "Internal server error" });
+	}
+});
+
+/**
+ * @swagger
+ * /api/food-items/enums/categories:
+ *   get:
+ *     summary: Get all food categories
+ *     tags: [FoodItems]
+ *     responses:
+ *       200:
+ *         description: Successfully retrieved food categories
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 categories:
+ *                   type: array
+ *                   items:
+ *                     type: object
+ *                     properties:
+ *                       label:
+ *                         type: string
+ *                         example: "Meat"
+ *                       value:
+ *                         type: string
+ *                         example: "meat"
+ *       500:
+ *         description: Internal server error
+ */
+router.get("/enums/categories", (req, res) => {
+	try {
+		const categories = getCategoryValues().map((value) => ({
+			label: value.charAt(0).toUpperCase() + value.slice(1),
+			value,
+		}));
+
+		res.json({ categories });
+	} catch (error) {
+		res.status(500).json({ message: "Internal server error" });
+	}
+});
+
+/**
+ * @swagger
+ * /api/food-items/enums/sub-categories:
+ *   get:
+ *     summary: Get all food sub-categories
+ *     tags: [FoodItems]
+ *     responses:
+ *       200:
+ *         description: Successfully retrieved food sub-categories
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 subCategories:
+ *                   type: array
+ *                   items:
+ *                     type: object
+ *                     properties:
+ *                       label:
+ *                         type: string
+ *                         example: "Chicken"
+ *                       value:
+ *                         type: string
+ *                         example: "chicken"
+ *       500:
+ *         description: Internal server error
+ */
+router.get("/enums/sub-categories", (req, res) => {
+	try {
+		const subCategories = getSubCategoryValues().map((value) => ({
+			label: value.charAt(0).toUpperCase() + value.slice(1),
+			value,
+		}));
+
+		res.json({ subCategories });
+	} catch (error) {
+		res.status(500).json({ message: "Internal server error" });
+	}
+});
+
+/**
+ * @swagger
  * /api/food-items:
  *   post:
  *     summary: Create a food item with first subcategory item
@@ -142,6 +285,7 @@ router.post(
 	foodItemUpload,
 	createFoodItem,
 );
+
 /**
  * @swagger
  * /api/food-items/{foodItemId}:
