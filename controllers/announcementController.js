@@ -33,7 +33,8 @@ exports.getActiveAnnouncements = async (req, res) => {
     console.error("Error fetching announcements:", error);
     res.status(500).json({
       success: false,
-      message: "Failed to fetch announcements"
+      message: "Failed to fetch announcements",
+      error: error.message
     });
   }
 };
