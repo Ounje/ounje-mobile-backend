@@ -6,17 +6,7 @@ const {
 const { paginate } = require("../utils/paginate");
 const createFoodItem = async (req, res) => {
 	try {
-		const {
-			category,
-			isCompulsory,
-			subCategoryName,
-			itemName,
-			price,
-			description,
-			preparationTime,
-			minQuantity,
-			maxQuantity,
-		} = req.body;
+		const { category, isCompulsory, subCategories } = req.body;
 
 		const vendorId = req.user.id;
 		const vendor = await VendorProfile.findOne({ owner: vendorId });
@@ -34,10 +24,9 @@ const createFoodItem = async (req, res) => {
 			});
 
 		if (!category)
-			return res.status(400).json({
-				success: false,
-				message: "Category is required.",
-			});
+			return res
+				.status(400)
+				.json({ success: false, message: "Category is required." });
 
 		if (!getCategoryValues().includes(category))
 			return res.status(400).json({
@@ -45,53 +34,99 @@ const createFoodItem = async (req, res) => {
 				message: `Invalid category. Must be one of: ${getCategoryValues().join(", ")}`,
 			});
 
-		if (!subCategoryName)
-			return res
-				.status(400)
-				.json({ success: false, message: "subCategoryName is required." });
-
-		if (!getSubCategoryValues().includes(subCategoryName))
+		if (
+			!subCategories ||
+			!Array.isArray(subCategories) ||
+			subCategories.length === 0
+		)
 			return res.status(400).json({
 				success: false,
-				message: `Invalid subCategory. Must be one of: ${getSubCategoryValues().join(", ")}`,
+				message: "At least one subcategory is required.",
 			});
 
-		if (!itemName || !price || !preparationTime)
+		// Count total items across all subcategories
+		const totalItems = subCategories.reduce((acc, subCat) => {
+			return acc + (subCat.items?.length || 0);
+		}, 0);
+
+		if (totalItems > 20)
 			return res.status(400).json({
 				success: false,
-				message: "itemName, price, and preparationTime are required.",
+				message: "You can only create a maximum of 20 items in one request.",
 			});
 
-		if (price <= 0)
-			return res
-				.status(400)
-				.json({ success: false, message: "Price must be greater than 0." });
+		const images = req.files?.img || [];
+		let imageIndex = 0;
+		const builtSubCategories = [];
 
-		if (!req.files || !req.files.img || !req.files.img[0])
-			return res
-				.status(400)
-				.json({ success: false, message: "Image is required." });
+		for (const subCat of subCategories) {
+			if (!subCat.name)
+				return res.status(400).json({
+					success: false,
+					message: "Each subcategory must have a name.",
+				});
+
+			if (!getSubCategoryValues().includes(subCat.name))
+				return res.status(400).json({
+					success: false,
+					message: `Invalid subCategory "${subCat.name}". Must be one of: ${getSubCategoryValues().join(", ")}`,
+				});
+
+			if (
+				!subCat.items ||
+				!Array.isArray(subCat.items) ||
+				subCat.items.length === 0
+			)
+				return res.status(400).json({
+					success: false,
+					message: `Subcategory "${subCat.name}" must have at least one item.`,
+				});
+
+			const builtItems = [];
+
+			for (const item of subCat.items) {
+				if (!item.name || !item.price || !item.preparationTime)
+					return res.status(400).json({
+						success: false,
+						message: "Each item must have a name, price, and preparationTime.",
+					});
+
+				if (item.price <= 0)
+					return res.status(400).json({
+						success: false,
+						message: "Price must be greater than 0.",
+					});
+
+				if (!images[imageIndex])
+					return res.status(400).json({
+						success: false,
+						message: `Image is required for item "${item.name}".`,
+					});
+
+				builtItems.push({
+					name: item.name,
+					price: item.price,
+					description: item.description || null,
+					preparationTime: item.preparationTime,
+					minQuantity: item.minQuantity || 1,
+					maxQuantity: item.maxQuantity || null,
+					img: images[imageIndex].path,
+				});
+
+				imageIndex++;
+			}
+
+			builtSubCategories.push({
+				name: subCat.name,
+				items: builtItems,
+			});
+		}
 
 		const foodItem = new FoodItem({
 			category,
 			vendor: vendor._id,
 			isCompulsory: !!isCompulsory,
-			subCategory: [
-				{
-					name: subCategoryName,
-					items: [
-						{
-							name: itemName,
-							price,
-							description: description || null,
-							preparationTime,
-							minQuantity: minQuantity || 1,
-							maxQuantity: maxQuantity || null,
-							img: req.files.img[0].path,
-						},
-					],
-				},
-			],
+			subCategory: builtSubCategories,
 		});
 
 		await foodItem.save();
@@ -105,7 +140,6 @@ const createFoodItem = async (req, res) => {
 		res.status(500).json({ success: false, error: err.message });
 	}
 };
-
 const addSubCategories = async (req, res) => {
 	try {
 		const { foodItemId } = req.params;

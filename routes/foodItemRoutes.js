@@ -226,7 +226,7 @@ router.get("/enums/sub-categories", (req, res) => {
  * @swagger
  * /api/food-items:
  *   post:
- *     summary: Create a food item with first subcategory item
+ *     summary: Create a food item with one or more subcategories and items
  *     tags: [FoodItems]
  *     security:
  *       - bearerAuth: []
@@ -238,10 +238,10 @@ router.get("/enums/sub-categories", (req, res) => {
  *             type: object
  *             required:
  *               - category
- *               - subCategoryName
- *               - itemName
- *               - price
- *               - preparationTime
+ *               - subCategories[0][name]
+ *               - subCategories[0][items][0][name]
+ *               - subCategories[0][items][0][price]
+ *               - subCategories[0][items][0][preparationTime]
  *               - img
  *             properties:
  *               category:
@@ -249,26 +249,42 @@ router.get("/enums/sub-categories", (req, res) => {
  *               isCompulsory:
  *                 type: boolean
  *                 description: Whether customer must pick from subcategory items
- *               subCategoryName:
+ *               subCategories[0][name]:
  *                 type: string
- *                 description: Subcategory group name e.g. "Meat"
- *               itemName:
+ *                 description: First subcategory group name e.g. "Meat"
+ *               subCategories[0][items][0][name]:
  *                 type: string
- *                 description: Item name e.g. "Goat Meat"
- *               price:
+ *                 description: First item name e.g. "Goat Meat"
+ *               subCategories[0][items][0][price]:
  *                 type: number
- *               description:
+ *               subCategories[0][items][0][description]:
  *                 type: string
- *               preparationTime:
+ *               subCategories[0][items][0][preparationTime]:
  *                 type: string
- *               minQuantity:
+ *               subCategories[0][items][0][minQuantity]:
  *                 type: number
- *               maxQuantity:
+ *               subCategories[0][items][0][maxQuantity]:
  *                 type: number
+ *               subCategories[1][name]:
+ *                 type: string
+ *                 description: Second subcategory group name e.g. "Rice" (optional)
+ *               subCategories[1][items][0][name]:
+ *                 type: string
+ *                 description: Second subcategory first item name (optional)
+ *               subCategories[1][items][0][price]:
+ *                 type: number
+ *               subCategories[1][items][0][preparationTime]:
+ *                 type: string
  *               img:
- *                 type: string
- *                 format: binary
- *                 description: Item image
+ *                 type: array
+ *                 items:
+ *                   type: string
+ *                   format: binary
+ *                 description: >
+ *                   Images in order matching each item across all subcategories.
+ *                   img[0] = subCategories[0][items][0],
+ *                   img[1] = subCategories[0][items][1],
+ *                   img[2] = subCategories[1][items][0] and so on.
  *     responses:
  *       201:
  *         description: Food item created successfully
@@ -285,7 +301,6 @@ router.post(
 	foodItemUpload,
 	createFoodItem,
 );
-
 /**
  * @swagger
  * /api/food-items/{foodItemId}:
