@@ -11,7 +11,7 @@ const SubCategoryItemSchema = new mongoose.Schema(
 		price: { type: Number, required: true },
 		img: { type: String, required: true },
 		description: { type: String },
-		preparationTime: { type: String, required: true },
+		preparationTime: { type: String },
 		minQuantity: { type: Number, default: 1 },
 		maxQuantity: { type: Number, default: null },
 		isAvailable: { type: Boolean, default: true },

@@ -4,9 +4,10 @@ const {
 	getSubCategoryValues,
 } = require("../utils/foodEnums");
 const { paginate } = require("../utils/paginate");
+
 const createFoodItem = async (req, res) => {
 	try {
-		const { category, isCompulsory, subCategories } = req.body;
+		let { category, isCompulsory, subCategories } = req.body;
 
 		const vendorId = req.user.id;
 		const vendor = await VendorProfile.findOne({ owner: vendorId });
@@ -28,11 +29,26 @@ const createFoodItem = async (req, res) => {
 				.status(400)
 				.json({ success: false, message: "Category is required." });
 
+		// Normalize category to lowercase
+		category = category.toLowerCase();
+
 		if (!getCategoryValues().includes(category))
 			return res.status(400).json({
 				success: false,
 				message: `Invalid category. Must be one of: ${getCategoryValues().join(", ")}`,
 			});
+
+		// Parse subCategories if it comes in as a JSON string
+		if (typeof subCategories === "string") {
+			try {
+				subCategories = JSON.parse(subCategories);
+			} catch {
+				return res.status(400).json({
+					success: false,
+					message: "Invalid subCategories format.",
+				});
+			}
+		}
 
 		if (
 			!subCategories ||
@@ -55,6 +71,31 @@ const createFoodItem = async (req, res) => {
 				message: "You can only create a maximum of 20 items in one request.",
 			});
 
+		// Business limit check
+		const vendorFoodItems = await FoodItem.find({ vendor: vendor._id });
+		const existingItemsCount = vendorFoodItems.reduce((acc, foodItem) => {
+			return (
+				acc +
+				foodItem.subCategory.reduce((subAcc, subCat) => {
+					return subAcc + subCat.items.length;
+				}, 0)
+			);
+		}, 0);
+
+		if (existingItemsCount + totalItems > 100)
+			return res.status(400).json({
+				success: false,
+				message: `You have reached the maximum limit. You currently have ${existingItemsCount} items and can only add ${100 - existingItemsCount} more.`,
+			});
+
+		// Normalize servicesOffered to handle both array and string
+		const serviceType = Array.isArray(vendor.servicesOffered)
+			? vendor.servicesOffered
+			: [vendor.servicesOffered];
+
+		console.log("servicesOffered:", vendor.servicesOffered);
+		console.log("serviceType array:", serviceType);
+
 		const images = req.files?.img || [];
 		let imageIndex = 0;
 		const builtSubCategories = [];
@@ -66,7 +107,10 @@ const createFoodItem = async (req, res) => {
 					message: "Each subcategory must have a name.",
 				});
 
-			if (!getSubCategoryValues().includes(subCat.name))
+			// Normalize subcategory name to lowercase
+			const normalizedSubCatName = subCat.name.toLowerCase();
+
+			if (!getSubCategoryValues().includes(normalizedSubCatName))
 				return res.status(400).json({
 					success: false,
 					message: `Invalid subCategory "${subCat.name}". Must be one of: ${getSubCategoryValues().join(", ")}`,
@@ -85,16 +129,22 @@ const createFoodItem = async (req, res) => {
 			const builtItems = [];
 
 			for (const item of subCat.items) {
-				if (!item.name || !item.price || !item.preparationTime)
+				if (!item.name || !item.price)
 					return res.status(400).json({
 						success: false,
-						message: "Each item must have a name, price, and preparationTime.",
+						message: "Each item must have a name and price.",
 					});
 
 				if (item.price <= 0)
 					return res.status(400).json({
 						success: false,
 						message: "Price must be greater than 0.",
+					});
+
+				if (serviceType.includes("preOrderMeals") && !item.preparationTime)
+					return res.status(400).json({
+						success: false,
+						message: `preparationTime is required for pre-order meals. Item "${item.name}" is missing it.`,
 					});
 
 				if (!images[imageIndex])
@@ -107,7 +157,7 @@ const createFoodItem = async (req, res) => {
 					name: item.name,
 					price: item.price,
 					description: item.description || null,
-					preparationTime: item.preparationTime,
+					preparationTime: item.preparationTime || null,
 					minQuantity: item.minQuantity || 1,
 					maxQuantity: item.maxQuantity || null,
 					img: images[imageIndex].path,
@@ -117,7 +167,7 @@ const createFoodItem = async (req, res) => {
 			}
 
 			builtSubCategories.push({
-				name: subCat.name,
+				name: normalizedSubCatName,
 				items: builtItems,
 			});
 		}
@@ -140,10 +190,11 @@ const createFoodItem = async (req, res) => {
 		res.status(500).json({ success: false, error: err.message });
 	}
 };
+
 const addSubCategories = async (req, res) => {
 	try {
 		const { foodItemId } = req.params;
-		const {
+		let {
 			subCategoryName,
 			itemName,
 			price,
@@ -183,16 +234,19 @@ const addSubCategories = async (req, res) => {
 				.status(400)
 				.json({ success: false, message: "subCategoryName is required." });
 
+		// Normalize subcategory name to lowercase
+		subCategoryName = subCategoryName.toLowerCase();
+
 		if (!getSubCategoryValues().includes(subCategoryName))
 			return res.status(400).json({
 				success: false,
 				message: `Invalid subCategory. Must be one of: ${getSubCategoryValues().join(", ")}`,
 			});
 
-		if (!itemName || !price || !preparationTime)
+		if (!itemName || !price)
 			return res.status(400).json({
 				success: false,
-				message: "itemName, price, and preparationTime are required.",
+				message: "itemName and price are required.",
 			});
 
 		if (price <= 0)
@@ -200,16 +254,48 @@ const addSubCategories = async (req, res) => {
 				.status(400)
 				.json({ success: false, message: "Price must be greater than 0." });
 
+		// Normalize servicesOffered to handle both array and string
+		const serviceType = Array.isArray(vendor.servicesOffered)
+			? vendor.servicesOffered
+			: [vendor.servicesOffered];
+
+		console.log("servicesOffered:", vendor.servicesOffered);
+		console.log("serviceType array:", serviceType);
+
+		if (serviceType.includes("preOrderMeals") && !preparationTime)
+			return res.status(400).json({
+				success: false,
+				message: "preparationTime is required for pre-order meals.",
+			});
+
 		if (!req.files || !req.files.img || !req.files.img[0])
 			return res
 				.status(400)
 				.json({ success: false, message: "Image is required." });
 
+		// Business limit check
+		const vendorFoodItems = await FoodItem.find({ vendor: vendor._id });
+		const existingItemsCount = vendorFoodItems.reduce((acc, fi) => {
+			return (
+				acc +
+				fi.subCategory.reduce((subAcc, subCat) => {
+					return subAcc + subCat.items.length;
+				}, 0)
+			);
+		}, 0);
+
+		if (existingItemsCount >= 100)
+			return res.status(400).json({
+				success: false,
+				message:
+					"You have reached the maximum limit of 100 items. Please delete some items before adding more.",
+			});
+
 		const newItem = {
 			name: itemName,
 			price,
 			description: description || null,
-			preparationTime,
+			preparationTime: preparationTime || null,
 			minQuantity: minQuantity || 1,
 			maxQuantity: maxQuantity || null,
 			img: req.files.img[0].path,

@@ -32,7 +32,7 @@ const FOOD_ENUMS = {
 		SHRIMP: "shrimp",
 		LOBSTER: "lobster",
 		CRAB: "crab",
-		DRINK: "drink",
+		DRINKS: "drinks",
 		CALAMARI: "calamari",
 		FRUIT: "fruit",
 		STEW: "stew",
