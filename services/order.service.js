@@ -344,48 +344,93 @@ const createOrder = async (userId, data) => {
 
 	// --- Updated Logic inside createOrder ---
 
-    let itemsTotalPrice = 0;
-    const orderItems = [];
-    
-    // Change 'Dish' to 'Combo' to match the frontend payload itemType
-    const models = { FoodItem, Combo, Plate }; 
+	let itemsTotalPrice = 0;
+	const orderItems = [];
 
-    for (const item of items) {
-        const { itemId, itemType, quantity = 1, notes } = item;
+	// Change 'Dish' to 'Combo' to match the frontend payload itemType
+	const models = { FoodItem, Combo, Plate };
 
-        if (!mongoose.isValidObjectId(itemId)) {
-            throw new AppError(`Invalid Item ID: ${itemId}`, 400);
-        }
+	for (const item of items) {
+		const { itemId, itemType, quantity = 1, notes } = item;
 
-        // If the itemType sent doesn't exist in our mapping, we stop early
-        if (!models[itemType]) {
-            throw new AppError(`Invalid itemType: ${itemType}`, 400);
-        }
+		if (!mongoose.isValidObjectId(itemId)) {
+			throw new AppError(`Invalid Item ID: ${itemId}`, 400);
+		}
 
-        const ProductModel = models[itemType];
-        
-        // Combos use 'basePrice', FoodItems use 'price'. 
-        // We select both to be safe or select based on type.
-        const product = await ProductModel.findById(itemId).select(
-            "price basePrice minQuantity maxQuantity name"
-        );
+		// If the itemType sent doesn't exist in our mapping, we stop early
+		if (!models[itemType]) {
+			throw new AppError(`Invalid itemType: ${itemType}`, 400);
+		}
 
-        if (!product) {
-            throw new AppError(`${itemType} with ID ${itemId} not found`, 404);
-        }
+		const ProductModel = models[itemType];
 
-        // Handle the price field difference (Combo uses basePrice)
-        const itemPrice = itemType === "Combo" ? product.basePrice : product.price;
+		// Combos use 'basePrice', FoodItems use 'price'. 
+		// We select both to be safe or select based on type.
+		// Use .lean() so we can read 'price' even if it's not explicitly in the Schema.
+		const product = await ProductModel.findById(itemId).select(
+			"price basePrice minQuantity maxQuantity name subCategory"
+		).lean();
 
-        itemsTotalPrice += itemPrice * quantity;
-        orderItems.push({
-            itemType,
-            item: itemId,
-            quantity,
-            price: itemPrice,
-            notes,
-        });
-    }
+		if (!product) {
+			throw new AppError(`${itemType} with ID ${itemId} not found`, 404);
+		}
+
+		// Handle the price field difference
+		let itemPrice;
+		if (itemType === "Combo") {
+			itemPrice = product.basePrice;
+		} else if (itemType === "Plate") {
+			itemPrice = product.price;
+		} else if (itemType === "FoodItem") {
+			// FoodItems might have a legacy root price
+			if (product.price !== undefined) {
+				itemPrice = product.price;
+			} else {
+				// For new FoodItems, price is nested inside subCategories.
+				// If frontend passed the price in the payload:
+				itemPrice = item.price;
+
+				// Let's validate this frontend price against the subcategories to prevent spoofing
+				if (itemPrice !== undefined && product.subCategory && Array.isArray(product.subCategory)) {
+					let validPriceFound = false;
+					for (const sub of product.subCategory) {
+						if (sub.items && Array.isArray(sub.items)) {
+							if (sub.items.some(si => si.price === itemPrice)) {
+								validPriceFound = true;
+								break;
+							}
+						}
+					}
+					if (!validPriceFound) {
+						logger.warn(`Frontend sent unsupported price ${itemPrice} for FoodItem ${itemId}`);
+						// Default to the first sub-item price if validation fails or fallback is needed
+						const firstSub = product.subCategory[0];
+						if (firstSub && firstSub.items && firstSub.items[0]) {
+							itemPrice = firstSub.items[0].price;
+						}
+					}
+				} else if (itemPrice === undefined) {
+					// Fallback to first available sub-item price if none provided
+					if (product.subCategory && product.subCategory[0] && product.subCategory[0].items && product.subCategory[0].items[0]) {
+						itemPrice = product.subCategory[0].items[0].price;
+					}
+				}
+			}
+		}
+
+		if (itemPrice === undefined || isNaN(itemPrice)) {
+			throw new AppError(`Cannot determine price for ${itemType} with ID ${itemId}`, 400);
+		}
+
+		itemsTotalPrice += itemPrice * quantity;
+		orderItems.push({
+			itemType,
+			item: itemId,
+			quantity,
+			price: itemPrice,
+			notes,
+		});
+	}
 
 	// 4. Lookup Customer document ID from User ID
 	const customer = await Customer.findOne({ user: userId });
