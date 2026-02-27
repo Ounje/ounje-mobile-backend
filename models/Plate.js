@@ -42,6 +42,13 @@ plateSchema.index(
 		name: "plate_search_index",
 	},
 );
+
+plateSchema.virtual("itemType").get(function () {
+	return "Plate";
+});
+
 plateSchema.plugin(toJSON);
+plateSchema.set("toJSON", { virtuals: true });
+plateSchema.set("toObject", { virtuals: true });
 
 module.exports = mongoose.model("Plate", plateSchema);

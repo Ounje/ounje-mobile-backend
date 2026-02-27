@@ -71,5 +71,13 @@ FoodItemSchema.index(
 	},
 );
 
+FoodItemSchema.virtual("itemType").get(function () {
+	return "FoodItem";
+});
+
 FoodItemSchema.plugin(toJSON);
+
+FoodItemSchema.set("toJSON", { virtuals: true });
+FoodItemSchema.set("toObject", { virtuals: true });
+
 module.exports = mongoose.model("FoodItem", FoodItemSchema);
