@@ -25,6 +25,7 @@ const plateSchema = new mongoose.Schema(
 		likes: { type: Number, default: 0 },
 		comments: String,
 		items: [{ type: mongoose.Schema.Types.ObjectId, ref: "FoodItem" }],
+		combos: [{ type: mongoose.Schema.Types.ObjectId, ref: "Combo" }],
 	},
 	{ timestamps: true },
 );
