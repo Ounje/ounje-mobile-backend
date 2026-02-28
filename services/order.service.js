@@ -349,7 +349,7 @@ const createOrder = async (userId, data) => {
 	const models = { FoodItem, Combo, Plate };
 
 	for (const item of items) {
-		const { itemId, itemType, quantity = 1, notes, subCategoryItemId } = item;
+		const { itemId, itemType, quantity = 1, notes, subCategoryItemId, comboSelections } = item;
 
 		if (!mongoose.isValidObjectId(itemId)) {
 			throw new AppError(`Invalid Item ID: ${itemId}`, 400);
@@ -362,6 +362,7 @@ const createOrder = async (userId, data) => {
 
 		const ProductModel = models[itemType];
 		let itemPrice;
+		let validatedComboSelections = undefined;
 
 		if (itemType === "FoodItem") {
 			// subCategoryItemId is required for FoodItems
@@ -411,13 +412,81 @@ const createOrder = async (userId, data) => {
 			itemPrice = foundItem.price;
 		} else if (itemType === "Combo") {
 			const product = await ProductModel.findById(itemId)
-				.select("basePrice name")
+				.select("basePrice name selections")
 				.lean();
 
 			if (!product)
 				throw new AppError(`Combo with ID ${itemId} not found`, 404);
 
 			itemPrice = product.basePrice;
+
+			if (product.selections && product.selections.length > 0) {
+				const userSelections = comboSelections || [];
+				validatedComboSelections = [];
+
+				for (const group of product.selections) {
+					// Match by groupId, fallback to groupName
+					const userGroup = userSelections.find(
+						(g) =>
+							(g.groupId &&
+								g.groupId.toString() === group._id.toString()) ||
+							(g.groupName && g.groupName === group.label),
+					);
+
+					if (
+						group.required &&
+						(!userGroup || !userGroup.items || userGroup.items.length === 0)
+					) {
+						throw new AppError(
+							`Selection from "${group.label}" is required for combo "${product.name}"`,
+							400,
+						);
+					}
+
+					if (userGroup && userGroup.items && userGroup.items.length > 0) {
+						if (userGroup.items.length > group.maxSelection) {
+							throw new AppError(
+								`You can only select up to ${group.maxSelection} items from "${group.label}"`,
+								400,
+							);
+						}
+
+						const validItems = [];
+						for (const uItem of userGroup.items) {
+							const foundItem = group.items.find(
+								(i) => i.item.toString() === uItem.itemId?.toString(),
+							);
+							if (!foundItem) {
+								throw new AppError(
+									`Item with ID ${uItem.itemId} is not a valid option for "${group.label}"`,
+									400,
+								);
+							}
+							if (foundItem.isAvailable === false) {
+								throw new AppError(
+									`Option "${foundItem.name}" is currently unavailable in "${group.label}"`,
+									400,
+								);
+							}
+
+							validItems.push({
+								itemId: foundItem.item,
+								name: foundItem.name,
+								price: foundItem.price || 0,
+							});
+
+							// Add additional price of the option to the combo price
+							itemPrice += foundItem.price || 0;
+						}
+
+						validatedComboSelections.push({
+							groupId: group._id,
+							groupName: group.label,
+							items: validItems,
+						});
+					}
+				}
+			}
 		} else if (itemType === "Plate") {
 			const product = await ProductModel.findById(itemId)
 				.select("price name")
@@ -441,6 +510,7 @@ const createOrder = async (userId, data) => {
 			itemType,
 			item: itemId,
 			subCategoryItemId: subCategoryItemId || null,
+			comboSelections: validatedComboSelections,
 			quantity,
 			price: itemPrice,
 			notes,
