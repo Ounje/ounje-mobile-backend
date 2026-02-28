@@ -1,15 +1,41 @@
 const mongoose = require("mongoose");
 
-const ratingSchema = new mongoose.Schema({
-  vendor: { type: mongoose.Schema.Types.ObjectId, ref: "Vendor", required: true },
-  customer: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
-  rating: { type: Number, min: 1, max: 5, required: true },
-  comment: String,
-});
+const ratingSchema = new mongoose.Schema(
+	{
+		targetType: {
+			type: String,
+			enum: ["FoodItem", "Combo", "VendorProfile", "RiderProfile", "Plate"],
+			required: true,
+		},
+		target: {
+			type: mongoose.Schema.Types.ObjectId,
+			required: true,
+			refPath: "targetType",
+		},
+		orderId: {
+			type: mongoose.Schema.Types.ObjectId,
+			ref: "Order",
+			required: true,
+		},
+		customer: {
+			type: mongoose.Schema.Types.ObjectId,
+			ref: "Customer",
+			required: true,
+		},
+		rating: {
+			type: Number,
+			min: 1,
+			max: 5,
+			required: true,
+		},
+		comment: String,
+	},
+	{ timestamps: true },
+);
 
-ratingSchema.index({ vendor: 1, customer: 1 }, { unique: true });
+ratingSchema.index(
+	{ targetType: 1, target: 1, customer: 1, createdAt: -1 },
+	{ unique: true },
+);
 
-
-const Rating = mongoose.model("Rating", ratingSchema);
-
-module.exports = Rating;
+module.exports = mongoose.model("Rating", ratingSchema);

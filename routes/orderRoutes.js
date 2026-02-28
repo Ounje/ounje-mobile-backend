@@ -1,144 +1,549 @@
 const express = require("express");
-const { authMiddleware, roleGuard } = require("../middleware/auth");
-const Dish = require("../models/Dish");
-const Order = require("../models/Order");
+const {
+	authMiddleware,
+	roleGuard,
+	checkActiveUser,
+} = require("../middleware/auth");
 
 const {
-  createOrder,
-  getMyOrders,
-  getOrderById,
-  updateOrderStatus,
+	// Customer
+	createOrder,
+	getMyOrders,
+	getOrderById,
+	cancelOrder,
+
+	// Vendor
+	vendorAcceptOrder,
+	vendorDeclineOrder,
+	getVendorDeclineStats,
+	getVendorOrders,
+	vendorGetCustomerOrderDetails,
+
+	// Rider
+	acceptOrder,
+	riderDeclineOrder,
+	pickUpOrder,
+	completeDelivery,
+	getAvailableRiderRequests,
+	getCurrentRiderOrder,
+	getRiderCompletedOrdersToday,
+	getRiderOrders,
+
+	updateOrderStatus,
 } = require("../controllers/orderController");
 
 const router = express.Router();
+
+/**
+ * @swagger
+ * tags:
+ *   - name: Orders
+ *     description: Order lifecycle management for Customers, Vendors, and Riders
+ */
 
 /* ======================
    CUSTOMER ROUTES
 ====================== */
 
-// Create new order (customer)
-router.post("/", authMiddleware, roleGuard(["customer"]), createOrder);
+/**
+ * @swagger
+ * /api/orders:
+ *   post:
+ *     summary: Create a new order
+ *     tags: [Orders]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [vendorId, deliveryAddress, items]
+ *             properties:
+ *               vendorId:
+ *                 type: string
+ *                 description: ID of the vendor
+ *               deliveryAddress:
+ *                 type: string
+ *                 description: Delivery address
+ *               items:
+ *                 type: array
+ *                 items:
+ *                   type: object
+ *                   required: [itemId, itemType]
+ *                   properties:
+ *                     itemId:
+ *                       type: string
+ *                       description: ID of the FoodItem, Combo, or Plate
+ *                     itemType:
+ *                       type: string
+ *                       enum: [FoodItem, Combo, Plate]
+ *                     quantity:
+ *                       type: number
+ *                       default: 1
+ *                     notes:
+ *                       type: string
+ *                       description: Optional instructions for the item
+ *     responses:
+ *       201:
+ *         description: Order created successfully
+ *       400:
+ *         description: Invalid input or quantity limits exceeded
+ *       404:
+ *         description: Vendor or items not found
+ */
+router.post(
+	"/",
+	authMiddleware,
+	checkActiveUser,
+	roleGuard(["customer"]),
+	createOrder,
+);
 
-// Get all orders of logged-in customer
-router.get("/", authMiddleware, roleGuard(["customer"]), getMyOrders);
+/**
+ * @swagger
+ * /api/orders:
+ *   get:
+ *     summary: Get all orders for logged-in customer
+ *     tags: [Orders]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: List of customer orders
+ */
+router.get(
+	"/",
+	authMiddleware,
+	checkActiveUser,
+	roleGuard(["customer"]),
+	getMyOrders,
+);
 
-// Get a specific order by ID (customer)
-router.get("/:id", authMiddleware, roleGuard(["customer"]), getOrderById);
+/**
+ * @swagger
+ * /api/orders/{id}:
+ *   get:
+ *     summary: Get order by ID (customer only)
+ *     tags: [Orders]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Order details
+ *       403:
+ *         description: Unauthorized
+ *       404:
+ *         description: Order not found
+ */
+router.get(
+	"/:id",
+	authMiddleware,
+	checkActiveUser,
+	roleGuard(["customer"]),
+	getOrderById,
+);
 
-// Update order status (e.g., cancel) (customer)
-router.put("/:id", authMiddleware, roleGuard(["customer"]), updateOrderStatus);
-
+/**
+ * @swagger
+ * /api/orders/{orderId}/cancel:
+ *   put:
+ *     summary: Cancel an order before vendor accepts
+ *     tags: [Orders]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: orderId
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Order cancelled successfully
+ *       400:
+ *         description: Order cannot be cancelled (e.g. already accepted)
+ *       403:
+ *         description: Not authorized to cancel this order
+ */
+router.put(
+	"/:orderId/cancel",
+	authMiddleware,
+	checkActiveUser,
+	roleGuard(["customer"]),
+	cancelOrder,
+);
 
 /* ======================
-   SELLER ROUTES
+   VENDOR ROUTES
 ====================== */
 
-// View orders for seller
-router.get("/seller", authMiddleware, roleGuard(["seller"]), async (req, res) => {
-  try {
-    const orders = await Order.find({ vendor: req.user._id })
-      .populate("user", "name phone")
-      .populate("items.item");
-    res.json(orders);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
+/**
+ * @swagger
+ * /api/orders/vendor/{orderId}/accept:
+ *   put:
+ *     summary: Vendor accepts an order
+ *     tags: [Orders]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: orderId
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Order accepted by vendor
+ *       403:
+ *         description: Not authorized
+ *       404:
+ *         description: Order not found
+ */
+router.put(
+	"/vendor/:orderId/accept",
+	authMiddleware,
+	checkActiveUser,
+	roleGuard(["vendor"]),
+	vendorAcceptOrder,
+);
 
+/**
+ * @swagger
+ * /api/orders/vendor/{orderId}/decline:
+ *   put:
+ *     summary: Vendor declines an order
+ *     tags: [Orders]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [reason]
+ */
+router.put(
+	"/vendor/:orderId/decline",
+	authMiddleware,
+	checkActiveUser,
+	roleGuard(["vendor"]),
+	vendorDeclineOrder,
+);
 
-// Update order status (confirm/cancel) (seller)
-router.put("/:id/status", authMiddleware, roleGuard(["seller"]), async (req, res) => {
-  try {
-    const { status } = req.body; // accepted: confirmed or cancelled
-    const order = await Order.findById(req.params.id);
-    if (!order) return res.status(404).json({ error: "Order not found" });
-    if (!order.vendor.equals(req.user._id)) return res.status(403).json({ error: "Not vendor of this order" });
+/**
+ * @swagger
+ * /api/orders/vendor/declines/stats:
+ *   get:
+ *     summary: Get vendor order decline statistics
+ *     tags: [Orders]
+ *     security:
+ *       - bearerAuth: []
+ */
+router.get(
+	"/vendor/declines/stats",
+	authMiddleware,
+	checkActiveUser,
+	roleGuard(["vendor"]),
+	getVendorDeclineStats,
+);
 
-    if (!["confirmed", "cancelled"].includes(status))
-      return res.status(400).json({ error: "Invalid status" });
-
-
-    order.status = status;
-    await order.save();
-    res.json(order);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
+/**
+ * @swagger
+ * /api/orders/vendor/orders:
+ *   get:
+ *     summary: Get all orders for logged-in vendor
+ *     tags: [Orders]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: status
+ *         schema:
+ *           type: string
+ *           description: Optional status filter (active, completed, cancelled, or specific status)
+ *     responses:
+ *       200:
+ *         description: List of vendor orders
+ */
+router.get(
+	"/vendor/orders",
+	authMiddleware,
+	checkActiveUser,
+	roleGuard(["vendor"]),
+	getVendorOrders,
+);
+/**
+ * @swagger
+ * /api/orders/vendor/order/{orderId}:
+ *   get:
+ *     summary: Get a specific order details (vendor only)
+ *     description: >
+ *       Allows a vendor to view the full details of a specific order placed at their restaurant.
+ *       Returns customer name, ordered items with names and prices, delivery fee, and order status.
+ *       Vendors can only view orders that belong to their own restaurant.
+ *     tags: [Orders]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: orderId
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: The ID of the order to retrieve
+ *     responses:
+ *       200:
+ *         description: Order details retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 order:
+ *                   type: object
+ *                   properties:
+ *                     customerName:
+ *                       type: string
+ *                       example: "John Doe"
+ *                     totalAmount:
+ *                       type: number
+ *                       example: 5000
+ *                     deliveryFee:
+ *                       type: number
+ *                       example: 500
+ *                     grandTotal:
+ *                       type: number
+ *                       example: 5500
+ *                     status:
+ *                       type: string
+ *                       example: "delivered"
+ *                     subStatus:
+ *                       type: string
+ *                       example: "delivered"
+ *                     deliveryAddress:
+ *                       type: string
+ *                       example: "123 street"
+ *                     items:
+ *                       type: array
+ *                       items:
+ *                         type: object
+ *                         properties:
+ *                           itemType:
+ *                             type: string
+ *                             example: "FoodItem"
+ *                           itemName:
+ *                             type: string
+ *                             example: "Goat Meat"
+ *                           quantity:
+ *                             type: number
+ *                             example: 2
+ *                           price:
+ *                             type: number
+ *                             example: 700
+ *                           totalPrice:
+ *                             type: number
+ *                             example: 1400
+ *                           notes:
+ *                             type: string
+ *                             example: "extra spicy"
+ *       403:
+ *         description: Unauthorized - order does not belong to this vendor
+ *       404:
+ *         description: Order not found
+ *       500:
+ *         description: Server error
+ */
+router.get(
+	"/vendor/order/:orderId",
+	authMiddleware,
+	roleGuard(["vendor"]),
+	checkActiveUser,
+	vendorGetCustomerOrderDetails,
+);
 
 /* ======================
-   RIDER ROUTES
+   RIDER DASHBOARD ROUTES
 ====================== */
 
-// View available orders (confirmed, unassigned)
-router.get("/available", authMiddleware, roleGuard(["rider"]), async (req, res) => {
-  try {
-    const orders = await Order.find({ status: "confirmed", rider: null })
-      .populate("vendor", "name location")
-      .populate("user", "name location");
-    res.json(orders);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
+/**
+ * @swagger
+ * /api/orders/rider/requests:
+ *   get:
+ *     summary: Get available delivery requests
+ *     tags: [Orders]
+ *     security:
+ *       - bearerAuth: []
+ */
+router.get(
+	"/rider/requests",
+	authMiddleware,
+	checkActiveUser,
+	roleGuard(["rider"]),
+	getAvailableRiderRequests,
+);
 
-// Claim an order (rider)
-router.post("/:id/assign", authMiddleware, roleGuard(["rider"]), async (req, res) => {
-  try {
-    const order = await Order.findById(req.params.id);
-    if (!order) return res.status(404).json({ error: "Order not found" });
-    if (order.rider) return res.status(400).json({ error: "Order already assigned" });
-    if (order.status !== "confirmed") return res.status(400).json({ error: "Order must be confirmed first" });
+/**
+ * @swagger
+ * /api/orders/rider/ongoing:
+ *   get:
+ *     summary: Get rider's current active order
+ *     tags: [Orders]
+ *     security:
+ *       - bearerAuth: []
+ */
+router.get(
+	"/rider/ongoing",
+	authMiddleware,
+	checkActiveUser,
+	roleGuard(["rider"]),
+	getCurrentRiderOrder,
+);
 
+/**
+ * @swagger
+ * /api/orders/rider/completed-today:
+ *   get:
+ *     summary: Get rider completed orders today
+ *     tags: [Orders]
+ *     security:
+ *       - bearerAuth: []
+ */
+router.get(
+	"/rider/completed-today",
+	authMiddleware,
+	checkActiveUser,
+	roleGuard(["rider"]),
+	getRiderCompletedOrdersToday,
+);
 
-    order.rider = req.user._id;
-    order.status = "assigned";
-    await order.save();
-    res.json(order);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
+/**
+ * @swagger
+ * /api/orders/rider/orders:
+ *   get:
+ *     summary: Get rider orders with status filter
+ *     tags: [Orders]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: status
+ *         schema:
+ *           type: string
+ *           enum: [pending, active, completed]
+ */
+router.get(
+	"/rider/orders",
+	authMiddleware,
+	checkActiveUser,
+	roleGuard(["rider"]),
+	getRiderOrders,
+);
 
+/* ======================
+   RIDER ACTION ROUTES
+====================== */
 
-// Update order status and optionally rider location
-router.put("/:id/rider-update", authMiddleware, roleGuard(["rider"]), async (req, res) => {
-  try {
-    const { status, riderLocation } = req.body;
-    const order = await Order.findById(req.params.id);
-    if (!order) return res.status(404).json({ error: "Order not found" });
-    if (!order.rider || !order.rider.equals(req.user._id)) return res.status(403).json({ error: "Not assigned to you" });
+/**
+ * @swagger
+ * /api/orders/rider/{orderId}/accept:
+ *   put:
+ *     summary: Rider accepts an order
+ *     tags: [Orders]
+ *     security:
+ *       - bearerAuth: []
+ */
+router.put(
+	"/rider/:orderId/accept",
+	authMiddleware,
+	checkActiveUser,
+	roleGuard(["rider"]),
+	acceptOrder,
+);
 
+/**
+ * @swagger
+ * /api/orders/rider/{orderId}/decline:
+ *   put:
+ *     summary: Rider declines assigned order
+ *     tags: [Orders]
+ *     security:
+ *       - bearerAuth: []
+ */
+router.put(
+	"/rider/:orderId/decline",
+	authMiddleware,
+	checkActiveUser,
+	roleGuard(["rider"]),
+	riderDeclineOrder,
+);
 
-    if (status && !["out_for_delivery", "delivered"].includes(status))
-      return res.status(400).json({ error: "Invalid rider status" });
+/**
+ * @swagger
+ * /api/orders/rider/{orderId}/pickup:
+ *   put:
+ *     summary: Rider picks up order (OTP is sent to customer via socket)
+ *     tags: [Orders]
+ *     security:
+ *       - bearerAuth: []
+ */
+router.put(
+	"/rider/:orderId/pickup",
+	authMiddleware,
+	checkActiveUser,
+	roleGuard(["rider"]),
+	pickUpOrder,
+);
 
-    if (status) order.status = status;
-    if (riderLocation?.lat && riderLocation?.lng) {
-      order.riderLocation = { lat: riderLocation.lat, lng: riderLocation.lng, updatedAt: new Date() };
+/**
+ * @swagger
+ * /api/orders/rider/{orderId}/complete:
+ *   put:
+ *     summary: Rider completes delivery using OTP
+ *     tags: [Orders]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [otp]
+ */
+router.put(
+	"/rider/:orderId/complete",
+	authMiddleware,
+	checkActiveUser,
+	roleGuard(["rider"]),
+	completeDelivery,
+);
 
-    }
-
-    await order.save();
-    res.json(order);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-
-// View rider's own orders
-router.get("/rider", authMiddleware, roleGuard(["rider"]), async (req, res) => {
-  try {
-    const orders = await Order.find({ rider: req.user._id })
-      .populate("user", "name phone")
-      .populate("vendor", "name location");
-    res.json(orders);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-
-});
+/**
+ * @swagger
+ * /api/orders/{id}/status:
+ *   put:
+ *     summary: Update order status
+ *     tags: [Orders]
+ *     security:
+ *       - bearerAuth: []
+ */
+router.put(
+	"/:id/status",
+	authMiddleware,
+	roleGuard(["customer"]),
+	updateOrderStatus,
+);
 
 module.exports = router;

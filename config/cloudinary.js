@@ -1,50 +1,111 @@
 const cloudinary = require("cloudinary").v2;
-const { CloudinaryStorage } = require("multer-storage-cloudinary");
 const multer = require("multer");
+const { CloudinaryStorage } = require("multer-storage-cloudinary");
 
 cloudinary.config({
-  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
-  api_key: process.env.CLOUDINARY_API_KEY,
-  api_secret: process.env.CLOUDINARY_API_SECRET,
+	cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+	api_key: process.env.CLOUDINARY_API_KEY,
+	api_secret: process.env.CLOUDINARY_API_SECRET,
 });
 
 const foodItemsStorage = new CloudinaryStorage({
-  cloudinary: cloudinary,
-  params: {
-    folder: "food-items",
-    allowed_formats: ["jpg", "png", "jpeg", "webp"],
-    transformation: [{ width: 800, quality: "auto" }],
-  },
+	cloudinary,
+	params: {
+		folder: "food-items",
+		allowed_formats: ["jpg", "png", "jpeg", "webp"],
+		transformation: [{ width: 800, quality: "auto" }],
+	},
 });
 
-const dishesStorage = new CloudinaryStorage({
-  cloudinary: cloudinary,
-  params: {
-    folder: "dishes",
-    allowed_formats: ["jpg", "png", "jpeg", "webp"],
-    transformation: [{ width: 800, quality: "auto" }],
-  },
+const comboStorage = new CloudinaryStorage({
+	cloudinary,
+	params: {
+		folder: "combos",
+		allowed_formats: ["jpg", "png", "jpeg", "webp"],
+		transformation: [{ width: 800, quality: "auto" }],
+	},
 });
 
 const usersStorage = new CloudinaryStorage({
-  cloudinary: cloudinary,
-  params: {
-    folder: "users",
-    allowed_formats: ["jpg", "png", "jpeg", "webp"],
-    transformation: [{ width: 500, height: 500, crop: "thumb", gravity: "face", quality: "auto" }],
-  },
+	cloudinary,
+	params: {
+		folder: "users",
+		allowed_formats: ["jpg", "png", "jpeg", "webp"],
+		transformation: [
+			{
+				width: 500,
+				height: 500,
+				crop: "thumb",
+				gravity: "face",
+				quality: "auto",
+			},
+		],
+	},
 });
 
-const deleteImage = async (publicId) => {
-  try {
-    await cloudinary.uploader.destroy(publicId);
-  } catch (error) {
-    console.error("Error deleting image from Cloudinary:", error);
-  }
-};
- 
-const userUpload = multer({storage: usersStorage });
-const dishUpload = multer({ storage: dishesStorage });
-const foodItemUpload = multer({ storage: foodItemsStorage });
+const platesStorage = new CloudinaryStorage({
+	cloudinary,
+	params: {
+		folder: "plates",
+		allowed_formats: ["jpg", "png", "jpeg", "webp"],
+		transformation: [{ width: 800, quality: "auto" }],
+	},
+});
 
-module.exports = { cloudinary, userUpload, dishUpload, foodItemUpload, deleteImage };
+const NINStorage = new CloudinaryStorage({
+	cloudinary,
+	params: {
+		folder: "vendor-documents",
+		allowed_formats: ["jpg", "png", "jpeg", "webp"],
+		transformation: [{ width: 800, quality: "auto" }],
+	},
+});
+
+const vendorStorage = new CloudinaryStorage({
+	cloudinary,
+	params: {
+		folder: "vendor-documents",
+		allowed_formats: ["jpg", "png", "jpeg", "webp"],
+		transformation: [{ width: 800, quality: "auto" }],
+	},
+});
+const newsBannerStorage = new CloudinaryStorage({
+	cloudinary,
+	params: {
+		folder: "news-banner",
+		allowed_formats: ["jpg", "png", "jpeg", "webp"],
+		transformation: [{ width: 800, quality: "auto" }],
+	},
+});
+const RiderDocumentStorage = new CloudinaryStorage({
+	cloudinary,
+	params: {
+		folder: "rider-documents",
+		allowed_formats: ["jpg", "png", "jpeg", "webp"],
+		transformation: [{ width: 800, quality: "auto" }],
+	},
+});
+const deleteImage = async (publicId) => {
+	try {
+		await cloudinary.uploader.destroy(publicId);
+	} catch (err) {
+		console.error("Error deleting image:", err);
+	}
+};
+
+const foodItemUpload = multer({ storage: foodItemsStorage }).fields([
+	{ name: "img", maxCount: 20 },
+]);
+
+module.exports = {
+	cloudinary,
+	NINStorage: multer({ storage: NINStorage }),
+	userUpload: multer({ storage: usersStorage }),
+	comboUpload: multer({ storage: comboStorage }),
+	foodItemUpload,
+	plateUpload: multer({ storage: platesStorage }),
+	vendorImageUpload: multer({ storage: vendorStorage }),
+	riderUpload: multer({ storage: RiderDocumentStorage }),
+	newsBannerUpload: multer({ storage: newsBannerStorage }),
+	deleteImage,
+};
