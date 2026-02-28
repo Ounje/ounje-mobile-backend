@@ -17,6 +17,7 @@ const {
 	vendorDeclineOrder,
 	getVendorDeclineStats,
 	getVendorOrders,
+	vendorGetCustomerOrderDetails,
 
 	// Rider
 	acceptOrder,
