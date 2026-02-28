@@ -340,18 +340,16 @@ const createOrder = async (userId, data) => {
 	}
 
 	const fee = await calculateOunjeFee(vendorAddress, deliveryAddress);
-	// calculateOunjeFee now throws specific errors, so no need to check for null
 
 	// --- Updated Logic inside createOrder ---
 
 	let itemsTotalPrice = 0;
 	const orderItems = [];
 
-	// Change 'Dish' to 'Combo' to match the frontend payload itemType
 	const models = { FoodItem, Combo, Plate };
 
 	for (const item of items) {
-		const { itemId, itemType, quantity = 1, notes } = item;
+		const { itemId, itemType, quantity = 1, notes, subCategoryItemId } = item;
 
 		if (!mongoose.isValidObjectId(itemId)) {
 			throw new AppError(`Invalid Item ID: ${itemId}`, 400);
@@ -363,69 +361,86 @@ const createOrder = async (userId, data) => {
 		}
 
 		const ProductModel = models[itemType];
-
-		// Combos use 'basePrice', FoodItems use 'price'. 
-		// We select both to be safe or select based on type.
-		// Use .lean() so we can read 'price' even if it's not explicitly in the Schema.
-		const product = await ProductModel.findById(itemId).select(
-			"price basePrice minQuantity maxQuantity name subCategory"
-		).lean();
-
-		if (!product) {
-			throw new AppError(`${itemType} with ID ${itemId} not found`, 404);
-		}
-
-		// Handle the price field difference
 		let itemPrice;
-		if (itemType === "Combo") {
-			itemPrice = product.basePrice;
-		} else if (itemType === "Plate") {
-			itemPrice = product.price;
-		} else if (itemType === "FoodItem") {
-			// FoodItems might have a legacy root price
-			if (product.price !== undefined) {
-				itemPrice = product.price;
-			} else {
-				// For new FoodItems, price is nested inside subCategories.
-				// If frontend passed the price in the payload:
-				itemPrice = item.price;
 
-				// Let's validate this frontend price against the subcategories to prevent spoofing
-				if (itemPrice !== undefined && product.subCategory && Array.isArray(product.subCategory)) {
-					let validPriceFound = false;
-					for (const sub of product.subCategory) {
-						if (sub.items && Array.isArray(sub.items)) {
-							if (sub.items.some(si => si.price === itemPrice)) {
-								validPriceFound = true;
-								break;
-							}
-						}
-					}
-					if (!validPriceFound) {
-						logger.warn(`Frontend sent unsupported price ${itemPrice} for FoodItem ${itemId}`);
-						// Default to the first sub-item price if validation fails or fallback is needed
-						const firstSub = product.subCategory[0];
-						if (firstSub && firstSub.items && firstSub.items[0]) {
-							itemPrice = firstSub.items[0].price;
-						}
-					}
-				} else if (itemPrice === undefined) {
-					// Fallback to first available sub-item price if none provided
-					if (product.subCategory && product.subCategory[0] && product.subCategory[0].items && product.subCategory[0].items[0]) {
-						itemPrice = product.subCategory[0].items[0].price;
-					}
+		if (itemType === "FoodItem") {
+			// subCategoryItemId is required for FoodItems
+			if (!subCategoryItemId)
+				throw new AppError(
+					"subCategoryItemId is required for FoodItem orders.",
+					400,
+				);
+
+			if (!mongoose.isValidObjectId(subCategoryItemId))
+				throw new AppError(
+					`Invalid subCategoryItemId: ${subCategoryItemId}`,
+					400,
+				);
+
+			const product = await ProductModel.findById(itemId)
+				.select("subCategory isAvailable")
+				.lean();
+
+			if (!product)
+				throw new AppError(`FoodItem with ID ${itemId} not found`, 404);
+
+			if (!product.isAvailable)
+				throw new AppError(`FoodItem with ID ${itemId} is not available`, 400);
+
+			// Find the specific subcategory item ordered
+			let foundItem = null;
+			for (const subCat of product.subCategory) {
+				const match = subCat.items.find(
+					(i) => i._id.toString() === subCategoryItemId.toString(),
+				);
+				if (match) {
+					foundItem = match;
+					break;
 				}
 			}
+
+			if (!foundItem)
+				throw new AppError(
+					`Subcategory item with ID ${subCategoryItemId} not found`,
+					404,
+				);
+
+			if (!foundItem.isAvailable)
+				throw new AppError(`Item "${foundItem.name}" is not available`, 400);
+
+			itemPrice = foundItem.price;
+		} else if (itemType === "Combo") {
+			const product = await ProductModel.findById(itemId)
+				.select("basePrice name")
+				.lean();
+
+			if (!product)
+				throw new AppError(`Combo with ID ${itemId} not found`, 404);
+
+			itemPrice = product.basePrice;
+		} else if (itemType === "Plate") {
+			const product = await ProductModel.findById(itemId)
+				.select("price name")
+				.lean();
+
+			if (!product)
+				throw new AppError(`Plate with ID ${itemId} not found`, 404);
+
+			itemPrice = product.price;
 		}
 
 		if (itemPrice === undefined || isNaN(itemPrice)) {
-			throw new AppError(`Cannot determine price for ${itemType} with ID ${itemId}`, 400);
+			throw new AppError(
+				`Cannot determine price for ${itemType} with ID ${itemId}`,
+				400,
+			);
 		}
 
 		itemsTotalPrice += itemPrice * quantity;
 		orderItems.push({
 			itemType,
 			item: itemId,
+			subCategoryItemId: subCategoryItemId || null,
 			quantity,
 			price: itemPrice,
 			notes,
@@ -438,7 +453,7 @@ const createOrder = async (userId, data) => {
 
 	// 5. Create Order
 	const order = await Order.create({
-		customer: customer._id, // Use Customer document ID, not User ID
+		customer: customer._id,
 		vendor: vendorId,
 		items: orderItems,
 		totalPrice: itemsTotalPrice + fee,
@@ -459,7 +474,6 @@ const createOrder = async (userId, data) => {
 
 	return order;
 };
-
 const updateOrderStatus = async (orderId, status, subStatus) => {
 	const order = await Order.findById(orderId).populate("customer");
 	if (!order) throw new Error("Order not found");
@@ -575,7 +589,9 @@ const verifyDeliveryOtp = async (order, otp, riderId) => {
 			});
 		}
 	} catch (err) {
-		logger.error(`Auto payout or stats update failed for order ${order._id}: ${err.message}`);
+		logger.error(
+			`Auto payout or stats update failed for order ${order._id}: ${err.message}`,
+		);
 	}
 
 	return { success: true };
@@ -886,6 +902,63 @@ const getVendorOrders = async (userId, query = {}) => {
 
 	return orders;
 };
+const vendorGetCustomerOrderDetails = async (orderId, vendorId) => {
+	const vendor = await VendorProfile.findOne({ owner: vendorId });
+	if (!vendor) throw new Error("Vendor profile not found");
+
+	const order = await Order.findOne({
+		_id: orderId,
+		vendor: vendor._id,
+	})
+		.populate("customer", "name")
+		.populate({
+			path: "items.item",
+			select: "category subCategory name basePrice price",
+		});
+
+	if (!order) throw new Error("Order not found");
+
+	const itemsList = order.items.map((orderItem) => {
+		let itemName = null;
+
+		if (orderItem.itemType === "FoodItem" && orderItem.item) {
+			for (const subCat of orderItem.item.subCategory || []) {
+				const found = subCat.items.find(
+					(i) => i._id.toString() === orderItem.subCategoryItemId?.toString(),
+				);
+				if (found) {
+					itemName = found.name;
+					break;
+				}
+			}
+		} else if (
+			orderItem.itemType === "Combo" ||
+			orderItem.itemType === "Plate"
+		) {
+			itemName = orderItem.item?.name || null;
+		}
+
+		return {
+			itemType: orderItem.itemType,
+			itemName,
+			quantity: orderItem.quantity,
+			price: orderItem.price,
+			totalPrice: orderItem.price * orderItem.quantity,
+			notes: orderItem.notes || null,
+		};
+	});
+
+	return {
+		customerName: order.customer.name,
+		totalAmount: order.totalPrice,
+		deliveryFee: order.deliveryFee,
+		grandTotal: order.totalPrice + order.deliveryFee,
+		status: order.status,
+		subStatus: order.subStatus,
+		deliveryAddress: order.deliveryAddress,
+		items: itemsList,
+	};
+};
 
 module.exports = {
 	createOrder,
@@ -900,7 +973,8 @@ module.exports = {
 	getCurrentRiderOrder,
 	getRiderCompletedOrdersToday,
 	getRiderOrders,
-	getVendorOrders, // Added here
+	getVendorOrders,
+	vendorGetCustomerOrderDetails,
 	generateNumericOtp,
 	hashOtp,
 	declineOrder,

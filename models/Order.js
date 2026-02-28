@@ -29,6 +29,10 @@ const orderSchema = new mongoose.Schema(
 						required: true,
 						refPath: "items.itemType", // Dynamic reference
 					},
+					subCategoryItemId: {
+						type: mongoose.Schema.Types.ObjectId,
+						default: null, // only required when itemType is FoodItem
+					},
 					quantity: {
 						type: Number,
 						default: 1,

@@ -15,9 +15,9 @@ const formatRiderOrder = (order) => {
 		amount: orderObj.totalPrice, // Map totalPrice to amount
 		vendor: orderObj.vendor
 			? {
-				id: orderObj.vendor._id || orderObj.vendor,
-				name: orderObj.vendor.name || "Unknown Vendor",
-			}
+					id: orderObj.vendor._id || orderObj.vendor,
+					name: orderObj.vendor.name || "Unknown Vendor",
+				}
 			: null,
 	};
 };
@@ -199,7 +199,9 @@ exports.getRiderOrders = asyncHandler(async (req, res) => {
 	const { status } = req.query;
 
 	const orders = await orderService.getRiderOrders(riderId, status);
-	res.status(200).json({ count: orders.length, orders: orders.map(formatRiderOrder) });
+	res
+		.status(200)
+		.json({ count: orders.length, orders: orders.map(formatRiderOrder) });
 });
 
 exports.updateOrderStatus = asyncHandler(async (req, res) => {
@@ -214,4 +216,16 @@ exports.updateOrderStatus = asyncHandler(async (req, res) => {
 exports.getVendorOrders = asyncHandler(async (req, res) => {
 	const orders = await orderService.getVendorOrders(req.user.id, req.query);
 	res.status(200).json({ count: orders.length, orders });
+});
+
+// Get single order for vendor
+exports.vendorGetCustomerOrderDetails = asyncHandler(async (req, res) => {
+	const { orderId } = req.params;
+	const vendorId = req.user.id;
+
+	const order = await orderService.vendorGetCustomerOrderDetails(
+		orderId,
+		vendorId,
+	);
+	res.status(200).json({ success: true, order });
 });

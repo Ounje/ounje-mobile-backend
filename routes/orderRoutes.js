@@ -280,6 +280,97 @@ router.get(
 	roleGuard(["vendor"]),
 	getVendorOrders,
 );
+/**
+ * @swagger
+ * /api/orders/vendor/order/{orderId}:
+ *   get:
+ *     summary: Get a specific order details (vendor only)
+ *     description: >
+ *       Allows a vendor to view the full details of a specific order placed at their restaurant.
+ *       Returns customer name, ordered items with names and prices, delivery fee, and order status.
+ *       Vendors can only view orders that belong to their own restaurant.
+ *     tags: [Orders]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: orderId
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: The ID of the order to retrieve
+ *     responses:
+ *       200:
+ *         description: Order details retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 order:
+ *                   type: object
+ *                   properties:
+ *                     customerName:
+ *                       type: string
+ *                       example: "John Doe"
+ *                     totalAmount:
+ *                       type: number
+ *                       example: 5000
+ *                     deliveryFee:
+ *                       type: number
+ *                       example: 500
+ *                     grandTotal:
+ *                       type: number
+ *                       example: 5500
+ *                     status:
+ *                       type: string
+ *                       example: "delivered"
+ *                     subStatus:
+ *                       type: string
+ *                       example: "delivered"
+ *                     deliveryAddress:
+ *                       type: string
+ *                       example: "123 street"
+ *                     items:
+ *                       type: array
+ *                       items:
+ *                         type: object
+ *                         properties:
+ *                           itemType:
+ *                             type: string
+ *                             example: "FoodItem"
+ *                           itemName:
+ *                             type: string
+ *                             example: "Goat Meat"
+ *                           quantity:
+ *                             type: number
+ *                             example: 2
+ *                           price:
+ *                             type: number
+ *                             example: 700
+ *                           totalPrice:
+ *                             type: number
+ *                             example: 1400
+ *                           notes:
+ *                             type: string
+ *                             example: "extra spicy"
+ *       403:
+ *         description: Unauthorized - order does not belong to this vendor
+ *       404:
+ *         description: Order not found
+ *       500:
+ *         description: Server error
+ */
+router.get(
+	"/vendor/order/:orderId",
+	authMiddleware,
+	roleGuard(["vendor"]),
+	checkActiveUser,
+	vendorGetCustomerOrderDetails,
+);
 
 /* ======================
    RIDER DASHBOARD ROUTES
