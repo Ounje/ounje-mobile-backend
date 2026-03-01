@@ -87,9 +87,17 @@ const router = express.Router();
  *                       description: Optional instructions for the item
  *                     comboSelections:
  *                       type: array
- *                       description: Required ONLY if itemType is Combo. An array of FoodItem IDs that the customer selected for the combo options.
+ *                       description: Required ONLY if itemType is Combo. An array of FoodItem IDs or objects with quantity that the customer selected for the combo options.
  *                       items:
- *                         type: string
+ *                         oneOf:
+ *                           - type: string
+ *                           - type: object
+ *                             properties:
+ *                               itemId:
+ *                                 type: string
+ *                               quantity:
+ *                                 type: number
+ *                                 default: 1
  *             example:
  *               vendorId: "60f6c2e...etc"
  *               deliveryAddress: "123 Main St"

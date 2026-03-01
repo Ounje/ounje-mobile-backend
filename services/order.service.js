@@ -428,12 +428,15 @@ const createOrder = async (userId, data) => {
 				for (const group of product.selections) {
 					const matchedItemsInGroup = [];
 
+					let totalGroupQuantity = 0;
+
 					// Find which of the user's selected items belong to this group
 					// We iterate backwards to safely modify the unmatched array
 					for (let i = unmatchedUserSelections.length - 1; i >= 0; i--) {
 						const uItemId = unmatchedUserSelections[i];
-						// Support both plain string IDs and objects like { itemId } just in case
+						// Support both plain string IDs and objects like { itemId, quantity } just in case
 						const uIdStr = uItemId?.itemId ? uItemId.itemId.toString() : (uItemId?.toString() || "");
+						const uQuantity = Number(uItemId?.quantity) || 1;
 
 						const foundItem = group.items.find(
 							(item) => item.item.toString() === uIdStr,
@@ -446,19 +449,28 @@ const createOrder = async (userId, data) => {
 									400,
 								);
 							}
-							matchedItemsInGroup.push(foundItem);
+
+							// Check if we already matched this item (to merge duplicate IDs sent in array)
+							const existingMatch = matchedItemsInGroup.find(m => m.item.toString() === uIdStr);
+							if (existingMatch) {
+								existingMatch.quantitySelected += uQuantity;
+							} else {
+								matchedItemsInGroup.push({ ...foundItem, quantitySelected: uQuantity });
+							}
+
+							totalGroupQuantity += uQuantity;
 							unmatchedUserSelections.splice(i, 1);
 						}
 					}
 
-					if (group.required && matchedItemsInGroup.length === 0) {
+					if (group.required && totalGroupQuantity === 0) {
 						throw new AppError(
 							`Selection from "${group.label}" is required for combo "${product.name}"`,
 							400,
 						);
 					}
 
-					if (matchedItemsInGroup.length > group.maxSelection) {
+					if (totalGroupQuantity > group.maxSelection) {
 						throw new AppError(
 							`You can only select up to ${group.maxSelection} items from "${group.label}"`,
 							400,
@@ -472,8 +484,9 @@ const createOrder = async (userId, data) => {
 								itemId: matchedItem.item,
 								name: matchedItem.name,
 								price: matchedItem.price || 0,
+								quantity: matchedItem.quantitySelected,
 							});
-							itemPrice += matchedItem.price || 0;
+							itemPrice += (matchedItem.price || 0) * matchedItem.quantitySelected;
 						}
 
 						validatedComboSelections.push({
