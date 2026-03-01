@@ -87,25 +87,9 @@ const router = express.Router();
  *                       description: Optional instructions for the item
  *                     comboSelections:
  *                       type: array
- *                       description: Required if itemType is Combo. Specifies customer choices for the combo.
+ *                       description: Required if itemType is Combo. An array of FoodItem IDs that the customer selected for the combo options.
  *                       items:
- *                         type: object
- *                         properties:
- *                           groupId:
- *                             type: string
- *                             description: The ID of the selection group from the combo
- *                           groupName:
- *                             type: string
- *                             description: Fallback name of the selection group
- *                           items:
- *                             type: array
- *                             description: The items chosen within this group
- *                             items:
- *                               type: object
- *                               properties:
- *                                 itemId:
- *                                   type: string
- *                                   description: The FoodItem ID that was selected
+ *                         type: string
  *     responses:
  *       201:
  *         description: Order created successfully

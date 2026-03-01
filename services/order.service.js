@@ -423,60 +423,57 @@ const createOrder = async (userId, data) => {
 			if (product.selections && product.selections.length > 0) {
 				const userSelections = comboSelections || [];
 				validatedComboSelections = [];
+				const unmatchedUserSelections = [...userSelections];
 
 				for (const group of product.selections) {
-					// Match by groupId, fallback to groupName
-					const userGroup = userSelections.find(
-						(g) =>
-							(g.groupId &&
-								g.groupId.toString() === group._id.toString()) ||
-							(g.groupName && g.groupName === group.label),
-					);
+					const matchedItemsInGroup = [];
 
-					if (
-						group.required &&
-						(!userGroup || !userGroup.items || userGroup.items.length === 0)
-					) {
-						throw new AppError(
-							`Selection from "${group.label}" is required for combo "${product.name}"`,
-							400,
+					// Find which of the user's selected items belong to this group
+					// We iterate backwards to safely modify the unmatched array
+					for (let i = unmatchedUserSelections.length - 1; i >= 0; i--) {
+						const uItemId = unmatchedUserSelections[i];
+						// Support both plain string IDs and objects like { itemId } just in case
+						const uIdStr = uItemId?.itemId ? uItemId.itemId.toString() : (uItemId?.toString() || "");
+
+						const foundItem = group.items.find(
+							(item) => item.item.toString() === uIdStr,
 						);
-					}
 
-					if (userGroup && userGroup.items && userGroup.items.length > 0) {
-						if (userGroup.items.length > group.maxSelection) {
-							throw new AppError(
-								`You can only select up to ${group.maxSelection} items from "${group.label}"`,
-								400,
-							);
-						}
-
-						const validItems = [];
-						for (const uItem of userGroup.items) {
-							const foundItem = group.items.find(
-								(i) => i.item.toString() === uItem.itemId?.toString(),
-							);
-							if (!foundItem) {
-								throw new AppError(
-									`Item with ID ${uItem.itemId} is not a valid option for "${group.label}"`,
-									400,
-								);
-							}
+						if (foundItem) {
 							if (foundItem.isAvailable === false) {
 								throw new AppError(
 									`Option "${foundItem.name}" is currently unavailable in "${group.label}"`,
 									400,
 								);
 							}
+							matchedItemsInGroup.push(foundItem);
+							unmatchedUserSelections.splice(i, 1);
+						}
+					}
 
+					if (group.required && matchedItemsInGroup.length === 0) {
+						throw new AppError(
+							`Selection from "${group.label}" is required for combo "${product.name}"`,
+							400,
+						);
+					}
+
+					if (matchedItemsInGroup.length > group.maxSelection) {
+						throw new AppError(
+							`You can only select up to ${group.maxSelection} items from "${group.label}"`,
+							400,
+						);
+					}
+
+					if (matchedItemsInGroup.length > 0) {
+						const validItems = [];
+						for (const matchedItem of matchedItemsInGroup) {
 							validItems.push({
-								itemId: foundItem.item,
-								name: foundItem.name,
-								price: foundItem.price || 0,
+								itemId: matchedItem.item,
+								name: matchedItem.name,
+								price: matchedItem.price || 0,
 							});
-
-							// Add additional price of the option to the combo price
-							itemPrice += foundItem.price || 0;
+							itemPrice += matchedItem.price || 0;
 						}
 
 						validatedComboSelections.push({
@@ -485,6 +482,13 @@ const createOrder = async (userId, data) => {
 							items: validItems,
 						});
 					}
+				}
+
+				if (unmatchedUserSelections.length > 0) {
+					throw new AppError(
+						`Some selected items are not valid options for the combo "${product.name}"`,
+						400,
+					);
 				}
 			}
 		} else if (itemType === "Plate") {
