@@ -33,20 +33,23 @@ const orderSchema = new mongoose.Schema(
 						type: mongoose.Schema.Types.ObjectId,
 						default: null, // only required when itemType is FoodItem
 					},
-					comboSelections: [
-						{
-							groupId: { type: mongoose.Schema.Types.ObjectId },
-							groupName: String,
-							items: [
-								{
-									itemId: { type: mongoose.Schema.Types.ObjectId, ref: "FoodItem" },
-									name: String,
-									price: Number,
-									quantity: { type: Number, default: 1 },
-								},
-							],
-						},
-					],
+					comboSelections: {
+						type: [
+							{
+								groupId: { type: mongoose.Schema.Types.ObjectId },
+								groupName: String,
+								items: [
+									{
+										itemId: { type: mongoose.Schema.Types.ObjectId, ref: "FoodItem" },
+										name: String,
+										price: Number,
+										quantity: { type: Number, default: 1 },
+									},
+								],
+							},
+						],
+						default: undefined,
+					},
 					quantity: {
 						type: Number,
 						default: 1,

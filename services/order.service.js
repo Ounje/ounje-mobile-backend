@@ -19,6 +19,20 @@ const AppError = require("../utils/AppError");
 
 // --- Helpers ---
 
+/**
+ * Standardize real-time order updates to customers via Socket.io
+ */
+const _emitOrderUpdate = (customerId, payload) => {
+	try {
+		if (global.io) {
+			global.io.to(customerId.toString()).emit("orderUpdate", payload);
+			logger.info(`Real-time update sent to Customer ${customerId}`);
+		}
+	} catch (error) {
+		logger.error(`Failed to emit socket update to Customer ${customerId}: ${error.message}`);
+	}
+};
+
 const generateNumericOtp = (length = 6) => {
 	let otp = "";
 	for (let i = 0; i < length; i++) otp += crypto.randomInt(0, 10).toString();
@@ -27,289 +41,226 @@ const generateNumericOtp = (length = 6) => {
 
 const hashOtp = (otp) => crypto.createHash("sha256").update(otp).digest("hex");
 
-// --- Vendor Functions ---
-
-const declineOrder = async (orderId, vendorId, declineData = {}) => {
-	const order = await Order.findById(orderId);
-	if (!order) throw new Error("Order not found");
-
-	if (order.vendor.toString() !== vendorId) {
-		throw new Error("You can only decline orders from your restaurant");
-	}
-
-	if (order.status !== ORDER_STATUS.CONFIRMING) {
-		throw new Error(
-			"Order can only be declined during confirmation stage (after notification, before acceptance).",
-		);
-	}
-
-	const { reason, note } = declineData;
-
-	if (!reason) throw new Error("Decline reason is required");
-
-	const validDeclineReasons = [
-		"vendor_out_of_stock",
-		"vendor_too_busy",
-		"vendor_kitchen_closed",
-		"vendor_delivery_area_not_covered",
-		"vendor_technical_issue",
-		"vendor_item_unavailable",
-		"vendor_prep_time_too_long",
-		"vendor_other",
-	];
-
-	if (!validDeclineReasons.includes(reason))
-		throw new Error("Invalid decline reason");
-
-	order.status = ORDER_STATUS.DECLINED;
-	order.subStatus = ORDER_SUB_STATUS.DECLINED;
-	order.declinedAt = new Date();
-	order.declinedBy = vendorId;
-	order.declineReason = reason;
-	order.declineNote = note || null;
-
-	await order.save();
-
-	try {
-		await notificationService.notifyCustomerOrderDeclined(
-			order.customer,
-			order,
-			{ reason: getDeclineReasonText(reason), note },
-		);
-		logger.info(
-			`Order ${orderId} declined by vendor ${vendorId} with reason: ${reason}`,
-		);
-	} catch (error) {
-		logger.error(`Failed to send decline notification: ${error.message}`);
-	}
-
-	if (global.io) {
-		global.io.to(order.customer.toString()).emit("orderDeclined", {
-			orderId: order._id,
-			vendorName: order.vendor.name,
-			reason: getDeclineReasonText(reason),
-			note,
-			timestamp: order.declinedAt,
-		});
-	}
-
-	return order;
-};
-
-const vendorAcceptOrder = async (orderId, vendorId) => {
-	const order = await Order.findById(orderId);
-	if (!order) throw new Error("Order not found");
-
-	if (order.vendor.toString() !== vendorId) {
-		throw new Error("You can only accept orders from your restaurant");
-	}
-
-	if (order.status !== ORDER_STATUS.CONFIRMING) {
-		throw new Error("Order is no longer in confirming status");
-	}
-
-	order.status = ORDER_STATUS.PENDING;
-	order.subStatus = ORDER_SUB_STATUS.LOOKING_FOR_RIDER;
-
-	await order.save();
-
-	try {
-		await notificationService.notifyCustomerOrderAccepted(
-			order.customer,
-			order,
-		);
-		logger.info(`Order ${orderId} accepted by vendor ${vendorId}`);
-	} catch (error) {
-		logger.error(`Failed to send acceptance notification: ${error.message}`);
-	}
-
-	try {
-		const vendor = await VendorProfile.findById(vendorId);
-		if (vendor && vendor.location) {
-			await findNearbyRiders(vendor.location, order._id);
-		}
-	} catch (error) {
-		logger.error(`Failed to notify riders: ${error.message}`);
-	}
-
-	if (global.io) {
-		global.io.to(order.customer.toString()).emit("orderAccepted", {
-			orderId: order._id,
-			status: order.status,
-			subStatus: order.subStatus,
-		});
-	}
-
-	return order;
-};
-
-const getDeclineReasonText = (reason) => {
-	const reasonTexts = {
-		vendor_out_of_stock: "Items are out of stock",
-		vendor_too_busy: "We're too busy right now",
-		vendor_kitchen_closed: "Kitchen is closed",
-		vendor_delivery_area_not_covered: "We don't deliver to this area",
-		vendor_technical_issue: "Technical issue occurred",
-		vendor_item_unavailable: "Some items are unavailable",
-		vendor_prep_time_too_long: "Preparation time would be too long",
-		vendor_other: "Unable to fulfill order",
-	};
-	return reasonTexts[reason] || reason;
-};
-
-const getDeclineStats = async (vendorId, filters = {}) => {
-	const { startDate, endDate } = filters;
-	const matchStage = {
-		vendor: mongoose.Types.ObjectId(vendorId),
-		status: ORDER_STATUS.DECLINED,
-	};
-
-	if (startDate && endDate) {
-		matchStage.declinedAt = {
-			$gte: new Date(startDate),
-			$lte: new Date(endDate),
-		};
-	}
-
-	const stats = await Order.aggregate([
-		{ $match: matchStage },
-		{ $group: { _id: "$declineReason", count: { $sum: 1 } } },
-		{ $sort: { count: -1 } },
-	]);
-
-	const totalDeclines = stats.reduce((sum, item) => sum + item.count, 0);
-
-	return {
-		totalDeclines,
-		byReason: stats.map((s) => ({
-			reason: s._id,
-			reasonText: getDeclineReasonText(s._id),
-			count: s.count,
-			percentage:
-				totalDeclines > 0
-					? ((s.count / totalDeclines) * 100).toFixed(2)
-					: "0.00",
-		})),
-	};
-};
-
-// --- Rider Functions ---
-
-const riderDeclineOrder = async (orderId, riderId, declineData = {}) => {
-	const order = await Order.findById(orderId);
-	if (!order) throw new Error("Order not found");
-
-	if (order.rider && order.rider.toString() !== riderId) {
-		throw new Error("You can only decline orders assigned to you");
-	}
-
-	if (order.status !== ORDER_STATUS.RIDING) {
-		throw new Error("Order can only be declined if it's in riding status");
-	}
-
-	const { reason, note } = declineData;
-
-	if (!reason) throw new Error("Decline reason is required");
-
-	const validRiderDeclineReasons = [
-		"rider_cannot_reach_vendor",
-		"rider_cannot_reach_customer",
-		"rider_vehicle_issue",
-		"rider_other",
-	];
-
-	if (!validRiderDeclineReasons.includes(reason)) {
-		throw new Error("Invalid decline reason");
-	}
-
-	order.rider = null;
-	order.status = ORDER_STATUS.RIDING;
-	order.subStatus = ORDER_SUB_STATUS.LOOKING_FOR_RIDER;
-	order.cancelledAt = new Date();
-	order.cancelledBy = riderId;
-	order.cancellationReason = reason;
-	order.cancellationNote = note || null;
-	order.cancellationCategory = "rider";
-
-	await order.save();
-
-	try {
-		await notificationService.notifyCustomerRiderDeclined(
-			order.customer,
-			order,
-			{ reason: getRiderDeclineReasonText(reason), note },
-		);
-		logger.info(
-			`Order ${orderId} declined by rider ${riderId} with reason: ${reason}`,
-		);
-	} catch (error) {
-		logger.error(`Failed to send rider decline notification: ${error.message}`);
-	}
-
-	try {
-		const vendor = await VendorProfile.findById(order.vendor);
-		if (vendor && vendor.location) {
-			await findNearbyRiders(vendor.location, order._id);
-		}
-	} catch (error) {
-		logger.error(`Failed to notify riders after decline: ${error.message}`);
-	}
-
-	if (global.io) {
-		global.io.to(order.customer.toString()).emit("riderDeclined", {
-			orderId: order._id,
-			reason: getRiderDeclineReasonText(reason),
-			note,
-			timestamp: order.cancelledAt,
-		});
-	}
-
-	return order;
-};
-
-const getRiderDeclineReasonText = (reason) => {
-	const reasonTexts = {
-		rider_cannot_reach_vendor: "Cannot reach vendor",
-		rider_cannot_reach_customer: "Cannot reach customer",
-		rider_vehicle_issue: "Vehicle issue",
-		rider_other: "Other reason",
-	};
-	return reasonTexts[reason] || reason;
-};
-
-const findNearbyRiders = async (vendorLocation, orderId) => {
-	try {
-		// 1. Find all available riders within 3km (3000 meters)
-		const nearbyRiders = await RiderProfile.find({
-			status: "available",
-			isActive: true,
-			currentLocation: {
-				$near: {
-					$geometry: vendorLocation, // The Vendor's [lng, lat]
-					$maxDistance: 3000,
-				},
-			},
-		});
-
-		// 2. Broadcast to these specific riders via Socket.io
-		if (global.io && nearbyRiders.length > 0) {
-			nearbyRiders.forEach((rider) => {
-				// Emit to the rider's User ID (owner of the profile)
-				global.io.to(rider.user.toString()).emit("newOrderAvailable", {
-					orderId: orderId,
-					message: "New delivery request nearby!",
-				});
-			});
-			logger.info(`Pings sent to ${nearbyRiders.length} riders.`);
-		}
-
-		return nearbyRiders;
-	} catch (error) {
-		logger.error(`Error finding riders: ${error.message}`);
-	}
-};
+// --- Core Service Methods ---
 
 // --- Core Service Methods ---
+
+const _calculateAndValidateItemPrice = async (item, models) => {
+	const { itemId, itemType, subCategoryItemId, comboSelections } = item;
+	const ProductModel = models[itemType];
+	let itemPrice;
+	let validatedComboSelections = undefined;
+	let finalSubCatId = subCategoryItemId;
+	let actualItemId = itemId;
+
+	if (itemType === "FoodItem") {
+		let product = await ProductModel.findById(actualItemId)
+			.select("subCategory isAvailable name price")
+			.lean();
+
+		// If the frontend passed the specific sub-option ID as `itemId` instead of the parent FoodItem ID
+		if (!product) {
+			product = await ProductModel.findOne({ "subCategory.items._id": actualItemId })
+				.select("subCategory isAvailable name price")
+				.lean();
+
+			if (product) {
+				finalSubCatId = actualItemId;    // That ID they sent was actually the specific sub-item option
+				actualItemId = product._id;      // Correct the parent ID for the database foreign key reference
+			}
+		}
+
+		if (!product)
+			throw new AppError(`FoodItem or specific option with ID ${itemId} not found`, 404);
+
+		if (!product.isAvailable)
+			throw new AppError(`FoodItem package is not available`, 400);
+
+		let isFlatItem = false;
+
+		// If subCategoryItemId is not provided, check if we can auto-resolve it
+		if (!finalSubCatId) {
+			let totalOptions = 0;
+			let onlyOptionId = null;
+
+			if (product.subCategory) {
+				for (const subCat of product.subCategory) {
+					totalOptions += subCat.items.length;
+					if (subCat.items.length > 0) {
+						onlyOptionId = subCat.items[0]._id;
+					}
+				}
+			}
+
+			if (totalOptions === 1) {
+				finalSubCatId = onlyOptionId;
+			} else if (totalOptions === 0 && product.price !== undefined) {
+				isFlatItem = true;
+			} else if (totalOptions === 0) {
+				throw new AppError(
+					`The FoodItem package "${product.name || itemId}" has no selectable options configured and cannot be ordered.`,
+					400,
+				);
+			} else {
+				throw new AppError(
+					`You passed the parent FoodItem ID, but this item has ${totalOptions} options (e.g., Jollof, Fried). Please pass the specific option's ID inside 'itemId' instead.`,
+					400,
+				);
+			}
+		}
+
+		if (isFlatItem) {
+			itemPrice = product.price;
+			finalSubCatId = null;
+		} else {
+			if (!mongoose.isValidObjectId(finalSubCatId))
+				throw new AppError(
+					`Invalid subCategoryItemId: ${finalSubCatId}`,
+					400,
+				);
+
+			// Find the specific subcategory item ordered
+			let foundItem = null;
+			for (const subCat of product.subCategory) {
+				const match = subCat.items.find(
+					(i) => i._id.toString() === finalSubCatId.toString(),
+				);
+				if (match) {
+					foundItem = match;
+					break;
+				}
+			}
+
+			if (!foundItem)
+				throw new AppError(
+					`Subcategory item with ID ${finalSubCatId} not found in FoodItem`,
+					404,
+				);
+
+			if (!foundItem.isAvailable)
+				throw new AppError(`Item "${foundItem.name}" is not available`, 400);
+
+			itemPrice = foundItem.price;
+		}
+	} else if (itemType === "Combo") {
+		const product = await ProductModel.findById(actualItemId)
+			.select("basePrice name selections")
+			.lean();
+
+		if (!product)
+			throw new AppError(`Combo with ID ${actualItemId} not found`, 404);
+
+		itemPrice = product.basePrice;
+
+		if (product.selections && product.selections.length > 0) {
+			const userSelections = comboSelections || [];
+			validatedComboSelections = [];
+			const unmatchedUserSelections = [...userSelections];
+
+			for (const group of product.selections) {
+				const matchedItemsInGroup = [];
+
+				let totalGroupQuantity = 0;
+
+				// Find which of the user's selected items belong to this group
+				// We iterate backwards to safely modify the unmatched array
+				for (let i = unmatchedUserSelections.length - 1; i >= 0; i--) {
+					const uItemId = unmatchedUserSelections[i];
+					// Support both plain string IDs and objects like { itemId, quantity } just in case
+					const uIdStr = uItemId?.itemId ? uItemId.itemId.toString() : (uItemId?.toString() || "");
+					const uQuantity = Number(uItemId?.quantity) || 1;
+
+					const foundItem = group.items.find(
+						(item) => item.item.toString() === uIdStr,
+					);
+
+					if (foundItem) {
+						if (foundItem.isAvailable === false) {
+							throw new AppError(
+								`Option "${foundItem.name}" is currently unavailable in "${group.label}"`,
+								400,
+							);
+						}
+
+						// Check if we already matched this item (to merge duplicate IDs sent in array)
+						const existingMatch = matchedItemsInGroup.find(m => m.item.toString() === uIdStr);
+						if (existingMatch) {
+							existingMatch.quantitySelected += uQuantity;
+						} else {
+							matchedItemsInGroup.push({ ...foundItem, quantitySelected: uQuantity });
+						}
+
+						totalGroupQuantity += uQuantity;
+						unmatchedUserSelections.splice(i, 1);
+					}
+				}
+
+				if (group.required && totalGroupQuantity === 0) {
+					throw new AppError(
+						`Selection from "${group.label}" is required for combo "${product.name}"`,
+						400,
+					);
+				}
+
+				if (totalGroupQuantity > group.maxSelection) {
+					throw new AppError(
+						`You can only select up to ${group.maxSelection} items from "${group.label}"`,
+						400,
+					);
+				}
+
+				if (matchedItemsInGroup.length > 0) {
+					const validItems = [];
+					for (const matchedItem of matchedItemsInGroup) {
+						validItems.push({
+							itemId: matchedItem.item,
+							name: matchedItem.name,
+							price: matchedItem.price || 0,
+							quantity: matchedItem.quantitySelected,
+						});
+						itemPrice += (matchedItem.price || 0) * matchedItem.quantitySelected;
+					}
+
+					validatedComboSelections.push({
+						groupId: group._id,
+						groupName: group.label,
+						items: validItems,
+					});
+				}
+			}
+
+			if (unmatchedUserSelections.length > 0) {
+				throw new AppError(
+					`Some selected items are not valid options for the combo "${product.name}"`,
+					400,
+				);
+			}
+		}
+	} else if (itemType === "Plate") {
+		const product = await ProductModel.findById(actualItemId)
+			.select("price name")
+			.lean();
+
+		if (!product)
+			throw new AppError(`Plate with ID ${actualItemId} not found`, 404);
+
+		itemPrice = product.price;
+	}
+
+	if (itemPrice === undefined || isNaN(itemPrice)) {
+		throw new AppError(
+			`Cannot determine price for ${itemType} with ID ${actualItemId}`,
+			400,
+		);
+	}
+
+	return {
+		itemPrice,
+		validatedComboSelections,
+		actualItemId,
+		finalSubCatId
+	};
+};
 
 const createOrder = async (userId, data) => {
 	const { items, vendorId, deliveryAddress } = data;
@@ -360,223 +311,33 @@ const createOrder = async (userId, data) => {
 			throw new AppError(`Invalid itemType: ${itemType}`, 400);
 		}
 
-		const ProductModel = models[itemType];
-		let itemPrice;
-		let validatedComboSelections = undefined;
-		let finalSubCatId = subCategoryItemId;
-		let actualItemId = itemId;
-
-		if (itemType === "FoodItem") {
-			let product = await ProductModel.findById(actualItemId)
-				.select("subCategory isAvailable name price")
-				.lean();
-
-			// If the frontend passed the specific sub-option ID as `itemId` instead of the parent FoodItem ID
-			if (!product) {
-				product = await ProductModel.findOne({ "subCategory.items._id": actualItemId })
-					.select("subCategory isAvailable name price")
-					.lean();
-
-				if (product) {
-					finalSubCatId = actualItemId;    // That ID they sent was actually the specific sub-item option
-					actualItemId = product._id;      // Correct the parent ID for the database foreign key reference
-				}
-			}
-
-			if (!product)
-				throw new AppError(`FoodItem or specific option with ID ${itemId} not found`, 404);
-
-			if (!product.isAvailable)
-				throw new AppError(`FoodItem package is not available`, 400);
-
-			let isFlatItem = false;
-
-			// If subCategoryItemId is not provided, check if we can auto-resolve it
-			if (!finalSubCatId) {
-				let totalOptions = 0;
-				let onlyOptionId = null;
-
-				if (product.subCategory) {
-					for (const subCat of product.subCategory) {
-						totalOptions += subCat.items.length;
-						if (subCat.items.length > 0) {
-							onlyOptionId = subCat.items[0]._id;
-						}
-					}
-				}
-
-				if (totalOptions === 1) {
-					finalSubCatId = onlyOptionId;
-				} else if (totalOptions === 0 && product.price !== undefined) {
-					isFlatItem = true;
-				} else if (totalOptions === 0) {
-					throw new AppError(
-						`The FoodItem package "${product.name || itemId}" has no selectable options configured and cannot be ordered.`,
-						400,
-					);
-				} else {
-					throw new AppError(
-						`You passed the parent FoodItem ID, but this item has ${totalOptions} options (e.g., Jollof, Fried). Please pass the specific option's ID inside 'itemId' instead.`,
-						400,
-					);
-				}
-			}
-
-			if (isFlatItem) {
-				itemPrice = product.price;
-				finalSubCatId = null;
-			} else {
-				if (!mongoose.isValidObjectId(finalSubCatId))
-					throw new AppError(
-						`Invalid subCategoryItemId: ${finalSubCatId}`,
-						400,
-					);
-
-				// Find the specific subcategory item ordered
-				let foundItem = null;
-				for (const subCat of product.subCategory) {
-					const match = subCat.items.find(
-						(i) => i._id.toString() === finalSubCatId.toString(),
-					);
-					if (match) {
-						foundItem = match;
-						break;
-					}
-				}
-
-				if (!foundItem)
-					throw new AppError(
-						`Subcategory item with ID ${finalSubCatId} not found in FoodItem`,
-						404,
-					);
-
-				if (!foundItem.isAvailable)
-					throw new AppError(`Item "${foundItem.name}" is not available`, 400);
-
-				itemPrice = foundItem.price;
-			}
-		} else if (itemType === "Combo") {
-			const product = await ProductModel.findById(actualItemId)
-				.select("basePrice name selections")
-				.lean();
-
-			if (!product)
-				throw new AppError(`Combo with ID ${actualItemId} not found`, 404);
-
-			itemPrice = product.basePrice;
-
-			if (product.selections && product.selections.length > 0) {
-				const userSelections = comboSelections || [];
-				validatedComboSelections = [];
-				const unmatchedUserSelections = [...userSelections];
-
-				for (const group of product.selections) {
-					const matchedItemsInGroup = [];
-
-					let totalGroupQuantity = 0;
-
-					// Find which of the user's selected items belong to this group
-					// We iterate backwards to safely modify the unmatched array
-					for (let i = unmatchedUserSelections.length - 1; i >= 0; i--) {
-						const uItemId = unmatchedUserSelections[i];
-						// Support both plain string IDs and objects like { itemId, quantity } just in case
-						const uIdStr = uItemId?.itemId ? uItemId.itemId.toString() : (uItemId?.toString() || "");
-						const uQuantity = Number(uItemId?.quantity) || 1;
-
-						const foundItem = group.items.find(
-							(item) => item.item.toString() === uIdStr,
-						);
-
-						if (foundItem) {
-							if (foundItem.isAvailable === false) {
-								throw new AppError(
-									`Option "${foundItem.name}" is currently unavailable in "${group.label}"`,
-									400,
-								);
-							}
-
-							// Check if we already matched this item (to merge duplicate IDs sent in array)
-							const existingMatch = matchedItemsInGroup.find(m => m.item.toString() === uIdStr);
-							if (existingMatch) {
-								existingMatch.quantitySelected += uQuantity;
-							} else {
-								matchedItemsInGroup.push({ ...foundItem, quantitySelected: uQuantity });
-							}
-
-							totalGroupQuantity += uQuantity;
-							unmatchedUserSelections.splice(i, 1);
-						}
-					}
-
-					if (group.required && totalGroupQuantity === 0) {
-						throw new AppError(
-							`Selection from "${group.label}" is required for combo "${product.name}"`,
-							400,
-						);
-					}
-
-					if (totalGroupQuantity > group.maxSelection) {
-						throw new AppError(
-							`You can only select up to ${group.maxSelection} items from "${group.label}"`,
-							400,
-						);
-					}
-
-					if (matchedItemsInGroup.length > 0) {
-						const validItems = [];
-						for (const matchedItem of matchedItemsInGroup) {
-							validItems.push({
-								itemId: matchedItem.item,
-								name: matchedItem.name,
-								price: matchedItem.price || 0,
-								quantity: matchedItem.quantitySelected,
-							});
-							itemPrice += (matchedItem.price || 0) * matchedItem.quantitySelected;
-						}
-
-						validatedComboSelections.push({
-							groupId: group._id,
-							groupName: group.label,
-							items: validItems,
-						});
-					}
-				}
-
-				if (unmatchedUserSelections.length > 0) {
-					throw new AppError(
-						`Some selected items are not valid options for the combo "${product.name}"`,
-						400,
-					);
-				}
-			}
-		} else if (itemType === "Plate") {
-			const product = await ProductModel.findById(actualItemId)
-				.select("price name")
-				.lean();
-
-			if (!product)
-				throw new AppError(`Plate with ID ${actualItemId} not found`, 404);
-
-			itemPrice = product.price;
-		}
-
-		if (itemPrice === undefined || isNaN(itemPrice)) {
-			throw new AppError(
-				`Cannot determine price for ${itemType} with ID ${actualItemId}`,
-				400,
-			);
-		}
+		const {
+			itemPrice,
+			validatedComboSelections,
+			actualItemId,
+			finalSubCatId
+		} = await _calculateAndValidateItemPrice(item, models);
 
 		itemsTotalPrice += itemPrice * quantity;
-		orderItems.push({
+		const orderItemData = {
 			itemType,
 			item: actualItemId,
-			subCategoryItemId: finalSubCatId || null,
-			comboSelections: validatedComboSelections,
 			quantity,
 			price: itemPrice,
 			notes,
-		});
+		};
+
+		if (finalSubCatId) {
+			orderItemData.subCategoryItemId = finalSubCatId;
+		} else {
+			orderItemData.subCategoryItemId = null;
+		}
+
+		if (itemType === "Combo") {
+			orderItemData.comboSelections = validatedComboSelections;
+		}
+
+		orderItems.push(orderItemData);
 	}
 
 	// 4. Lookup Customer document ID from User ID
@@ -616,16 +377,11 @@ const updateOrderStatus = async (orderId, status, subStatus) => {
 	await order.save();
 
 	// Send Real-Time Update to the specific Customer
-	if (global.io) {
-		global.io.to(order.customer._id.toString()).emit("orderUpdate", {
-			orderId: order._id,
-			status: order.status,
-			subStatus: order.subStatus,
-		});
-		logger.info(
-			`Real-time update sent to Customer ${order.customer._id}: ${status}`,
-		);
-	}
+	_emitOrderUpdate(order.customer._id, {
+		orderId: order._id,
+		status: order.status,
+		subStatus: order.subStatus,
+	});
 
 	// Firebase Notification
 	if (order.customer && order.customer.fcmToken) {
@@ -784,14 +540,13 @@ const acceptOrder = async (orderId, riderId) => {
 	}
 
 	// Notify Customer via Socket.io
-	if (global.io) {
-		global.io.to(order.customer.toString()).emit("orderUpdate", {
-			orderId: order._id,
-			status: order.status,
-			message: "A rider has accepted your order and is on the way!",
-		});
-		logger.info(`Rider ${riderId} accepted Order ${orderId}`);
-	}
+	_emitOrderUpdate(order.customer, {
+		orderId: order._id,
+		status: order.status,
+		subStatus: order.subStatus,
+		message: "A rider has accepted your order and is on the way!",
+	});
+	logger.info(`Rider ${riderId} accepted Order ${orderId}`);
 
 	return order;
 };
@@ -853,15 +608,13 @@ const completeDelivery = async (orderId, riderId, otp) => {
 	}
 
 	// Real-time update
-	if (global.io) {
-		global.io.to(order.customer.toString()).emit("orderUpdate", {
-			orderId: order._id,
-			status: ORDER_STATUS.DELIVERED,
-			subStatus: ORDER_SUB_STATUS.DELIVERED,
-			message: "Delivery confirmed! Enjoy your meal.",
-		});
-		logger.info(`Order ${orderId} delivered by Rider ${riderId}`);
-	}
+	_emitOrderUpdate(order.customer, {
+		orderId: order._id,
+		status: ORDER_STATUS.DELIVERED,
+		subStatus: ORDER_SUB_STATUS.DELIVERED,
+		message: "Delivery confirmed! Enjoy your meal.",
+	});
+	logger.info(`Order ${orderId} delivered by Rider ${riderId}`);
 
 	return order;
 };
@@ -898,199 +651,7 @@ const cancelOrder = async (orderId, customerId) => {
 	return order;
 };
 
-// --- Rider Dashboard Queries ---
-
-const getAvailableRiderRequests = async () => {
-	try {
-		// Look for orders that are ready for rider assignment
-		// This includes orders in PENDING status or orders actively looking for a rider
-		const orders = await Order.find({
-			$or: [
-				{ status: ORDER_STATUS.PENDING, rider: null },
-				{
-					status: ORDER_STATUS.RIDING,
-					subStatus: ORDER_SUB_STATUS.LOOKING_FOR_RIDER,
-					rider: null,
-				},
-			],
-		})
-			.populate("vendor", "name location")
-			.populate({
-				path: "customer",
-				select: "name user",
-				populate: {
-					path: "user",
-					select: "name",
-				},
-			})
-			.sort({ createdAt: -1 })
-			.lean();
-
-		return orders;
-	} catch (error) {
-		logger.error(`Error fetching available rider requests: ${error.message}`);
-		throw new Error("Failed to fetch available orders");
-	}
-};
-
-const getCurrentRiderOrder = async (riderId) => {
-	return await Order.findOne({
-		rider: riderId,
-		status: ORDER_STATUS.RIDING,
-	})
-		.populate("vendor", "name address phone")
-		.populate("customer", "name address phone location")
-		.populate("items.item");
-};
-
-const getRiderCompletedOrdersToday = async (userId) => {
-	const riderProfile = await RiderProfile.findOne({ user: userId });
-	if (!riderProfile) {
-		throw new Error("Rider profile not found");
-	}
-
-	const startOfDay = new Date();
-	startOfDay.setHours(0, 0, 0, 0);
-
-	const endOfDay = new Date();
-	endOfDay.setHours(23, 59, 59, 999);
-
-	return await Order.find({
-		rider: riderProfile._id,
-		status: ORDER_STATUS.DELIVERED,
-		deliveryConfirmedAt: { $gte: startOfDay, $lte: endOfDay },
-	})
-		.select("totalPrice deliveryFee deliveryConfirmedAt vendor")
-		.populate("vendor", "name");
-};
-
-const getRiderOrders = async (riderId, statusFilter) => {
-	const filter = { rider: riderId };
-
-	if (statusFilter === "pending") {
-		// Orders available for pickup (rider assigned but not picked up yet)
-		filter.status = ORDER_STATUS.RIDING;
-		filter.subStatus = ORDER_SUB_STATUS.RIDER_ASSIGNED;
-	} else if (statusFilter === "active") {
-		// Orders currently being delivered (picked up but not delivered)
-		filter.status = ORDER_STATUS.RIDING;
-		filter.subStatus = ORDER_SUB_STATUS.PICKED_UP;
-	} else if (statusFilter === "completed") {
-		// Delivered orders
-		filter.status = ORDER_STATUS.DELIVERED;
-		filter.subStatus = ORDER_SUB_STATUS.DELIVERED;
-	}
-
-	return await Order.find(filter)
-		.populate("vendor", "name")
-		.populate("customer", "name")
-		.select(
-			"totalPrice status subStatus deliveryFee deliveryConfirmedAt updatedAt createdAt",
-		)
-		.sort({ createdAt: -1 });
-};
-
-const getVendorOrders = async (userId, query = {}) => {
-	const { status } = query;
-
-	// 1. Find the Vendor Profile associated with this User
-	// Note: 'owner' is the field that references the User model in VendorProfile
-	const vendor = await VendorProfile.findOne({ owner: userId });
-	if (!vendor) {
-		throw new Error("Vendor profile not found for this user");
-	}
-
-	// 2. Build Query
-	// Order.vendor references the VendorProfile._id
-	const filter = { vendor: vendor._id };
-
-	if (status) {
-		// If status is provided, validate it or just pass it
-		// You might want to map 'active' to multiple statuses
-		if (status === "active") {
-			filter.status = {
-				$in: [
-					ORDER_STATUS.CONFIRMING,
-					ORDER_STATUS.PENDING,
-					ORDER_STATUS.RIDING,
-				],
-			};
-		} else if (status === "completed") {
-			filter.status = ORDER_STATUS.DELIVERED;
-		} else if (status === "cancelled") {
-			filter.status = { $in: [ORDER_STATUS.CANCELLED, ORDER_STATUS.DECLINED] };
-		} else {
-			// Fallback for specific status strings
-			filter.status = status;
-		}
-	}
-
-	// 3. Fetch Orders
-	const orders = await Order.find(filter)
-		.populate("customer", "name address phone")
-		.populate("rider", "name phone")
-		.populate("items.item") // Populate food item details
-		.sort({ createdAt: -1 }); // Newest first
-
-	return orders;
-};
-const vendorGetCustomerOrderDetails = async (orderId, vendorId) => {
-	const vendor = await VendorProfile.findOne({ owner: vendorId });
-	if (!vendor) throw new Error("Vendor profile not found");
-
-	const order = await Order.findOne({
-		_id: orderId,
-		vendor: vendor._id,
-	})
-		.populate("customer", "name")
-		.populate({
-			path: "items.item",
-			select: "category subCategory name basePrice price",
-		});
-
-	if (!order) throw new Error("Order not found");
-
-	const itemsList = order.items.map((orderItem) => {
-		let itemName = null;
-
-		if (orderItem.itemType === "FoodItem" && orderItem.item) {
-			for (const subCat of orderItem.item.subCategory || []) {
-				const found = subCat.items.find(
-					(i) => i._id.toString() === orderItem.subCategoryItemId?.toString(),
-				);
-				if (found) {
-					itemName = found.name;
-					break;
-				}
-			}
-		} else if (
-			orderItem.itemType === "Combo" ||
-			orderItem.itemType === "Plate"
-		) {
-			itemName = orderItem.item?.name || null;
-		}
-
-		return {
-			itemType: orderItem.itemType,
-			itemName,
-			quantity: orderItem.quantity,
-			price: orderItem.price,
-			totalPrice: orderItem.price * orderItem.quantity,
-			notes: orderItem.notes || null,
-		};
-	});
-
-	return {
-		customerName: order.customer.name,
-		totalAmount: order.totalPrice,
-		deliveryFee: order.deliveryFee,
-		grandTotal: order.totalPrice + order.deliveryFee,
-		status: order.status,
-		subStatus: order.subStatus,
-		deliveryAddress: order.deliveryAddress,
-		items: itemsList,
-	};
-};
+// Removed extraneous rider dashboard and vendor order methods.
 
 module.exports = {
 	createOrder,
@@ -1101,18 +662,6 @@ module.exports = {
 	pickUpOrder,
 	completeDelivery,
 	cancelOrder,
-	getAvailableRiderRequests,
-	getCurrentRiderOrder,
-	getRiderCompletedOrdersToday,
-	getRiderOrders,
-	getVendorOrders,
-	vendorGetCustomerOrderDetails,
 	generateNumericOtp,
 	hashOtp,
-	declineOrder,
-	vendorAcceptOrder,
-	getDeclineReasonText,
-	getDeclineStats,
-	riderDeclineOrder,
-	getRiderDeclineReasonText,
 };
