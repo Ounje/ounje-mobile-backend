@@ -363,21 +363,9 @@ const createOrder = async (userId, data) => {
 		const ProductModel = models[itemType];
 		let itemPrice;
 		let validatedComboSelections = undefined;
+		let finalSubCatId = subCategoryItemId;
 
 		if (itemType === "FoodItem") {
-			// subCategoryItemId is required for FoodItems
-			if (!subCategoryItemId)
-				throw new AppError(
-					"subCategoryItemId is required for FoodItem orders.",
-					400,
-				);
-
-			if (!mongoose.isValidObjectId(subCategoryItemId))
-				throw new AppError(
-					`Invalid subCategoryItemId: ${subCategoryItemId}`,
-					400,
-				);
-
 			const product = await ProductModel.findById(itemId)
 				.select("subCategory isAvailable")
 				.lean();
@@ -388,11 +376,44 @@ const createOrder = async (userId, data) => {
 			if (!product.isAvailable)
 				throw new AppError(`FoodItem with ID ${itemId} is not available`, 400);
 
+			// If subCategoryItemId is not provided, check if we can auto-resolve it
+			if (!finalSubCatId && product.subCategory) {
+				let totalOptions = 0;
+				let onlyOptionId = null;
+
+				for (const subCat of product.subCategory) {
+					totalOptions += subCat.items.length;
+					if (subCat.items.length > 0) {
+						onlyOptionId = subCat.items[0]._id;
+					}
+				}
+
+				if (totalOptions === 1) {
+					finalSubCatId = onlyOptionId;
+				} else {
+					throw new AppError(
+						"subCategoryItemId is required for FoodItem orders with multiple options.",
+						400,
+					);
+				}
+			} else if (!finalSubCatId) {
+				throw new AppError(
+					"subCategoryItemId is required for FoodItem orders.",
+					400,
+				);
+			}
+
+			if (!mongoose.isValidObjectId(finalSubCatId))
+				throw new AppError(
+					`Invalid subCategoryItemId: ${finalSubCatId}`,
+					400,
+				);
+
 			// Find the specific subcategory item ordered
 			let foundItem = null;
 			for (const subCat of product.subCategory) {
 				const match = subCat.items.find(
-					(i) => i._id.toString() === subCategoryItemId.toString(),
+					(i) => i._id.toString() === finalSubCatId.toString(),
 				);
 				if (match) {
 					foundItem = match;
@@ -402,7 +423,7 @@ const createOrder = async (userId, data) => {
 
 			if (!foundItem)
 				throw new AppError(
-					`Subcategory item with ID ${subCategoryItemId} not found`,
+					`Subcategory item with ID ${finalSubCatId} not found in FoodItem`,
 					404,
 				);
 
@@ -526,7 +547,7 @@ const createOrder = async (userId, data) => {
 		orderItems.push({
 			itemType,
 			item: itemId,
-			subCategoryItemId: subCategoryItemId || null,
+			subCategoryItemId: finalSubCatId || null,
 			comboSelections: validatedComboSelections,
 			quantity,
 			price: itemPrice,
