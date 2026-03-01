@@ -368,13 +368,13 @@ const createOrder = async (userId, data) => {
 
 		if (itemType === "FoodItem") {
 			let product = await ProductModel.findById(actualItemId)
-				.select("subCategory isAvailable")
+				.select("subCategory isAvailable name price")
 				.lean();
 
 			// If the frontend passed the specific sub-option ID as `itemId` instead of the parent FoodItem ID
 			if (!product) {
 				product = await ProductModel.findOne({ "subCategory.items._id": actualItemId })
-					.select("subCategory isAvailable")
+					.select("subCategory isAvailable name price")
 					.lean();
 
 				if (product) {
@@ -389,61 +389,72 @@ const createOrder = async (userId, data) => {
 			if (!product.isAvailable)
 				throw new AppError(`FoodItem package is not available`, 400);
 
+			let isFlatItem = false;
+
 			// If subCategoryItemId is not provided, check if we can auto-resolve it
-			if (!finalSubCatId && product.subCategory) {
+			if (!finalSubCatId) {
 				let totalOptions = 0;
 				let onlyOptionId = null;
 
-				for (const subCat of product.subCategory) {
-					totalOptions += subCat.items.length;
-					if (subCat.items.length > 0) {
-						onlyOptionId = subCat.items[0]._id;
+				if (product.subCategory) {
+					for (const subCat of product.subCategory) {
+						totalOptions += subCat.items.length;
+						if (subCat.items.length > 0) {
+							onlyOptionId = subCat.items[0]._id;
+						}
 					}
 				}
 
 				if (totalOptions === 1) {
 					finalSubCatId = onlyOptionId;
+				} else if (totalOptions === 0 && product.price !== undefined) {
+					isFlatItem = true;
+				} else if (totalOptions === 0) {
+					throw new AppError(
+						`The FoodItem package "${product.name || itemId}" has no selectable options configured and cannot be ordered.`,
+						400,
+					);
 				} else {
 					throw new AppError(
-						"subCategoryItemId is required for FoodItem orders with multiple options.",
+						`You passed the parent FoodItem ID, but this item has ${totalOptions} options (e.g., Jollof, Fried). Please pass the specific option's ID inside 'itemId' instead.`,
 						400,
 					);
 				}
-			} else if (!finalSubCatId) {
-				throw new AppError(
-					"subCategoryItemId is required for FoodItem orders.",
-					400,
-				);
 			}
 
-			if (!mongoose.isValidObjectId(finalSubCatId))
-				throw new AppError(
-					`Invalid subCategoryItemId: ${finalSubCatId}`,
-					400,
-				);
+			if (isFlatItem) {
+				itemPrice = product.price;
+				finalSubCatId = null;
+			} else {
+				if (!mongoose.isValidObjectId(finalSubCatId))
+					throw new AppError(
+						`Invalid subCategoryItemId: ${finalSubCatId}`,
+						400,
+					);
 
-			// Find the specific subcategory item ordered
-			let foundItem = null;
-			for (const subCat of product.subCategory) {
-				const match = subCat.items.find(
-					(i) => i._id.toString() === finalSubCatId.toString(),
-				);
-				if (match) {
-					foundItem = match;
-					break;
+				// Find the specific subcategory item ordered
+				let foundItem = null;
+				for (const subCat of product.subCategory) {
+					const match = subCat.items.find(
+						(i) => i._id.toString() === finalSubCatId.toString(),
+					);
+					if (match) {
+						foundItem = match;
+						break;
+					}
 				}
+
+				if (!foundItem)
+					throw new AppError(
+						`Subcategory item with ID ${finalSubCatId} not found in FoodItem`,
+						404,
+					);
+
+				if (!foundItem.isAvailable)
+					throw new AppError(`Item "${foundItem.name}" is not available`, 400);
+
+				itemPrice = foundItem.price;
 			}
-
-			if (!foundItem)
-				throw new AppError(
-					`Subcategory item with ID ${finalSubCatId} not found in FoodItem`,
-					404,
-				);
-
-			if (!foundItem.isAvailable)
-				throw new AppError(`Item "${foundItem.name}" is not available`, 400);
-
-			itemPrice = foundItem.price;
 		} else if (itemType === "Combo") {
 			const product = await ProductModel.findById(actualItemId)
 				.select("basePrice name selections")
