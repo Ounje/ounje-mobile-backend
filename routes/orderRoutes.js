@@ -90,18 +90,18 @@ const router = express.Router();
  *                       description: Required ONLY if itemType is Combo. An array of FoodItem IDs that the customer selected for the combo options.
  *                       items:
  *                         type: string
- *               example:
- *                 vendorId: "60f6c2e...etc"
- *                 deliveryAddress: "123 Main St"
- *                 items:
- *                   - itemId: "60f6c2e...etc"
- *                     itemType: "FoodItem"
- *                     subCategoryItemId: "60f6c2e...etc"
- *                     quantity: 2
- *                   - itemId: "61abc1e...etc"
- *                     itemType: "Combo"
- *                     quantity: 1
- *                     comboSelections: ["62ced4...etc", "62ced5...etc"]
+ *             example:
+ *               vendorId: "60f6c2e...etc"
+ *               deliveryAddress: "123 Main St"
+ *               items:
+ *                 - itemId: "60f6c2e...etc"
+ *                   itemType: "FoodItem"
+ *                   subCategoryItemId: "60f6c2e...etc"
+ *                   quantity: 2
+ *                 - itemId: "61abc1e...etc"
+ *                   itemType: "Combo"
+ *                   quantity: 1
+ *                   comboSelections: ["62ced4...etc", "62ced5...etc"]
  *     responses:
  *       201:
  *         description: Order created successfully
