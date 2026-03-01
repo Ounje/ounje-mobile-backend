@@ -155,15 +155,10 @@ const getDeclineStats = async (vendorId, filters = {}) => {
 	};
 };
 
-const getVendorOrders = async (userId, query = {}) => {
+const getVendorOrders = async (vendorProfileId, query = {}) => {
 	const { status } = query;
 
-	const vendor = await VendorProfile.findOne({ owner: userId });
-	if (!vendor) {
-		throw new Error("Vendor profile not found for this user");
-	}
-
-	const filter = { vendor: vendor._id };
+	const filter = { vendor: vendorProfileId };
 
 	if (status) {
 		if (status === "active") {
@@ -192,13 +187,10 @@ const getVendorOrders = async (userId, query = {}) => {
 	return orders;
 };
 
-const vendorGetCustomerOrderDetails = async (orderId, vendorId) => {
-	const vendor = await VendorProfile.findOne({ owner: vendorId });
-	if (!vendor) throw new Error("Vendor profile not found");
-
+const vendorGetCustomerOrderDetails = async (orderId, vendorProfileId) => {
 	const order = await Order.findOne({
 		_id: orderId,
-		vendor: vendor._id,
+		vendor: vendorProfileId,
 	})
 		.populate("customer", "name")
 		.populate({

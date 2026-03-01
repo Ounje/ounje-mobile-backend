@@ -6,6 +6,12 @@ const {
 } = require("../middleware/auth");
 
 const {
+	requireCustomer,
+	requireVendor,
+	requireRider,
+} = require("../middleware/profile");
+
+const {
 	// Customer
 	createOrder,
 	getMyOrders,
@@ -123,6 +129,7 @@ router.post(
 	authMiddleware,
 	checkActiveUser,
 	roleGuard(["customer"]),
+	requireCustomer,
 	createOrder,
 );
 
@@ -143,6 +150,7 @@ router.get(
 	authMiddleware,
 	checkActiveUser,
 	roleGuard(["customer"]),
+	requireCustomer,
 	getMyOrders,
 );
 
@@ -173,6 +181,7 @@ router.get(
 	authMiddleware,
 	checkActiveUser,
 	roleGuard(["customer"]),
+	requireCustomer,
 	getOrderById,
 );
 
@@ -203,6 +212,7 @@ router.put(
 	authMiddleware,
 	checkActiveUser,
 	roleGuard(["customer"]),
+	requireCustomer,
 	cancelOrder,
 );
 
@@ -237,6 +247,7 @@ router.put(
 	authMiddleware,
 	checkActiveUser,
 	roleGuard(["vendor"]),
+	requireVendor,
 	vendorAcceptOrder,
 );
 
@@ -261,6 +272,7 @@ router.put(
 	authMiddleware,
 	checkActiveUser,
 	roleGuard(["vendor"]),
+	requireVendor,
 	vendorDeclineOrder,
 );
 
@@ -278,6 +290,7 @@ router.get(
 	authMiddleware,
 	checkActiveUser,
 	roleGuard(["vendor"]),
+	requireVendor,
 	getVendorDeclineStats,
 );
 
@@ -304,6 +317,7 @@ router.get(
 	authMiddleware,
 	checkActiveUser,
 	roleGuard(["vendor"]),
+	requireVendor,
 	getVendorOrders,
 );
 /**
@@ -394,6 +408,7 @@ router.get(
 	"/vendor/order/:orderId",
 	authMiddleware,
 	roleGuard(["vendor"]),
+	requireVendor,
 	checkActiveUser,
 	vendorGetCustomerOrderDetails,
 );
@@ -416,6 +431,7 @@ router.get(
 	authMiddleware,
 	checkActiveUser,
 	roleGuard(["rider"]),
+	requireRider,
 	getAvailableRiderRequests,
 );
 
@@ -433,6 +449,7 @@ router.get(
 	authMiddleware,
 	checkActiveUser,
 	roleGuard(["rider"]),
+	requireRider,
 	getCurrentRiderOrder,
 );
 
@@ -450,6 +467,7 @@ router.get(
 	authMiddleware,
 	checkActiveUser,
 	roleGuard(["rider"]),
+	requireRider,
 	getRiderCompletedOrdersToday,
 );
 
@@ -473,6 +491,7 @@ router.get(
 	authMiddleware,
 	checkActiveUser,
 	roleGuard(["rider"]),
+	requireRider,
 	getRiderOrders,
 );
 
@@ -494,6 +513,7 @@ router.put(
 	authMiddleware,
 	checkActiveUser,
 	roleGuard(["rider"]),
+	requireRider,
 	acceptOrder,
 );
 
@@ -511,6 +531,7 @@ router.put(
 	authMiddleware,
 	checkActiveUser,
 	roleGuard(["rider"]),
+	requireRider,
 	riderDeclineOrder,
 );
 
@@ -528,6 +549,7 @@ router.put(
 	authMiddleware,
 	checkActiveUser,
 	roleGuard(["rider"]),
+	requireRider,
 	pickUpOrder,
 );
 
@@ -552,6 +574,7 @@ router.put(
 	authMiddleware,
 	checkActiveUser,
 	roleGuard(["rider"]),
+	requireRider,
 	completeDelivery,
 );
 

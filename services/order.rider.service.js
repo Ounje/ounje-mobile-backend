@@ -161,11 +161,7 @@ const getCurrentRiderOrder = async (riderId) => {
 		.populate("items.item");
 };
 
-const getRiderCompletedOrdersToday = async (userId) => {
-	const riderProfile = await RiderProfile.findOne({ user: userId });
-	if (!riderProfile) {
-		throw new Error("Rider profile not found");
-	}
+const getRiderCompletedOrdersToday = async (riderProfileId) => {
 
 	const startOfDay = new Date();
 	startOfDay.setHours(0, 0, 0, 0);
@@ -174,7 +170,7 @@ const getRiderCompletedOrdersToday = async (userId) => {
 	endOfDay.setHours(23, 59, 59, 999);
 
 	return await Order.find({
-		rider: riderProfile._id,
+		rider: riderProfileId,
 		status: ORDER_STATUS.DELIVERED,
 		deliveryConfirmedAt: { $gte: startOfDay, $lte: endOfDay },
 	})

@@ -53,10 +53,8 @@ exports.createOrder = asyncHandler(async (req, res) => {
 // Cancel Order (customer)
 exports.cancelOrder = asyncHandler(async (req, res) => {
 	const { orderId } = req.params;
-	const customer = await Customer.findOne({ user: req.user.id });
-	if (!customer) throw new AppError("Customer profile not found", 404);
 
-	const order = await orderService.cancelOrder(orderId, customer._id.toString());
+	const order = await orderService.cancelOrder(orderId, req.customer._id.toString());
 	res.status(200).json({
 		success: true,
 		message: "Order cancelled successfully",
@@ -66,14 +64,11 @@ exports.cancelOrder = asyncHandler(async (req, res) => {
 
 // Get my orders
 exports.getMyOrders = asyncHandler(async (req, res) => {
-	const customer = await Customer.findOne({ user: req.user.id });
-	if (!customer) throw new AppError("Customer profile not found", 404);
-
 	const result = await paginate(
 		Order,
 		req.query,
 		[{ path: "vendor", select: "name" }, { path: "items.item" }],
-		{ customer: customer._id },
+		{ customer: req.customer._id },
 	);
 
 	if (result.data && Array.isArray(result.data)) {
@@ -96,7 +91,7 @@ exports.getOrderById = asyncHandler(async (req, res) => {
 
 	if (!order) throw new AppError("Order not found", 404);
 
-	if (order.customer.user.toString() !== req.user.id.toString()) {
+	if (order.customer._id.toString() !== req.customer._id.toString()) {
 		throw new AppError("Unauthorized", 403);
 	}
 
@@ -110,9 +105,9 @@ exports.getOrderById = asyncHandler(async (req, res) => {
 // Vendor accepts order
 exports.vendorAcceptOrder = asyncHandler(async (req, res) => {
 	const { orderId } = req.params;
-	const vendorId = req.user.id;
+	const vendorId = req.vendor._id;
 
-	const order = await orderVendorService.vendorAcceptOrder(orderId, vendorId);
+	const order = await orderVendorService.vendorAcceptOrder(orderId, vendorId.toString());
 	res.status(200).json({
 		success: true,
 		message: "Order accepted successfully",
@@ -123,9 +118,9 @@ exports.vendorAcceptOrder = asyncHandler(async (req, res) => {
 // Vendor declines order
 exports.vendorDeclineOrder = asyncHandler(async (req, res) => {
 	const { orderId } = req.params;
-	const vendorId = req.user.id;
+	const vendorId = req.vendor._id;
 
-	const order = await orderVendorService.declineOrder(orderId, vendorId, req.body);
+	const order = await orderVendorService.declineOrder(orderId, vendorId.toString(), req.body);
 
 	res.status(200).json({
 		success: true,
@@ -136,17 +131,17 @@ exports.vendorDeclineOrder = asyncHandler(async (req, res) => {
 
 // Vendor decline statistics
 exports.getVendorDeclineStats = asyncHandler(async (req, res) => {
-	const vendorId = req.user.id;
-	const stats = await orderVendorService.getDeclineStats(vendorId, req.query);
+	const vendorId = req.vendor._id;
+	const stats = await orderVendorService.getDeclineStats(vendorId.toString(), req.query);
 	res.status(200).json(stats);
 });
 
 // Rider accepts order
 exports.acceptOrder = asyncHandler(async (req, res) => {
 	const { orderId } = req.params;
-	const riderId = req.user.id;
+	const riderId = req.rider._id;
 
-	const order = await orderService.acceptOrder(orderId, riderId);
+	const order = await orderService.acceptOrder(orderId, riderId.toString());
 	res.status(200).json({
 		success: true,
 		message: "Order accepted",
@@ -157,11 +152,11 @@ exports.acceptOrder = asyncHandler(async (req, res) => {
 // Rider declines assigned order
 exports.riderDeclineOrder = asyncHandler(async (req, res) => {
 	const { orderId } = req.params;
-	const riderId = req.user.id;
+	const riderId = req.rider._id;
 
 	const order = await orderRiderService.riderDeclineOrder(
 		orderId,
-		riderId,
+		riderId.toString(),
 		req.body,
 	);
 
@@ -175,9 +170,9 @@ exports.riderDeclineOrder = asyncHandler(async (req, res) => {
 // Rider picks up order
 exports.pickUpOrder = asyncHandler(async (req, res) => {
 	const { orderId } = req.params;
-	const riderId = req.user.id;
+	const riderId = req.rider._id;
 
-	const order = await orderService.pickUpOrder(orderId, riderId);
+	const order = await orderService.pickUpOrder(orderId, riderId.toString());
 	res.status(200).json({
 		success: true,
 		message: "Order picked up. OTP sent to customer.",
@@ -189,9 +184,9 @@ exports.pickUpOrder = asyncHandler(async (req, res) => {
 exports.completeDelivery = asyncHandler(async (req, res) => {
 	const { orderId } = req.params;
 	const { otp } = req.body;
-	const riderId = req.user.id;
+	const riderId = req.rider._id;
 
-	const order = await orderService.completeDelivery(orderId, riderId, otp);
+	const order = await orderService.completeDelivery(orderId, riderId.toString(), otp);
 	res.status(200).json({
 		success: true,
 		message: "Delivery completed successfully",
@@ -210,8 +205,8 @@ exports.getAvailableRiderRequests = asyncHandler(async (req, res) => {
 
 // Get current active rider order
 exports.getCurrentRiderOrder = asyncHandler(async (req, res) => {
-	const riderId = req.user.id;
-	const order = await orderRiderService.getCurrentRiderOrder(riderId);
+	const riderId = req.rider._id;
+	const order = await orderRiderService.getCurrentRiderOrder(riderId.toString());
 
 	res.status(200).json({
 		order: formatRiderOrder(order),
@@ -221,7 +216,7 @@ exports.getCurrentRiderOrder = asyncHandler(async (req, res) => {
 
 // Rider completed orders today
 exports.getRiderCompletedOrdersToday = asyncHandler(async (req, res) => {
-	const orders = await orderRiderService.getRiderCompletedOrdersToday(req.user.id);
+	const orders = await orderRiderService.getRiderCompletedOrdersToday(req.rider._id.toString());
 	res.status(200).json({
 		count: orders.length,
 		orders: orders.map(formatRiderOrder),
@@ -230,10 +225,10 @@ exports.getRiderCompletedOrdersToday = asyncHandler(async (req, res) => {
 
 // Rider order history with filters
 exports.getRiderOrders = asyncHandler(async (req, res) => {
-	const riderId = req.user.id;
+	const riderId = req.rider._id;
 	const { status } = req.query;
 
-	const orders = await orderRiderService.getRiderOrders(riderId, status);
+	const orders = await orderRiderService.getRiderOrders(riderId.toString(), status);
 	res
 		.status(200)
 		.json({ count: orders.length, orders: orders.map(formatRiderOrder) });
@@ -249,7 +244,7 @@ exports.updateOrderStatus = asyncHandler(async (req, res) => {
 
 // Get orders for logged-in vendor
 exports.getVendorOrders = asyncHandler(async (req, res) => {
-	const orders = await orderVendorService.getVendorOrders(req.user.id, req.query);
+	const orders = await orderVendorService.getVendorOrders(req.vendor._id.toString(), req.query);
 
 	const cleanedOrders = orders.map(orderDoc => {
 		const orderObj = orderDoc.toObject ? orderDoc.toObject() : orderDoc;
@@ -263,11 +258,11 @@ exports.getVendorOrders = asyncHandler(async (req, res) => {
 // Get single order for vendor
 exports.vendorGetCustomerOrderDetails = asyncHandler(async (req, res) => {
 	const { orderId } = req.params;
-	const vendorId = req.user.id;
+	const vendorId = req.vendor._id;
 
 	const order = await orderVendorService.vendorGetCustomerOrderDetails(
 		orderId,
-		vendorId,
+		vendorId.toString(),
 	);
 	res.status(200).json({ success: true, order });
 });
