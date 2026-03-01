@@ -10,7 +10,7 @@ const createFoodItem = async (req, res) => {
 		let { category, isCompulsory, subCategories } = req.body;
 
 		const vendorId = req.user.id;
-		const vendor = await VendorProfile.findOne({ owner: vendorId });
+		const vendor = await VendorProfile.findOne({ owner: vendorId }).lean();
 
 		if (!vendor)
 			return res
@@ -147,14 +147,12 @@ const createFoodItem = async (req, res) => {
 			});
 		}
 
-		const foodItem = new FoodItem({
+		const foodItem = await FoodItem.create({
 			category,
 			vendor: vendor._id,
 			isCompulsory: !!isCompulsory,
 			subCategory: builtSubCategories,
 		});
-
-		await foodItem.save();
 
 		res.status(201).json({
 			success: true,
