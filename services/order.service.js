@@ -364,17 +364,30 @@ const createOrder = async (userId, data) => {
 		let itemPrice;
 		let validatedComboSelections = undefined;
 		let finalSubCatId = subCategoryItemId;
+		let actualItemId = itemId;
 
 		if (itemType === "FoodItem") {
-			const product = await ProductModel.findById(itemId)
+			let product = await ProductModel.findById(actualItemId)
 				.select("subCategory isAvailable")
 				.lean();
 
+			// If the frontend passed the specific sub-option ID as `itemId` instead of the parent FoodItem ID
+			if (!product) {
+				product = await ProductModel.findOne({ "subCategory.items._id": actualItemId })
+					.select("subCategory isAvailable")
+					.lean();
+
+				if (product) {
+					finalSubCatId = actualItemId;    // That ID they sent was actually the specific sub-item option
+					actualItemId = product._id;      // Correct the parent ID for the database foreign key reference
+				}
+			}
+
 			if (!product)
-				throw new AppError(`FoodItem with ID ${itemId} not found`, 404);
+				throw new AppError(`FoodItem or specific option with ID ${itemId} not found`, 404);
 
 			if (!product.isAvailable)
-				throw new AppError(`FoodItem with ID ${itemId} is not available`, 400);
+				throw new AppError(`FoodItem package is not available`, 400);
 
 			// If subCategoryItemId is not provided, check if we can auto-resolve it
 			if (!finalSubCatId && product.subCategory) {
@@ -432,12 +445,12 @@ const createOrder = async (userId, data) => {
 
 			itemPrice = foundItem.price;
 		} else if (itemType === "Combo") {
-			const product = await ProductModel.findById(itemId)
+			const product = await ProductModel.findById(actualItemId)
 				.select("basePrice name selections")
 				.lean();
 
 			if (!product)
-				throw new AppError(`Combo with ID ${itemId} not found`, 404);
+				throw new AppError(`Combo with ID ${actualItemId} not found`, 404);
 
 			itemPrice = product.basePrice;
 
@@ -526,19 +539,19 @@ const createOrder = async (userId, data) => {
 				}
 			}
 		} else if (itemType === "Plate") {
-			const product = await ProductModel.findById(itemId)
+			const product = await ProductModel.findById(actualItemId)
 				.select("price name")
 				.lean();
 
 			if (!product)
-				throw new AppError(`Plate with ID ${itemId} not found`, 404);
+				throw new AppError(`Plate with ID ${actualItemId} not found`, 404);
 
 			itemPrice = product.price;
 		}
 
 		if (itemPrice === undefined || isNaN(itemPrice)) {
 			throw new AppError(
-				`Cannot determine price for ${itemType} with ID ${itemId}`,
+				`Cannot determine price for ${itemType} with ID ${actualItemId}`,
 				400,
 			);
 		}
@@ -546,7 +559,7 @@ const createOrder = async (userId, data) => {
 		itemsTotalPrice += itemPrice * quantity;
 		orderItems.push({
 			itemType,
-			item: itemId,
+			item: actualItemId,
 			subCategoryItemId: finalSubCatId || null,
 			comboSelections: validatedComboSelections,
 			quantity,
