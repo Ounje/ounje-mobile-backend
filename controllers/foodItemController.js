@@ -29,7 +29,6 @@ const createFoodItem = async (req, res) => {
 				.status(400)
 				.json({ success: false, message: "Category is required." });
 
-		// Normalize category to lowercase
 		category = category.toLowerCase();
 
 		if (!getCategoryValues().includes(category))
@@ -38,7 +37,6 @@ const createFoodItem = async (req, res) => {
 				message: `Invalid category. Must be one of: ${getCategoryValues().join(", ")}`,
 			});
 
-		// Parse subCategories if it comes in as a JSON string
 		if (typeof subCategories === "string") {
 			try {
 				subCategories = JSON.parse(subCategories);
@@ -60,7 +58,6 @@ const createFoodItem = async (req, res) => {
 				message: "At least one subcategory is required.",
 			});
 
-		// Count total items across all subcategories
 		const totalItems = subCategories.reduce((acc, subCat) => {
 			return acc + (subCat.items?.length || 0);
 		}, 0);
@@ -71,30 +68,9 @@ const createFoodItem = async (req, res) => {
 				message: "You can only create a maximum of 20 items in one request.",
 			});
 
-		// Business limit check
-		const vendorFoodItems = await FoodItem.find({ vendor: vendor._id });
-		const existingItemsCount = vendorFoodItems.reduce((acc, foodItem) => {
-			return (
-				acc +
-				foodItem.subCategory.reduce((subAcc, subCat) => {
-					return subAcc + subCat.items.length;
-				}, 0)
-			);
-		}, 0);
-
-		if (existingItemsCount + totalItems > 100)
-			return res.status(400).json({
-				success: false,
-				message: `You have reached the maximum limit. You currently have ${existingItemsCount} items and can only add ${100 - existingItemsCount} more.`,
-			});
-
-		// Normalize servicesOffered to handle both array and string
 		const serviceType = Array.isArray(vendor.servicesOffered)
 			? vendor.servicesOffered
 			: [vendor.servicesOffered];
-
-		console.log("servicesOffered:", vendor.servicesOffered);
-		console.log("serviceType array:", serviceType);
 
 		const images = req.files?.img || [];
 		let imageIndex = 0;
@@ -107,7 +83,6 @@ const createFoodItem = async (req, res) => {
 					message: "Each subcategory must have a name.",
 				});
 
-			// Normalize subcategory name to lowercase
 			const normalizedSubCatName = subCat.name.toLowerCase();
 
 			if (!getSubCategoryValues().includes(normalizedSubCatName))
@@ -190,7 +165,6 @@ const createFoodItem = async (req, res) => {
 		res.status(500).json({ success: false, error: err.message });
 	}
 };
-
 const addSubCategories = async (req, res) => {
 	try {
 		const { foodItemId } = req.params;
