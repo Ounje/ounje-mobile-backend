@@ -40,7 +40,10 @@ const orderSchema = new mongoose.Schema(
 								groupName: String,
 								items: [
 									{
-										itemId: { type: mongoose.Schema.Types.ObjectId, ref: "FoodItem" },
+										itemId: {
+											type: mongoose.Schema.Types.ObjectId,
+											ref: "FoodItem",
+										},
 										name: String,
 										price: Number,
 										quantity: { type: Number, default: 1 },
@@ -64,6 +67,7 @@ const orderSchema = new mongoose.Schema(
 				{ _id: false }, // Disable automatic _id for subdocuments
 			),
 		],
+		orderNumber: { type: String, unique: true, sparse: true },
 		totalPrice: {
 			type: Number,
 			required: true,

@@ -13,6 +13,7 @@ const { sendPushNotification } = require("./push.notification.service");
 const ledgerService = require("./ledger.service");
 const notificationService = require("./notification.service");
 const { ORDER_STATUS, ORDER_SUB_STATUS } = require("../utils/constants");
+const { generateOrderNumber } = require("../utils/orderNumber");
 const logger = require("../utils/logger");
 const mongoose = require("mongoose");
 const AppError = require("../utils/AppError");
@@ -29,7 +30,9 @@ const _emitOrderUpdate = (customerId, payload) => {
 			logger.info(`Real-time update sent to Customer ${customerId}`);
 		}
 	} catch (error) {
-		logger.error(`Failed to emit socket update to Customer ${customerId}: ${error.message}`);
+		logger.error(
+			`Failed to emit socket update to Customer ${customerId}: ${error.message}`,
+		);
 	}
 };
 
@@ -60,18 +63,23 @@ const _calculateAndValidateItemPrice = async (item, models) => {
 
 		// If the frontend passed the specific sub-option ID as `itemId` instead of the parent FoodItem ID
 		if (!product) {
-			product = await ProductModel.findOne({ "subCategory.items._id": actualItemId })
+			product = await ProductModel.findOne({
+				"subCategory.items._id": actualItemId,
+			})
 				.select("subCategory isAvailable name price")
 				.lean();
 
 			if (product) {
-				finalSubCatId = actualItemId;    // That ID they sent was actually the specific sub-item option
-				actualItemId = product._id;      // Correct the parent ID for the database foreign key reference
+				finalSubCatId = actualItemId; // That ID they sent was actually the specific sub-item option
+				actualItemId = product._id; // Correct the parent ID for the database foreign key reference
 			}
 		}
 
 		if (!product)
-			throw new AppError(`FoodItem or specific option with ID ${itemId} not found`, 404);
+			throw new AppError(
+				`FoodItem or specific option with ID ${itemId} not found`,
+				404,
+			);
 
 		if (!product.isAvailable)
 			throw new AppError(`FoodItem package is not available`, 400);
@@ -114,10 +122,7 @@ const _calculateAndValidateItemPrice = async (item, models) => {
 			finalSubCatId = null;
 		} else {
 			if (!mongoose.isValidObjectId(finalSubCatId))
-				throw new AppError(
-					`Invalid subCategoryItemId: ${finalSubCatId}`,
-					400,
-				);
+				throw new AppError(`Invalid subCategoryItemId: ${finalSubCatId}`, 400);
 
 			// Find the specific subcategory item ordered
 			let foundItem = null;
@@ -167,7 +172,9 @@ const _calculateAndValidateItemPrice = async (item, models) => {
 				for (let i = unmatchedUserSelections.length - 1; i >= 0; i--) {
 					const uItemId = unmatchedUserSelections[i];
 					// Support both plain string IDs and objects like { itemId, quantity } just in case
-					const uIdStr = uItemId?.itemId ? uItemId.itemId.toString() : (uItemId?.toString() || "");
+					const uIdStr = uItemId?.itemId
+						? uItemId.itemId.toString()
+						: uItemId?.toString() || "";
 					const uQuantity = Number(uItemId?.quantity) || 1;
 
 					const foundItem = group.items.find(
@@ -183,11 +190,16 @@ const _calculateAndValidateItemPrice = async (item, models) => {
 						}
 
 						// Check if we already matched this item (to merge duplicate IDs sent in array)
-						const existingMatch = matchedItemsInGroup.find(m => m.item.toString() === uIdStr);
+						const existingMatch = matchedItemsInGroup.find(
+							(m) => m.item.toString() === uIdStr,
+						);
 						if (existingMatch) {
 							existingMatch.quantitySelected += uQuantity;
 						} else {
-							matchedItemsInGroup.push({ ...foundItem, quantitySelected: uQuantity });
+							matchedItemsInGroup.push({
+								...foundItem,
+								quantitySelected: uQuantity,
+							});
 						}
 
 						totalGroupQuantity += uQuantity;
@@ -218,7 +230,8 @@ const _calculateAndValidateItemPrice = async (item, models) => {
 							price: matchedItem.price || 0,
 							quantity: matchedItem.quantitySelected,
 						});
-						itemPrice += (matchedItem.price || 0) * matchedItem.quantitySelected;
+						itemPrice +=
+							(matchedItem.price || 0) * matchedItem.quantitySelected;
 					}
 
 					validatedComboSelections.push({
@@ -258,7 +271,7 @@ const _calculateAndValidateItemPrice = async (item, models) => {
 		itemPrice,
 		validatedComboSelections,
 		actualItemId,
-		finalSubCatId
+		finalSubCatId,
 	};
 };
 
@@ -300,7 +313,14 @@ const createOrder = async (userId, data) => {
 	const models = { FoodItem, Combo, Plate };
 
 	for (const item of items) {
-		const { itemId, itemType, quantity = 1, notes, subCategoryItemId, comboSelections } = item;
+		const {
+			itemId,
+			itemType,
+			quantity = 1,
+			notes,
+			subCategoryItemId,
+			comboSelections,
+		} = item;
 
 		if (!mongoose.isValidObjectId(itemId)) {
 			throw new AppError(`Invalid Item ID: ${itemId}`, 400);
@@ -311,12 +331,8 @@ const createOrder = async (userId, data) => {
 			throw new AppError(`Invalid itemType: ${itemType}`, 400);
 		}
 
-		const {
-			itemPrice,
-			validatedComboSelections,
-			actualItemId,
-			finalSubCatId
-		} = await _calculateAndValidateItemPrice(item, models);
+		const { itemPrice, validatedComboSelections, actualItemId, finalSubCatId } =
+			await _calculateAndValidateItemPrice(item, models);
 
 		itemsTotalPrice += itemPrice * quantity;
 		const orderItemData = {
@@ -356,6 +372,8 @@ const createOrder = async (userId, data) => {
 		subStatus: ORDER_SUB_STATUS.CONFIRMING,
 		zone: orderZone,
 	});
+	order.orderNumber = await generateOrderNumber(order._id);
+	await order.save();
 
 	// 6. Send notification to vendor
 	try {
