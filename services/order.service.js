@@ -441,7 +441,7 @@ const sendDeliveryOtp = async (order) => {
 	// Emit via socket.io
 	try {
 		if (global.io) {
-			global.io.emit("delivery-otp", {
+			global.io.to(order.customer.toString()).emit("delivery-otp", {
 				orderId: order._id,
 				customerId: order.customer,
 				otp,
