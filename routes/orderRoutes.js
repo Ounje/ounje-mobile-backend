@@ -6,6 +6,12 @@ const {
 } = require("../middleware/auth");
 
 const {
+	requireCustomer,
+	requireVendor,
+	requireRider,
+} = require("../middleware/profile");
+
+const {
 	// Customer
 	createOrder,
 	getMyOrders,
@@ -85,6 +91,31 @@ const router = express.Router();
  *                     notes:
  *                       type: string
  *                       description: Optional instructions for the item
+ *                     comboSelections:
+ *                       type: array
+ *                       description: Required ONLY if itemType is Combo. An array of FoodItem IDs or objects with quantity that the customer selected for the combo options.
+ *                       items:
+ *                         oneOf:
+ *                           - type: string
+ *                           - type: object
+ *                             properties:
+ *                               itemId:
+ *                                 type: string
+ *                               quantity:
+ *                                 type: number
+ *                                 default: 1
+ *             example:
+ *               vendorId: "60f6c2e...etc"
+ *               deliveryAddress: "123 Main St"
+ *               items:
+ *                 - itemId: "60f6c2e...etc"
+ *                   itemType: "FoodItem"
+ *                   subCategoryItemId: "60f6c2e...etc"
+ *                   quantity: 2
+ *                 - itemId: "61abc1e...etc"
+ *                   itemType: "Combo"
+ *                   quantity: 1
+ *                   comboSelections: ["62ced4...etc", "62ced5...etc"]
  *     responses:
  *       201:
  *         description: Order created successfully
@@ -98,6 +129,7 @@ router.post(
 	authMiddleware,
 	checkActiveUser,
 	roleGuard(["customer"]),
+	requireCustomer,
 	createOrder,
 );
 
@@ -118,6 +150,7 @@ router.get(
 	authMiddleware,
 	checkActiveUser,
 	roleGuard(["customer"]),
+	requireCustomer,
 	getMyOrders,
 );
 
@@ -148,6 +181,7 @@ router.get(
 	authMiddleware,
 	checkActiveUser,
 	roleGuard(["customer"]),
+	requireCustomer,
 	getOrderById,
 );
 
@@ -178,6 +212,7 @@ router.put(
 	authMiddleware,
 	checkActiveUser,
 	roleGuard(["customer"]),
+	requireCustomer,
 	cancelOrder,
 );
 
@@ -212,6 +247,7 @@ router.put(
 	authMiddleware,
 	checkActiveUser,
 	roleGuard(["vendor"]),
+	requireVendor,
 	vendorAcceptOrder,
 );
 
@@ -236,6 +272,7 @@ router.put(
 	authMiddleware,
 	checkActiveUser,
 	roleGuard(["vendor"]),
+	requireVendor,
 	vendorDeclineOrder,
 );
 
@@ -253,6 +290,7 @@ router.get(
 	authMiddleware,
 	checkActiveUser,
 	roleGuard(["vendor"]),
+	requireVendor,
 	getVendorDeclineStats,
 );
 
@@ -279,6 +317,7 @@ router.get(
 	authMiddleware,
 	checkActiveUser,
 	roleGuard(["vendor"]),
+	requireVendor,
 	getVendorOrders,
 );
 /**
@@ -369,6 +408,7 @@ router.get(
 	"/vendor/order/:orderId",
 	authMiddleware,
 	roleGuard(["vendor"]),
+	requireVendor,
 	checkActiveUser,
 	vendorGetCustomerOrderDetails,
 );
@@ -391,6 +431,7 @@ router.get(
 	authMiddleware,
 	checkActiveUser,
 	roleGuard(["rider"]),
+	requireRider,
 	getAvailableRiderRequests,
 );
 
@@ -408,6 +449,7 @@ router.get(
 	authMiddleware,
 	checkActiveUser,
 	roleGuard(["rider"]),
+	requireRider,
 	getCurrentRiderOrder,
 );
 
@@ -425,6 +467,7 @@ router.get(
 	authMiddleware,
 	checkActiveUser,
 	roleGuard(["rider"]),
+	requireRider,
 	getRiderCompletedOrdersToday,
 );
 
@@ -448,6 +491,7 @@ router.get(
 	authMiddleware,
 	checkActiveUser,
 	roleGuard(["rider"]),
+	requireRider,
 	getRiderOrders,
 );
 
@@ -469,6 +513,7 @@ router.put(
 	authMiddleware,
 	checkActiveUser,
 	roleGuard(["rider"]),
+	requireRider,
 	acceptOrder,
 );
 
@@ -486,6 +531,7 @@ router.put(
 	authMiddleware,
 	checkActiveUser,
 	roleGuard(["rider"]),
+	requireRider,
 	riderDeclineOrder,
 );
 
@@ -503,6 +549,7 @@ router.put(
 	authMiddleware,
 	checkActiveUser,
 	roleGuard(["rider"]),
+	requireRider,
 	pickUpOrder,
 );
 
@@ -527,6 +574,7 @@ router.put(
 	authMiddleware,
 	checkActiveUser,
 	roleGuard(["rider"]),
+	requireRider,
 	completeDelivery,
 );
 

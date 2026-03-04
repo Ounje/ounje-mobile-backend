@@ -33,6 +33,26 @@ const orderSchema = new mongoose.Schema(
 						type: mongoose.Schema.Types.ObjectId,
 						default: null, // only required when itemType is FoodItem
 					},
+					comboSelections: {
+						type: [
+							{
+								groupId: { type: mongoose.Schema.Types.ObjectId },
+								groupName: String,
+								items: [
+									{
+										itemId: {
+											type: mongoose.Schema.Types.ObjectId,
+											ref: "FoodItem",
+										},
+										name: String,
+										price: Number,
+										quantity: { type: Number, default: 1 },
+									},
+								],
+							},
+						],
+						default: undefined,
+					},
 					quantity: {
 						type: Number,
 						default: 1,
@@ -47,6 +67,7 @@ const orderSchema = new mongoose.Schema(
 				{ _id: false }, // Disable automatic _id for subdocuments
 			),
 		],
+		orderNumber: { type: String, unique: true, sparse: true },
 		totalPrice: {
 			type: Number,
 			required: true,

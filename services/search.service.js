@@ -205,21 +205,34 @@ const universalSearch = async (query, options = {}) => {
 		throw err;
 	}
 };
-
 const getSearchSuggestions = async (query, limit = 10) => {
 	if (!query || query.length < 2) return [];
-
-	const regex = new RegExp(`^${query}`, "i");
+	const regex = new RegExp(query, "i"); // matches anywhere in the string
 
 	const [vendors, combos, plates, items] = await Promise.all([
 		VendorProfile.find({ name: regex, isActive: true }, { name: 1 }).limit(
 			limit,
 		),
+
 		Combo.find({ comboName: regex, isAvailable: true }, { comboName: 1 }).limit(
 			limit,
 		),
+
 		Plate.find({ name: regex }, { name: 1 }).limit(limit),
-		FoodItem.find({ name: regex, isAvailable: true }, { name: 1 }).limit(limit),
+
+		// FoodItem name is now inside subCategory.items.name
+		FoodItem.aggregate([
+			{ $unwind: "$subCategory" },
+			{ $unwind: "$subCategory.items" },
+			{
+				$match: {
+					"subCategory.items.name": regex,
+					"subCategory.items.isAvailable": true,
+				},
+			},
+			{ $project: { name: "$subCategory.items.name", _id: 0 } },
+			{ $limit: limit },
+		]),
 	]);
 
 	return [
