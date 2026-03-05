@@ -1,67 +1,159 @@
 const { VendorProfile, FoodItem, Combo } = require("../models");
-const { FOOD_ENUMS } = require("../utils/foodEnums");
+const {
+	getCategoryValues,
+	getSubCategoryValues,
+} = require("../utils/foodEnums");
 const { paginate } = require("../utils/paginate");
 
 const createFoodItem = async (req, res) => {
 	try {
-		const { name, price, description, category, subCategory, preparationTime, minQuantity, maxQuantity } =
-			req.body;
+		let { category, isCompulsory, subCategories } = req.body;
+
 		const vendorId = req.user.id;
-		const vendor = await VendorProfile.findOne({ owner: vendorId });
+		const vendor = await VendorProfile.findOne({ owner: vendorId }).lean();
+
 		if (!vendor)
 			return res
 				.status(404)
 				.json({ success: false, message: "Vendor profile not found." });
+
 		if (!vendor.isActive)
 			return res.status(403).json({
 				success: false,
 				message:
 					"Please complete your vendor profile before creating food items.",
 			});
-		if (!name || !price || !category || !preparationTime)
-			return res.status(400).json({
-				success: false,
-				message: "Name, price, category, and preparationTime are required.",
-			});
-		if (price <= 0)
+
+		if (!category)
 			return res
 				.status(400)
-				.json({ success: false, message: "Price must be greater than 0" });
+				.json({ success: false, message: "Category is required." });
 
-		const validCategories = Object.values(FOOD_ENUMS.CATEGORIES);
-		if (!validCategories.includes(category))
+		category = category.toLowerCase();
+
+		if (!getCategoryValues().includes(category))
 			return res.status(400).json({
 				success: false,
-				message: `Invalid category. Must be one of: ${validCategories.join(", ")}`,
+				message: `Invalid category. Must be one of: ${getCategoryValues().join(", ")}`,
 			});
-		if (subCategory) {
-			const validSubCategories = Object.values(FOOD_ENUMS.SUB_CATEGORIES);
-			if (!validSubCategories.includes(subCategory))
+
+		if (typeof subCategories === "string") {
+			try {
+				subCategories = JSON.parse(subCategories);
+			} catch {
 				return res.status(400).json({
 					success: false,
-					message: `Invalid subCategory. Must be one of: ${validSubCategories.join(", ")}`,
+					message: "Invalid subCategories format.",
 				});
+			}
 		}
 
-		if (!req.file)
-			return res
-				.status(400)
-				.json({ success: false, message: "Image is required" });
+		if (
+			!subCategories ||
+			!Array.isArray(subCategories) ||
+			subCategories.length === 0
+		)
+			return res.status(400).json({
+				success: false,
+				message: "At least one subcategory is required.",
+			});
 
-		const foodItem = new FoodItem({
-			name,
-			price,
-			description,
+		const totalItems = subCategories.reduce((acc, subCat) => {
+			return acc + (subCat.items?.length || 0);
+		}, 0);
+
+		if (totalItems > 20)
+			return res.status(400).json({
+				success: false,
+				message: "You can only create a maximum of 20 items in one request.",
+			});
+
+		const serviceType = Array.isArray(vendor.servicesOffered)
+			? vendor.servicesOffered
+			: [vendor.servicesOffered];
+
+		const images = req.files?.img || [];
+		let imageIndex = 0;
+		const builtSubCategories = [];
+
+		for (const subCat of subCategories) {
+			if (!subCat.name)
+				return res.status(400).json({
+					success: false,
+					message: "Each subcategory must have a name.",
+				});
+
+			const normalizedSubCatName = subCat.name.toLowerCase();
+
+			if (!getSubCategoryValues().includes(normalizedSubCatName))
+				return res.status(400).json({
+					success: false,
+					message: `Invalid subCategory "${subCat.name}". Must be one of: ${getSubCategoryValues().join(", ")}`,
+				});
+
+			if (
+				!subCat.items ||
+				!Array.isArray(subCat.items) ||
+				subCat.items.length === 0
+			)
+				return res.status(400).json({
+					success: false,
+					message: `Subcategory "${subCat.name}" must have at least one item.`,
+				});
+
+			const builtItems = [];
+
+			for (const item of subCat.items) {
+				if (!item.name || !item.price)
+					return res.status(400).json({
+						success: false,
+						message: "Each item must have a name and price.",
+					});
+
+				if (item.price <= 0)
+					return res.status(400).json({
+						success: false,
+						message: "Price must be greater than 0.",
+					});
+
+				if (serviceType.includes("preOrderMeals") && !item.preparationTime)
+					return res.status(400).json({
+						success: false,
+						message: `preparationTime is required for pre-order meals. Item "${item.name}" is missing it.`,
+					});
+
+				if (!images[imageIndex])
+					return res.status(400).json({
+						success: false,
+						message: `Image is required for item "${item.name}".`,
+					});
+
+				builtItems.push({
+					name: item.name,
+					price: item.price,
+					description: item.description || null,
+					preparationTime: item.preparationTime || null,
+					minQuantity: item.minQuantity || 1,
+					maxQuantity: item.maxQuantity || null,
+					img: images[imageIndex].path,
+				});
+
+				imageIndex++;
+			}
+
+			builtSubCategories.push({
+				name: normalizedSubCatName,
+				items: builtItems,
+			});
+		}
+
+		const foodItem = await FoodItem.create({
 			category,
-			subCategory,
-			preparationTime,
-			vendor: vendor._id, // Use VendorProfile ID, not User ID
-			img: req.file.path,
-			minQuantity: minQuantity || 1,
-			maxQuantity: maxQuantity || null,
+			vendor: vendor._id,
+			isCompulsory: !!isCompulsory,
+			subCategory: builtSubCategories,
 		});
 
-		await foodItem.save();
 		res.status(201).json({
 			success: true,
 			message: "Food item created successfully",
@@ -71,20 +163,240 @@ const createFoodItem = async (req, res) => {
 		res.status(500).json({ success: false, error: err.message });
 	}
 };
-
-const updateFoodItem = async (req, res) => {
+const addSubCategories = async (req, res) => {
 	try {
 		const { foodItemId } = req.params;
-		const foodItem = await FoodItem.findById(foodItemId).populate('vendor');
+		let {
+			subCategoryName,
+			itemName,
+			price,
+			description,
+			preparationTime,
+			minQuantity,
+			maxQuantity,
+			isCompulsory,
+		} = req.body;
+
+		const vendorId = req.user.id;
+
+		const vendor = await VendorProfile.findOne({ owner: vendorId });
+		if (!vendor)
+			return res
+				.status(404)
+				.json({ success: false, message: "Vendor profile not found." });
+
+		if (!vendor.isActive)
+			return res.status(403).json({
+				success: false,
+				message:
+					"Please complete your vendor profile before updating food items.",
+			});
+
+		const foodItem = await FoodItem.findOne({
+			_id: foodItemId,
+			vendor: vendor._id,
+		});
 		if (!foodItem)
 			return res
 				.status(404)
-				.json({ success: false, message: "Food item not found" });
-		// Check if current user owns the vendor profile
+				.json({ success: false, message: "Food item not found." });
+
+		if (!subCategoryName)
+			return res
+				.status(400)
+				.json({ success: false, message: "subCategoryName is required." });
+
+		// Normalize subcategory name to lowercase
+		subCategoryName = subCategoryName.toLowerCase();
+
+		if (!getSubCategoryValues().includes(subCategoryName))
+			return res.status(400).json({
+				success: false,
+				message: `Invalid subCategory. Must be one of: ${getSubCategoryValues().join(", ")}`,
+			});
+
+		if (!itemName || !price)
+			return res.status(400).json({
+				success: false,
+				message: "itemName and price are required.",
+			});
+
+		if (price <= 0)
+			return res
+				.status(400)
+				.json({ success: false, message: "Price must be greater than 0." });
+
+		// Normalize servicesOffered to handle both array and string
+		const serviceType = Array.isArray(vendor.servicesOffered)
+			? vendor.servicesOffered
+			: [vendor.servicesOffered];
+
+		console.log("servicesOffered:", vendor.servicesOffered);
+		console.log("serviceType array:", serviceType);
+
+		if (serviceType.includes("preOrderMeals") && !preparationTime)
+			return res.status(400).json({
+				success: false,
+				message: "preparationTime is required for pre-order meals.",
+			});
+
+		if (!req.files || !req.files.img || !req.files.img[0])
+			return res
+				.status(400)
+				.json({ success: false, message: "Image is required." });
+
+		// Business limit check
+		const vendorFoodItems = await FoodItem.find({ vendor: vendor._id });
+		const existingItemsCount = vendorFoodItems.reduce((acc, fi) => {
+			return (
+				acc +
+				fi.subCategory.reduce((subAcc, subCat) => {
+					return subAcc + subCat.items.length;
+				}, 0)
+			);
+		}, 0);
+
+		if (existingItemsCount >= 100)
+			return res.status(400).json({
+				success: false,
+				message:
+					"You have reached the maximum limit of 100 items. Please delete some items before adding more.",
+			});
+
+		const newItem = {
+			name: itemName,
+			price,
+			description: description || null,
+			preparationTime: preparationTime || null,
+			minQuantity: minQuantity || 1,
+			maxQuantity: maxQuantity || null,
+			img: req.files.img[0].path,
+		};
+
+		// Check if subcategory group already exists
+		const existingSubCategory = foodItem.subCategory.find(
+			(sub) => sub.name === subCategoryName,
+		);
+
+		if (existingSubCategory) {
+			existingSubCategory.items.push(newItem);
+		} else {
+			foodItem.subCategory.push({
+				name: subCategoryName,
+				items: [newItem],
+			});
+		}
+
+		if (typeof isCompulsory === "boolean") {
+			foodItem.isCompulsory = isCompulsory;
+		}
+
+		await foodItem.save();
+
+		res.status(200).json({
+			success: true,
+			message: existingSubCategory
+				? `Item added under existing "${subCategoryName}" subcategory`
+				: `New "${subCategoryName}" subcategory created with item`,
+			data: foodItem,
+		});
+	} catch (err) {
+		res.status(500).json({ success: false, error: err.message });
+	}
+};
+const deleteSubCategory = async (req, res) => {
+	try {
+		const { foodItemId } = req.params;
+		const { subCategoryName, itemId } = req.body;
+		const vendorId = req.user.id;
+
+		const vendor = await VendorProfile.findOne({ owner: vendorId });
+		if (!vendor)
+			return res
+				.status(404)
+				.json({ success: false, message: "Vendor profile not found." });
+
+		const foodItem = await FoodItem.findOne({
+			_id: foodItemId,
+			vendor: vendor._id,
+		});
+		if (!foodItem)
+			return res
+				.status(404)
+				.json({ success: false, message: "Food item not found." });
+
+		if (!subCategoryName)
+			return res
+				.status(400)
+				.json({ success: false, message: "subCategoryName is required." });
+
+		const subCategoryIndex = foodItem.subCategory.findIndex(
+			(sub) => sub.name === subCategoryName,
+		);
+
+		if (subCategoryIndex === -1)
+			return res.status(404).json({
+				success: false,
+				message: `Subcategory "${subCategoryName}" not found on this food item.`,
+			});
+
+		if (itemId) {
+			// Remove a specific item from the subcategory
+			const subCategory = foodItem.subCategory[subCategoryIndex];
+			const itemIndex = subCategory.items.findIndex(
+				(item) => item._id.toString() === itemId,
+			);
+
+			if (itemIndex === -1)
+				return res.status(404).json({
+					success: false,
+					message: "Item not found in this subcategory.",
+				});
+
+			subCategory.items.splice(itemIndex, 1);
+
+			// If no items left in subcategory, remove the subcategory group too
+			if (subCategory.items.length === 0) {
+				foodItem.subCategory.splice(subCategoryIndex, 1);
+			}
+		} else {
+			// Remove the entire subcategory group and all its items
+			foodItem.subCategory.splice(subCategoryIndex, 1);
+		}
+
+		// If no subcategories left, isCompulsory must be false
+		if (foodItem.subCategory.length === 0) {
+			foodItem.isCompulsory = false;
+		}
+
+		await foodItem.save();
+
+		res.status(200).json({
+			success: true,
+			message: itemId
+				? "Item removed from subcategory successfully"
+				: `Subcategory "${subCategoryName}" and all its items removed successfully`,
+			data: foodItem,
+		});
+	} catch (err) {
+		res.status(500).json({ success: false, error: err.message });
+	}
+};
+// UPDATE FOOD ITEM
+const updateFoodItem = async (req, res) => {
+	try {
+		const { foodItemId } = req.params;
+		const foodItem = await FoodItem.findById(foodItemId).populate("vendor");
+
+		if (!foodItem)
+			return res
+				.status(404)
+				.json({ success: false, message: "Food item not found." });
+
 		if (!foodItem.vendor.owner.equals(req.user.id))
 			return res.status(403).json({
 				success: false,
-				message: "Not authorized to update this food item",
+				message: "Not authorized to update this food item.",
 			});
 
 		const allowedFields = [
@@ -94,36 +406,49 @@ const updateFoodItem = async (req, res) => {
 			"category",
 			"subCategory",
 			"preparationTime",
-			"isAvailable",
 			"minQuantity",
 			"maxQuantity",
+			"isCompulsory",
 		];
-		if (req.body.category) {
-			const validCategories = Object.values(FOOD_ENUMS.CATEGORIES);
-			if (!validCategories.includes(req.body.category))
-				return res
-					.status(400)
-					.json({ success: false, message: "Invalid category" });
-		}
-		if (req.body.subCategory) {
-			const validSubCategories = Object.values(FOOD_ENUMS.SUB_CATEGORIES);
-			if (!validSubCategories.includes(req.body.subCategory))
-				return res
-					.status(400)
-					.json({ success: false, message: "Invalid subCategory" });
-		}
-		if (req.body.price !== undefined && req.body.price <= 0)
-			return res
-				.status(400)
-				.json({ success: false, message: "Price must be greater than 0" });
 
 		allowedFields.forEach((field) => {
-			if (req.body[field] !== undefined) foodItem[field] = req.body[field];
+			if (req.body[field] !== undefined) {
+				foodItem[field] =
+					field === "isCompulsory" ? !!req.body[field] : req.body[field];
+			}
 		});
-		if (req.file) foodItem.img = req.file.path;
+
+		// Validate category & subcategory
+		if (foodItem.category && !getCategoryValues().includes(foodItem.category))
+			return res
+				.status(400)
+				.json({ success: false, message: "Invalid category" });
+
+		if (
+			foodItem.subCategory &&
+			!getSubCategoryValues().includes(foodItem.subCategory)
+		)
+			return res
+				.status(400)
+				.json({ success: false, message: "Invalid subcategory" });
+
+		if (foodItem.isCompulsory && !foodItem.subCategory)
+			return res.status(400).json({
+				success: false,
+				message: "Subcategory required for compulsory items",
+			});
+
+		// Update images if provided
+		if (req.files) {
+			if (req.files.img && req.files.img[0])
+				foodItem.img = req.files.img[0].path;
+			if (req.files.sideImage && req.files.sideImage[0])
+				foodItem.sideImage = req.files.sideImage[0].path;
+		}
 
 		await foodItem.save();
-		res.json({
+
+		res.status(200).json({
 			success: true,
 			message: "Food item updated successfully",
 			data: foodItem,
@@ -136,7 +461,7 @@ const updateFoodItem = async (req, res) => {
 const deleteFoodItem = async (req, res) => {
 	try {
 		const { foodItemId } = req.params;
-		const foodItem = await FoodItem.findById(foodItemId).populate('vendor');
+		const foodItem = await FoodItem.findById(foodItemId).populate("vendor");
 		if (!foodItem)
 			return res
 				.status(404)
@@ -162,7 +487,7 @@ const getAllFoodItems = async (req, res) => {
 		// Define what we want to "join" from the Vendor model
 		const populate = {
 			path: "vendor",
-			select: "storeDetails img description averageRating totalOrders"
+			select: "storeDetails img description averageRating totalOrders",
 		};
 
 		const result = await paginate(FoodItem, req.query, populate, filter);
@@ -194,7 +519,9 @@ const getMyFoodItems = async (req, res) => {
 		// Find the vendor profile for this user
 		const vendor = await VendorProfile.findOne({ owner: req.user.id });
 		if (!vendor) {
-			return res.status(404).json({ success: false, message: "Vendor profile not found" });
+			return res
+				.status(404)
+				.json({ success: false, message: "Vendor profile not found" });
 		}
 		// Create a filter using VendorProfile ID
 		const filter = { vendor: vendor._id };
@@ -367,7 +694,7 @@ const updateCombo = async (req, res) => {
 
 const deleteCombo = async (req, res) => {
 	try {
-		const combo = await Combo.findById(req.params.comboId).populate('vendor');
+		const combo = await Combo.findById(req.params.comboId).populate("vendor");
 		if (!combo)
 			return res
 				.status(404)
@@ -393,9 +720,9 @@ const getAllCombos = async (req, res) => {
 			{ path: "vendor", select: "img description averageRating totalOrders" },
 			{
 				path: "selections.items.item",
-				select: "name img description price"
+				select: "name img description price",
 			},
-			{ path: "comboGroup", select: "name description" } // Populate comboGroup
+			{ path: "comboGroup", select: "name description" }, // Populate comboGroup
 		];
 
 		const result = await paginate(Combo, req.query, populateOptions);
@@ -410,16 +737,18 @@ const getMyCombos = async (req, res) => {
 		// Find the vendor profile for this user
 		const vendor = await VendorProfile.findOne({ owner: req.user.id });
 		if (!vendor) {
-			return res.status(404).json({ success: false, message: "Vendor profile not found" });
+			return res
+				.status(404)
+				.json({ success: false, message: "Vendor profile not found" });
 		}
 		// Create a filter using VendorProfile ID
 		const filter = { vendor: vendor._id };
 		const populateOptions = [
 			{
 				path: "selections.items.item",
-				select: "name img description price"
+				select: "name img description price",
 			},
-			{ path: "comboGroup", select: "name description" }
+			{ path: "comboGroup", select: "name description" },
 		];
 
 		const result = await paginate(Combo, req.query, populateOptions, filter);
@@ -432,13 +761,10 @@ const getMyCombos = async (req, res) => {
 const getComboById = async (req, res) => {
 	try {
 		const combo = await Combo.findById(req.params.comboId)
-			.populate(
-				"vendor",
-				" img description averageRating totalOrders location",
-			)
+			.populate("vendor", " img description averageRating totalOrders location")
 			.populate({
 				path: "selections.items.item",
-				select: "name img description price"
+				select: "name img description price",
 			})
 			.populate("comboGroup", "name description");
 		if (!combo)
@@ -457,9 +783,9 @@ const getVendorCombos = async (req, res) => {
 			{ path: "vendor", select: "img description averageRating totalOrders" },
 			{
 				path: "selections.items.item",
-				select: "name img description price"
+				select: "name img description price",
 			},
-			{ path: "comboGroup", select: "name description" }
+			{ path: "comboGroup", select: "name description" },
 		];
 
 		const result = await paginate(Combo, req.query, populateOptions, filter);
@@ -478,14 +804,14 @@ const getVendorCombosGrouped = async (req, res) => {
 			.populate("comboGroup", "name description")
 			.populate({
 				path: "selections.items.item",
-				select: "name img description price"
+				select: "name img description price",
 			});
 
 		// Group by ComboGroup name
 		const grouped = {};
 		const uncategorized = [];
 
-		combos.forEach(combo => {
+		combos.forEach((combo) => {
 			if (combo.comboGroup) {
 				const groupName = combo.comboGroup.name;
 				const groupId = combo.comboGroup.id; // toJSON plugin uses id
@@ -493,7 +819,7 @@ const getVendorCombosGrouped = async (req, res) => {
 				if (!grouped[groupId]) {
 					grouped[groupId] = {
 						groupInfo: combo.comboGroup,
-						items: []
+						items: [],
 					};
 				}
 				grouped[groupId].items.push(combo);
@@ -504,13 +830,13 @@ const getVendorCombosGrouped = async (req, res) => {
 
 		// Convert object to array for easier frontend consumption
 		const groupsArray = Object.values(grouped).sort((a, b) =>
-			a.groupInfo.name.localeCompare(b.groupInfo.name)
+			a.groupInfo.name.localeCompare(b.groupInfo.name),
 		);
 
 		if (uncategorized.length > 0) {
 			groupsArray.push({
 				groupInfo: { id: "uncategorized", name: "Uncategorized" },
-				items: uncategorized
+				items: uncategorized,
 			});
 		}
 
@@ -522,6 +848,8 @@ const getVendorCombosGrouped = async (req, res) => {
 module.exports = {
 	createFoodItem,
 	updateFoodItem,
+	addSubCategories,
+	deleteSubCategory,
 	deleteFoodItem,
 	getAllFoodItems,
 	getFoodItemById,

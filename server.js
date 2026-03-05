@@ -73,6 +73,7 @@ app.use("/api/support", supportRoutes);
 app.use("/api/rating", ratingRouter);
 app.use("/api/search", searchRouter);
 app.use("/api/notifications", notificationRouter);
+app.use("/api/announcements", require("./routes/announcementRoutes"));
 // app.use("/api/test", require("./tests/test01"));
 
 logger.info(`Frontend URL: ${process.env.FRONTEND_URL}`);
@@ -131,8 +132,16 @@ app.use(errorHandler);
 app.get("/", (req, res) => res.send("Food Service API running 🚀"));
 
 const PORT = process.env.PORT || 5000;
+const keepAlive = require("./utils/keepAlive");
 
 mongoose.connect(process.env.MONGO_DB_URI).then(() => {
 	logger.info("✅ MongoDB connected");
-	server.listen(PORT, () => logger.info(`🚀 Server running on port ${PORT}`));
+	server.listen(PORT, () => {
+		logger.info(`🚀 Server running on port ${PORT}`);
+
+		// Keep Render instance awake by pinging itself every 14 minutes
+		if (process.env.NODE_ENV === "production" || process.env.RENDER) {
+			keepAlive("https://ounje-mobile-backend.onrender.com/");
+		}
+	});
 });

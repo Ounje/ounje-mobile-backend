@@ -93,12 +93,16 @@ const deleteImage = async (publicId) => {
 	}
 };
 
+const foodItemUpload = multer({ storage: foodItemsStorage }).fields([
+	{ name: "img", maxCount: 20 },
+]);
+
 module.exports = {
 	cloudinary,
 	NINStorage: multer({ storage: NINStorage }),
 	userUpload: multer({ storage: usersStorage }),
 	comboUpload: multer({ storage: comboStorage }),
-	foodItemUpload: multer({ storage: foodItemsStorage }),
+	foodItemUpload,
 	plateUpload: multer({ storage: platesStorage }),
 	vendorImageUpload: multer({ storage: vendorStorage }),
 	riderUpload: multer({ storage: RiderDocumentStorage }),

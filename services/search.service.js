@@ -55,6 +55,13 @@ const searchFoodItems = async (query, limit, includeUnavailable) => {
 
 		const foods = await FoodItem.aggregate([
 			{ $match: matchStage },
+			// Unwind subcategories and their items to get individual items
+			{ $unwind: "$subCategory" },
+			{ $unwind: "$subCategory.items" },
+			// If unavailable filter applies, also filter subcategory items
+			...(includeUnavailable
+				? []
+				: [{ $match: { "subCategory.items.isAvailable": true } }]),
 			{
 				$lookup: {
 					from: "vendorprofiles",
@@ -68,9 +75,14 @@ const searchFoodItems = async (query, limit, includeUnavailable) => {
 				$project: {
 					type: { $literal: "fooditems" },
 					id: "$_id",
-					name: 1,
-					image: "$img",
-					price: 1,
+					//category: 1,
+					//subCategoryName: "$subCategory.name",
+					name: "$subCategory.items.name",
+					image: "$subCategory.items.img",
+					price: "$subCategory.items.price",
+					description: "$subCategory.items.description",
+					//preparationTime: "$subCategory.items.preparationTime",
+					//isCompulsory: 1,
 					vendor: {
 						id: "$vendorInfo._id",
 						name: "$vendorInfo.name",
@@ -87,7 +99,6 @@ const searchFoodItems = async (query, limit, includeUnavailable) => {
 		return [];
 	}
 };
-
 const searchCombos = async (query, limit, includeUnavailable) => {
 	try {
 		const matchStage = { $text: { $search: query } };
@@ -102,6 +113,7 @@ const searchCombos = async (query, limit, includeUnavailable) => {
 					name: "$comboName",
 					image: "$img",
 					basePrice: 1,
+					description: 1,
 					_id: 0,
 				},
 			},
@@ -193,21 +205,34 @@ const universalSearch = async (query, options = {}) => {
 		throw err;
 	}
 };
-
 const getSearchSuggestions = async (query, limit = 10) => {
 	if (!query || query.length < 2) return [];
-
-	const regex = new RegExp(`^${query}`, "i");
+	const regex = new RegExp(query, "i"); // matches anywhere in the string
 
 	const [vendors, combos, plates, items] = await Promise.all([
 		VendorProfile.find({ name: regex, isActive: true }, { name: 1 }).limit(
 			limit,
 		),
+
 		Combo.find({ comboName: regex, isAvailable: true }, { comboName: 1 }).limit(
 			limit,
 		),
+
 		Plate.find({ name: regex }, { name: 1 }).limit(limit),
-		FoodItem.find({ name: regex, isAvailable: true }, { name: 1 }).limit(limit),
+
+		// FoodItem name is now inside subCategory.items.name
+		FoodItem.aggregate([
+			{ $unwind: "$subCategory" },
+			{ $unwind: "$subCategory.items" },
+			{
+				$match: {
+					"subCategory.items.name": regex,
+					"subCategory.items.isAvailable": true,
+				},
+			},
+			{ $project: { name: "$subCategory.items.name", _id: 0 } },
+			{ $limit: limit },
+		]),
 	]);
 
 	return [

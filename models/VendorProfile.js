@@ -72,6 +72,7 @@ const vendorProfileSchema = new mongoose.Schema(
 			preparationTimeMin: Number,
 			autoAcceptOrders: { type: Boolean, default: false },
 			minOrderAmount: { type: Number, default: 0 },
+			deliveryPrice: { type: Number, default: 0 },
 		},
 		operatingHours: [
 			{
@@ -104,6 +105,7 @@ const vendorProfileSchema = new mongoose.Schema(
 vendorProfileSchema.index(
 	{
 		name: "text",
+		owner: 1,
 		description: "text",
 		"storeDetails.storeName": "text",
 		"location.address": "text",

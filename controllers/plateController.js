@@ -1,4 +1,4 @@
-const { Plate, FoodItem, Customer } = require("../models");
+const { Plate, FoodItem, Combo, Customer } = require("../models");
 const { deleteImage } = require("../config/cloudinary");
 const { paginate } = require("../utils/paginate");
 
@@ -28,24 +28,31 @@ const buildPlate = async (req, res) => {
 
         // Fetch item details to calculate price and description
         const selectedItems = await FoodItem.find({ _id: { $in: items } });
+        const selectedCombos = await Combo.find({ _id: { $in: items } });
 
         // Debugging: See if items are actually being found in your terminal
-        console.log("Items found in DB:", selectedItems.length);
+        console.log("Items found in DB:", selectedItems.length, "Combos found:", selectedCombos.length);
 
-        if (selectedItems.length === 0) {
-            return res.status(400).json({ error: "No valid food items selected" });
+        if (selectedItems.length + selectedCombos.length === 0) {
+            return res.status(400).json({ error: "No valid food items or combos selected" });
         }
 
         // Calculate total price
-        const price = selectedItems.reduce((sum, item) => sum + item.price, 0);
+        const price = [...selectedItems, ...selectedCombos].reduce((sum, item) => sum + (item.price || item.basePrice || 0), 0);
 
         // Calculate max preparation time (assuming parallel preparation, or sum if sequential - usually max for plates)
         // Parse "30 mins" or "30" to numbers
-        const times = selectedItems.map(item => parseInt(item.preparationTime) || 0);
+        const times = [...selectedItems, ...selectedCombos].map(item => parseInt(item.preparationTime || item.time) || 0);
         const maxTime = Math.max(...times);
         const timeToMake = `${maxTime} mins`;
 
-        const description = selectedItems.map(item => item.name).join(", ");
+        const description = [
+            ...selectedItems.map(item => item.name),
+            ...selectedCombos.map(combo => combo.comboName)
+        ].join(", ");
+
+        const foodItemIds = selectedItems.map(item => item._id);
+        const comboIds = selectedCombos.map(item => item._id);
 
         // Logic to build a plate using plateData
         const newPlate = await Plate.create({
@@ -55,7 +62,8 @@ const buildPlate = async (req, res) => {
             price,
             img: req.file ? req.file.path : undefined,
             timeToMake,
-            items,
+            items: foodItemIds,
+            combos: comboIds,
             description
         });
         res.status(201).json(newPlate);
@@ -68,6 +76,7 @@ const getAllPlates = async (req, res) => {
     try {
         const populateOptions = [
             { path: "items", select: "-vendor -averageRating -ratingCount -likes" },
+            { path: "combos", select: "-vendor -averageRating -ratingCount -likes" },
             { path: "vendor", select: "storeDetails img description" },
             { path: "customer", select: "firstName lastName img" }
         ];
@@ -85,6 +94,7 @@ const getSpecificPlate = async (req, res) => {
         const { plateId } = req.params;
         const plate = await Plate.findById(plateId)
             .populate("items", "-vendor -averageRating -ratingCount -likes")
+            .populate("combos", "-vendor -averageRating -ratingCount -likes")
             .populate("vendor", "storeDetails img description")
             .populate("customer", "firstName lastName img");
         if (!plate) {
@@ -127,9 +137,13 @@ const fixAllPlates = async (req, res) => {
         for (let plate of plates) {
             // 2. Look up the food items for this specific plate
             const selectedItems = await FoodItem.find({ _id: { $in: plate.items } });
+            const selectedCombos = await Combo.find({ _id: { $in: plate.combos } });
 
             // 3. Create the description string
-            const description = selectedItems.map(item => item.name).join(", ");
+            const description = [
+                ...selectedItems.map(item => item.name),
+                ...selectedCombos.map(combo => combo.comboName)
+            ].join(", ");
 
             // 4. Update the plate in the DB
             plate.description = description;

@@ -2,6 +2,7 @@ const Admin = require("./Admin");
 const Announcement = require("./Announcement");
 const Category = require("./Category");
 const Combo = require("./Combo");
+const Counter = require("./Counter");
 const ComboGroup = require("./ComboGroup");
 const Customer = require("./Customer");
 const FoodItem = require("./FoodItem");
@@ -23,27 +24,28 @@ const User = require("./User");
 const VendorProfile = require("./VendorProfile");
 
 module.exports = {
-    Admin,
-    Announcement,
-    Category,
-    Combo,
-    ComboGroup,
-    Customer,
-    FoodItem,
-    LedgerAccount,
-    LedgerEntry,
-    Like,
-    Order,
-    OTP,
-    OtpVerification,
-    Payment,
-    Payout,
-    Plate,
-    Promotion,
-    Rating,
-    RefreshToken,
-    RiderProfile,
-    SupportTicket,
-    User,
-    VendorProfile,
+	Admin,
+	Announcement,
+	Category,
+	Combo,
+	ComboGroup,
+	Counter,
+	Customer,
+	FoodItem,
+	LedgerAccount,
+	LedgerEntry,
+	Like,
+	Order,
+	OTP,
+	OtpVerification,
+	Payment,
+	Payout,
+	Plate,
+	Promotion,
+	Rating,
+	RefreshToken,
+	RiderProfile,
+	SupportTicket,
+	User,
+	VendorProfile,
 };

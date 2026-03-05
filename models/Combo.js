@@ -73,8 +73,13 @@ ComboSchema.index(
 	},
 );
 
+ComboSchema.virtual("itemType").get(function () {
+	return "Combo";
+});
+
 ComboSchema.plugin(toJSON);
 
+ComboSchema.set("toJSON", { virtuals: true });
 ComboSchema.set("toObject", { virtuals: true });
 
 module.exports = mongoose.model("Combo", ComboSchema);
