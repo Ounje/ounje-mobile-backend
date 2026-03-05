@@ -1,6 +1,8 @@
 const ledgerService = require("../services/ledger.service");
 const { Payout } = require("../models");
 const payoutService = require("../services/payout.service");
+const RiderProfile = require("../models/RiderProfile");
+const VendorProfile = require("../models/VendorProfile");
 
 /**
  * Get current balance for rider/vendor
@@ -86,14 +88,31 @@ const requestPayout = async (req, res) => {
     // Reserve the balance (move from available to pending)
     const reserved = await ledgerService.reserveBalance(userId, userType.toUpperCase(), amount);
 
+    // Look up profile for recipientId / recipientType (required by Payout model)
+    let recipientId, recipientType;
+    if (userType === "rider") {
+      const profile = await RiderProfile.findOne({ user: userId });
+      if (!profile) return res.status(404).json({ error: "Rider profile not found" });
+      recipientId = profile._id;
+      recipientType = "RiderProfile";
+    } else {
+      const profile = await VendorProfile.findOne({ owner: userId });
+      if (!profile) return res.status(404).json({ error: "Vendor profile not found" });
+      recipientId = profile._id;
+      recipientType = "VendorProfile";
+    }
+
     // Create payout record
     const payout = await Payout.create({
-      user: userId,
-      userType: userType.toUpperCase(),
+      recipientId,
+      recipientType,
       amount,
-      bankDetails,
-      status: "pending", // pending → processing → completed/failed
-      ledgerEntry: reserved.entry._id,
+      bankDetails: {
+        bankName: bankDetails.bankName || "",
+        accountNumber: bankDetails.accountNumber,
+        accountName: bankDetails.accountName || "",
+      },
+      status: "pending",
     });
 
     res.status(201).json({

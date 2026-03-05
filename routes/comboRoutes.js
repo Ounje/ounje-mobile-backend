@@ -101,32 +101,7 @@ router.get("/:comboId", getComboById);
  *       404:
  *         description: Vendor not found
  */
-router.get("/vendor/:vendorId", getVendorCombos);
-
-/**
- * @swagger
- * /api/combos/vendor/my-combos:
- *   get:
- *     summary: Get logged-in vendor's combos
- *     tags: [Combos]
- *     security:
- *       - bearerAuth: []
- *     parameters:
- *       - in: query
- *         name: page
- *         schema:
- *           type: integer
- *       - in: query
- *         name: limit
- *         schema:
- *           type: integer
- *     responses:
- *       200:
- *         description: List of vendor's combos
- *       403:
- *         description: Unauthorized
- */
-// Specific routes before parameterized routes!
+// Specific routes MUST come before parameterized routes!
 router.get(
 	"/vendor/my-combos",
 	authMiddleware,
@@ -134,6 +109,8 @@ router.get(
 	checkActiveUser,
 	getMyCombos,
 );
+
+router.get("/vendor/:vendorId", getVendorCombos);
 
 /**
  * @swagger

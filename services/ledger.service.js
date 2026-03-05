@@ -309,7 +309,7 @@ const reverseReserve = async (
  * Get account balance and transaction history
  */
 const getAccountBalance = async (userId, userType) => {
-	const account = await LedgerAccount.findOne({ userId, userType });
+	const account = await LedgerAccount.findOne({ userId, type: userType });
 	if (!account) {
 		return {
 			availableBalance: 0,
@@ -338,7 +338,7 @@ const getTransactionHistory = async (
 	limit = 20,
 	skip = 0,
 ) => {
-	const account = await LedgerAccount.findOne({ userId, userType });
+	const account = await LedgerAccount.findOne({ userId, type: userType });
 	if (!account) return { transactions: [], total: 0 };
 
 	const transactions = await LedgerEntry.find({ accountId: account._id })
@@ -399,7 +399,7 @@ const creditRiderFromOrder = async (order, deliveryFee) => {
  * Audit: Get all ledger entries for reconciliation
  */
 const getAccountStatement = async (userId, userType, startDate, endDate) => {
-	const account = await LedgerAccount.findOne({ userId, userType });
+	const account = await LedgerAccount.findOne({ userId, type: userType });
 	if (!account) return { entries: [] };
 
 	const entries = await LedgerEntry.find({

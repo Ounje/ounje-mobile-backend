@@ -368,7 +368,23 @@ const requestPhoneOtp = asyncHandler(async (req, res) => {
 	if (flow === "signup") {
 		const existingUser = await User.findOne({ phone });
 		if (existingUser) {
-			throw new AppError("Phone number already registered", 400);
+			const existingRole = existingUser.role;
+			let message, errorCode;
+			if (existingRole === "rider") {
+				message =
+					"This phone number is already registered as a Rider account. Please log in as a Rider or use another number.";
+				errorCode = "RIDER_ACCOUNT_EXISTS";
+			} else if (existingRole === "vendor") {
+				message =
+					"This phone number is already registered as a Vendor account. Please log in as a Vendor or use another number.";
+				errorCode = "VENDOR_ACCOUNT_EXISTS";
+			} else {
+				message = "Phone number already registered";
+				errorCode = "PHONE_EXISTS";
+			}
+			const err = new AppError(message, 400);
+			err.error = { code: errorCode };
+			throw err;
 		}
 	}
 
