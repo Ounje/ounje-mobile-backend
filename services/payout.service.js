@@ -160,4 +160,28 @@ const processAutoPayoutsForOrder = async (orderId) => {
 const processPendingPayout = async (payoutId) => { /* ... existing logic ... */ };
 const processPendingPayoutsForUser = async (userId, userType) => { /* ... existing logic ... */ };
 
-module.exports = { processAutoPayoutsForOrder, processSinglePayout, processPendingPayout, processPendingPayoutsForUser };
+/**
+ * ✅ NEW: Fetch user bank details (USED BY rider profile)
+ * This is what was missing and causing the 500 error
+ */
+const getUserBankDetails = async (userId, userType = 'RIDER') => {
+  const Model = userType === 'VENDOR' ? VendorProfile : RiderProfile;
+
+  const profile = await Model.findById(userId).select(
+    'bankDetails paystackRecipientCode'
+  );
+
+  if (!profile || !profile.bankDetails) {
+    return null;
+  }
+
+  return {
+    accountNumber: profile.bankDetails.accountNumber,
+    bankCode: profile.bankDetails.bankCode,
+    bankName: profile.bankDetails.bankName,
+    accountName: profile.bankDetails.accountName,
+    paystackRecipientCode: profile.paystackRecipientCode || null,
+  };
+};
+
+module.exports = { processAutoPayoutsForOrder, processSinglePayout, processPendingPayout, processPendingPayoutsForUser, getUserBankDetails, };

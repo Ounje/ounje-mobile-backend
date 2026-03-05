@@ -60,9 +60,21 @@ const riderProfileSchema = new mongoose.Schema(
 			accountNumber: String,
 			bankName: String,
 			bankCode: String,
+			status: {
+				type: String,
+				enum: ["pending", "approved", "rejected"],
+				default: "pending",
+			},
 		},
+		profilePicture: String, // Cloudinary URL
 		driversLicense: String, // URL or ID
 		nin: String, // National Identity Number
+		fcmToken: { type: String, default: null }, // Expo push token for notifications
+		notificationPreferences: {
+			newRequests: { type: Boolean, default: true },
+			earnings: { type: Boolean, default: true },
+			promotions: { type: Boolean, default: true },
+		},
 	},
 	{
 		timestamps: true,

@@ -44,7 +44,34 @@ const generateNumericOtp = (length = 6) => {
 
 const hashOtp = (otp) => crypto.createHash("sha256").update(otp).digest("hex");
 
-// --- Core Service Methods ---
+const findNearbyRiders = async (vendorLocation, orderId) => {
+	try {
+		const nearbyRiders = await RiderProfile.find({
+			status: "available",
+			isActive: true,
+			currentLocation: {
+				$near: {
+					$geometry: vendorLocation,
+					$maxDistance: 3000,
+				},
+			},
+		});
+
+		if (global.io && nearbyRiders.length > 0) {
+			nearbyRiders.forEach((rider) => {
+				global.io.to(rider.user.toString()).emit("newOrderAvailable", {
+					orderId: orderId,
+					message: "New delivery request nearby!",
+				});
+			});
+			logger.info(`Pings sent to ${nearbyRiders.length} riders.`);
+		}
+
+		return nearbyRiders;
+	} catch (error) {
+		logger.error(`Error finding riders: ${error.message}`);
+	}
+};
 
 // --- Core Service Methods ---
 
@@ -669,7 +696,6 @@ const cancelOrder = async (orderId, customerId) => {
 	return order;
 };
 
-// Removed extraneous rider dashboard and vendor order methods.
 
 module.exports = {
 	createOrder,

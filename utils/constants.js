@@ -113,6 +113,13 @@ const getCancellationReasonsByCategory = (category) => {
 	);
 };
 
+const AVAILABLE_ZONES = [
+	{ name: "Ikeja", description: "Lagos State capital area" },
+	{ name: "Surulere", description: "Residential & commercial hub" },
+	{ name: "Yaba", description: "Tech & university district" },
+	{ name: "Berger", description: "Major transport interchange" },
+];
+
 module.exports = {
 	ORDER_STATUS,
 	ORDER_SUB_STATUS,
@@ -124,4 +131,5 @@ module.exports = {
 	getAllDeclineReasons,
 	getAllCancellationReasons,
 	getCancellationReasonsByCategory,
+	AVAILABLE_ZONES,
 };

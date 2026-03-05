@@ -13,121 +13,6 @@ const logger = require("../utils/logger");
 const getRiderDashboard = async (riderId) => {
 	// 1. Get Wallet Balances
 	const balanceInfo = await ledgerService.getAccountBalance(riderId, "RIDER");
-
-
-
-
-
-	
-	
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-	
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 	const todayEarnings = await ledgerService.getDailyEarnings(riderId, "RIDER");
 
 	return {
@@ -250,6 +135,11 @@ const getRiderProfile = async (userId) => {
 
 	if (!riderProfile) throw new Error("Rider profile not found");
 
+	const bankDetails = await payoutService.getUserBankDetails(
+		riderProfile._id,
+		"RIDER",
+	);
+
 	// Trust the persisted setupComplete flag
 	// The operating area update is the final step and sets this flag.
 	const setupComplete = riderProfile.setupComplete === true;
@@ -262,62 +152,37 @@ const getRiderProfile = async (userId) => {
 		await riderProfile.save();
 	}
 
-	// Fetch wallet balance
-	const balanceInfo = await ledgerService.getAccountBalance(riderProfile.user._id, "RIDER");
-
-	const responseData = {
+	return {
 		name: riderProfile.user.name,
 		phone: riderProfile.user.phone,
 		email: riderProfile.user.email,
-
-		wallet: {
-			availableBalance: balanceInfo.availableBalance,
-			pendingBalance: balanceInfo.pendingBalance,
-			totalBalance: balanceInfo.totalBalance,
-			currency: "NGN",
-		},
-
 		modeOfDelivery: riderProfile.modeOfDelivery,
 		operatingArea: riderProfile.operatingArea || [],
 		guarantor: riderProfile.guarantor || null,
 		status: riderProfile.status,
 		isActive: riderProfile.isActive,
 		setupComplete,
-
-		totalDeliveries: riderProfile.totalDeliveries || 0,
-		rank: riderProfile.rank || "New Rider",
-
+		missingFields: setupComplete ? undefined : missingFields,
+		earnings: riderProfile.earnings || 0,
 		ratings: {
-			average:
-				riderProfile.ratings?.average ||
-				riderProfile.averageRating ||
-				0,
-			count:
-				riderProfile.ratings?.count ||
-				riderProfile.ratingCount ||
-				0,
+			average: riderProfile.ratings?.average || riderProfile.averageRating || 0,
+			count: riderProfile.ratings?.count || riderProfile.ratingCount || 0,
 		},
+		documentsUploaded: {
+			driversLicense: !!riderProfile.driversLicense,
+			nin: !!riderProfile.nin,
+			guarantorNin: !!riderProfile.guarantor?.nin,
+		},
+
+		bankDetails: bankDetails
+			? {
+					accountNumber: bankDetails.accountNumber,
+					accountName: bankDetails.accountName,
+					bankCode: bankDetails.bankCode,
+					bankName: bankDetails.bankName || null,
+			  }
+			: null,
 	};
-
-	responseData.bankDetails = riderProfile.bankDetails
-		? {
-			accountName: riderProfile.bankDetails.accountName,
-			accountNumber: riderProfile.bankDetails.accountNumber,
-			bankName: riderProfile.bankDetails.bankName,
-		}
-		: null;
-
-	// In case frontend needs docs status
-	responseData.documentsUploaded = {
-		driversLicense: !!riderProfile.driversLicense,
-		nin: !!riderProfile.nin,
-		guarantorNin: !!riderProfile.guarantor?.nin,
-	};
-
-	// In case frontend was using earnings from here
-	responseData.earnings = riderProfile.earnings || 0;
-
-	return responseData;
 };
 
 /**
@@ -349,10 +214,16 @@ const updateOperatingArea = async (userId, body) => {
 	riderProfile.operatingArea = operatingArea;
 
 	// Setup is complete if at least one zone is selected
+	const setupComplete = operatingArea.length >= 1;
 
-	riderProfile.setupComplete = true;
-	riderProfile.isActive = true;
-	riderProfile.status = "available";
+	if (setupComplete) {
+		riderProfile.setupComplete = true;
+	}
+
+	if (setupComplete && !riderProfile.isActive) {
+		riderProfile.isActive = true;
+		riderProfile.status = "available";
+	}
 
 	await riderProfile.save();
 
@@ -363,7 +234,7 @@ const updateOperatingArea = async (userId, body) => {
 			riderId: riderProfile._id,
 			name: riderProfile.user.name,
 			operatingArea: riderProfile.operatingArea,
-			setupComplete: riderProfile.setupComplete,
+			setupComplete,
 		},
 	};
 };
@@ -472,15 +343,6 @@ const updateBankDetails = async (userId, bankDetails) => {
 
 	const riderProfile = await RiderProfile.findOne({ user: userId });
 	if (!riderProfile) throw new Error("Rider profile not found");
-
-	riderProfile.bankDetails = {
-		accountNumber,
-		bankCode,
-		accountName,
-		bankName: bankDetails.bankName || "",
-	};
-
-	await riderProfile.save();
 
 	const retryResults = await payoutService.processPendingPayoutsForUser(
 		riderProfile._id,

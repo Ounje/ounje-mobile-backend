@@ -1,6 +1,6 @@
 const express = require("express");
 const { authMiddleware, roleGuard } = require("../middleware/auth");
-const { supportWhatsAppRedirect } = require("../controllers/supportController");
+const { supportWhatsAppRedirect, getContactInfo } = require("../controllers/supportController");
 
 const router = express.Router();
 
@@ -48,5 +48,8 @@ router.post(
 	roleGuard(["vendor", "rider", "customer"]),
 	supportWhatsAppRedirect,
 );
+
+// Get support contact info (public — no auth needed)
+router.get("/contact-info", getContactInfo);
 
 module.exports = router;

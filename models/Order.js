@@ -186,6 +186,19 @@ const orderSchema = new mongoose.Schema(
 			type: String,
 			enum: ["customer", "vendor", "rider", "system"],
 		},
+
+		// Rider delivery report (submitted from ride history screen)
+		riderReport: {
+			reportedAt: Date,
+			reportedBy: {
+				type: mongoose.Schema.Types.ObjectId,
+				ref: "RiderProfile",
+			},
+			note: {
+				type: String,
+				maxlength: 1000,
+			},
+		},
 	},
 	{
 		timestamps: true,

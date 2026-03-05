@@ -32,6 +32,8 @@ const formatRiderOrder = (order) => {
 			? {
 				id: orderObj.vendor._id || orderObj.vendor,
 				name: orderObj.vendor.name || "Unknown Vendor",
+				address: orderObj.vendor.address || orderObj.vendor.location?.address || null,
+				location: orderObj.vendor.location || null,
 			}
 			: null,
 	};
@@ -149,24 +151,6 @@ exports.acceptOrder = asyncHandler(async (req, res) => {
 	});
 });
 
-// Rider declines assigned order
-exports.riderDeclineOrder = asyncHandler(async (req, res) => {
-	const { orderId } = req.params;
-	const riderId = req.rider._id;
-
-	const order = await orderRiderService.riderDeclineOrder(
-		orderId,
-		riderId.toString(),
-		req.body,
-	);
-
-	res.status(200).json({
-		success: true,
-		message: "Order declined successfully",
-		order: formatRiderOrder(order),
-	});
-});
-
 // Rider picks up order
 exports.pickUpOrder = asyncHandler(async (req, res) => {
 	const { orderId } = req.params;
@@ -265,4 +249,64 @@ exports.vendorGetCustomerOrderDetails = asyncHandler(async (req, res) => {
 		vendorId.toString(),
 	);
 	res.status(200).json({ success: true, order });
+});
+
+// Get single order by ID for rider (rider must be assigned or order must be available)
+exports.getRiderOrderById = asyncHandler(async (req, res) => {
+	const { orderId } = req.params;
+	const riderId = req.user.id;
+
+	const order = await Order.findById(orderId)
+		.populate("vendor", "name address phone location")
+		.populate("customer", "name phone address location")
+		.populate("items.item");
+
+	if (!order) throw new AppError("Order not found", 404);
+
+	// Allow if: rider is assigned to this order, OR order is still available (no rider)
+	const isAssigned = order.rider && order.rider.toString() === riderId;
+	const isAvailable = !order.rider;
+
+	if (!isAssigned && !isAvailable) {
+		throw new AppError("You are not authorized to view this order", 403);
+	}
+
+	res.status(200).json({ success: true, order: formatRiderOrder(order) });
+});
+
+// Rider reports a delivery issue
+exports.reportDelivery = asyncHandler(async (req, res) => {
+	const { orderId } = req.params;
+	const riderId = req.user.id;
+	const { note } = req.body;
+
+	if (!note || !note.trim()) {
+		throw new AppError("Report note is required", 400);
+	}
+
+	const order = await Order.findById(orderId);
+	if (!order) throw new AppError("Order not found", 404);
+
+	// Only the rider who was assigned to this order can report it
+	if (!order.rider || order.rider.toString() !== riderId) {
+		throw new AppError("You are not authorized to report this order", 403);
+	}
+
+	// Prevent duplicate reports
+	if (order.riderReport && order.riderReport.reportedAt) {
+		throw new AppError("This delivery has already been reported", 400);
+	}
+
+	order.riderReport = {
+		reportedAt: new Date(),
+		reportedBy: riderId,
+		note: note.trim(),
+	};
+	await order.save();
+
+	logger.info(`Delivery report submitted: order ${orderId} by rider ${riderId}`);
+	res.status(200).json({
+		success: true,
+		message: "Report submitted. Our team will look into it.",
+	});
 });

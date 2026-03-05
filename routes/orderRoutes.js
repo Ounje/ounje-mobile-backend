@@ -27,13 +27,14 @@ const {
 
 	// Rider
 	acceptOrder,
-	riderDeclineOrder,
 	pickUpOrder,
 	completeDelivery,
 	getAvailableRiderRequests,
 	getCurrentRiderOrder,
 	getRiderCompletedOrdersToday,
 	getRiderOrders,
+	getRiderOrderById,
+	reportDelivery,
 
 	updateOrderStatus,
 } = require("../controllers/orderController");
@@ -495,6 +496,23 @@ router.get(
 	getRiderOrders,
 );
 
+/**
+ * @swagger
+ * /api/orders/rider/{orderId}:
+ *   get:
+ *     summary: Get a single order by ID for rider
+ *     tags: [Orders]
+ *     security:
+ *       - bearerAuth: []
+ */
+router.get(
+	"/rider/:orderId",
+	authMiddleware,
+	checkActiveUser,
+	roleGuard(["rider"]),
+	getRiderOrderById,
+);
+
 /* ======================
    RIDER ACTION ROUTES
 ====================== */
@@ -515,24 +533,6 @@ router.put(
 	roleGuard(["rider"]),
 	requireRider,
 	acceptOrder,
-);
-
-/**
- * @swagger
- * /api/orders/rider/{orderId}/decline:
- *   put:
- *     summary: Rider declines assigned order
- *     tags: [Orders]
- *     security:
- *       - bearerAuth: []
- */
-router.put(
-	"/rider/:orderId/decline",
-	authMiddleware,
-	checkActiveUser,
-	roleGuard(["rider"]),
-	requireRider,
-	riderDeclineOrder,
 );
 
 /**
@@ -576,6 +576,50 @@ router.put(
 	roleGuard(["rider"]),
 	requireRider,
 	completeDelivery,
+);
+
+/**
+ * @swagger
+ * /api/orders/rider/{orderId}/report:
+ *   post:
+ *     summary: Rider reports a delivery issue
+ *     tags: [Orders]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: orderId
+ *         required: true
+ *         schema:
+ *           type: string
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [note]
+ *             properties:
+ *               note:
+ *                 type: string
+ *                 maxLength: 1000
+ *                 description: Description of the issue
+ *     responses:
+ *       200:
+ *         description: Report submitted successfully
+ *       400:
+ *         description: Note is required or already reported
+ *       403:
+ *         description: Not the assigned rider
+ *       404:
+ *         description: Order not found
+ */
+router.post(
+	"/rider/:orderId/report",
+	authMiddleware,
+	checkActiveUser,
+	roleGuard(["rider"]),
+	reportDelivery,
 );
 
 /**

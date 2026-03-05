@@ -1,6 +1,7 @@
 const riderService = require("../services/rider.service");
 const ledgerService = require("../services/ledger.service");
 const logger = require("../utils/logger");
+const RiderProfile = require("../models/RiderProfile");
 
 /**
  * Get Rider Wallet/Dashboard
@@ -189,6 +190,78 @@ const deactivateRiderAccount = async (req, res) => {
 	}
 };
 
+/**
+ * Update Notification Preferences
+ * PUT /api/riders/notification-preferences
+ * Body: { newRequests?: boolean, earnings?: boolean, promotions?: boolean }
+ */
+const updateNotificationPreferences = async (req, res) => {
+	try {
+		const riderId = req.user.id;
+		const { newRequests, earnings, promotions } = req.body;
+
+		const update = {};
+		if (typeof newRequests === "boolean") update["notificationPreferences.newRequests"] = newRequests;
+		if (typeof earnings === "boolean") update["notificationPreferences.earnings"] = earnings;
+		if (typeof promotions === "boolean") update["notificationPreferences.promotions"] = promotions;
+
+		const profile = await RiderProfile.findOneAndUpdate(
+			{ user: riderId },
+			{ $set: update },
+			{ new: true, select: "notificationPreferences" },
+		);
+
+		res.status(200).json({
+			success: true,
+			notificationPreferences: profile?.notificationPreferences,
+		});
+	} catch (err) {
+		logger.error(`Update Notification Preferences Error: ${err.message}`);
+		res.status(500).json({ success: false, message: "Failed to update preferences" });
+	}
+};
+
+/**
+ * Upload Profile Picture
+ * POST /api/riders/profile/picture  (multipart/form-data, field: profilePicture)
+ */
+const uploadProfilePicture = async (req, res) => {
+	try {
+		const riderId = req.user.id;
+		if (!req.file) {
+			return res.status(400).json({ success: false, message: "No image file provided" });
+		}
+		const imageUrl = req.file.path; // Cloudinary URL set by multer-storage-cloudinary
+		await RiderProfile.findOneAndUpdate({ user: riderId }, { profilePicture: imageUrl });
+		res.status(200).json({ success: true, profilePicture: imageUrl });
+	} catch (err) {
+		logger.error(`Upload Profile Picture Error: ${err.message}`);
+		res.status(500).json({ success: false, message: "Failed to upload profile picture" });
+	}
+};
+
+/**
+ * Save Expo Push Token
+ * POST /api/riders/push-token
+ * Body: { fcmToken: string }
+ */
+const updatePushToken = async (req, res) => {
+	try {
+		const userId = req.user.id;
+		const { fcmToken } = req.body;
+
+		if (!fcmToken) {
+			return res.status(400).json({ success: false, message: "fcmToken is required" });
+		}
+
+		await RiderProfile.findOneAndUpdate({ user: userId }, { fcmToken });
+		res.status(200).json({ success: true, message: "Push token saved" });
+	} catch (err) {
+		logger.error(`Update Push Token Error: ${err.message}`);
+		res.status(500).json({ success: false, message: "Failed to save push token" });
+	}
+};
+
 module.exports = {
 	completeRiderRegistration,
 	registerRider,
@@ -199,4 +272,7 @@ module.exports = {
 	updateOperatingArea,
 	getOperatingArea,
 	deactivateRiderAccount,
+	updatePushToken,
+	uploadProfilePicture,
+	updateNotificationPreferences,
 };

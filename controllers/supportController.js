@@ -2,6 +2,14 @@ const SupportTicket = require("../models/SupportTicket");
 const VendorProfile = require("../models/VendorProfile");
 const RiderProfile = require("../models/RiderProfile");
 
+const getContactInfo = (req, res) => {
+	res.status(200).json({
+		success: true,
+		phone: process.env.SUPPORT_PHONE_NUMBER || null,
+		whatsapp: process.env.SUPPORT_WHATSAPP_NUMBER || null,
+	});
+};
+
 const supportWhatsAppRedirect = async (req, res) => {
 	try {
 		if (!req.user) {
@@ -171,4 +179,5 @@ const supportWhatsAppRedirect = async (req, res) => {
 
 module.exports = {
 	supportWhatsAppRedirect,
+	getContactInfo,
 };
