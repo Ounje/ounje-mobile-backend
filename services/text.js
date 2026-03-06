@@ -149,7 +149,10 @@ const createOrder = async (userId, data) => {
 };
 
 const updateOrderStatus = async (orderId, status, subStatus) => {
-	const order = await Order.findById(orderId).populate("customer");
+	const order = await Order.findById(orderId).populate({
+		path: "customer",
+		populate: { path: "user", select: "fcmToken" }
+	});
 	if (!order) throw new Error("Order not found");
 
 	// Update Database
@@ -170,10 +173,11 @@ const updateOrderStatus = async (orderId, status, subStatus) => {
 	}
 
 	// Firebase Notification
-	if (order.customer && order.customer.fcmToken) {
+	const fcmToken = order.customer && order.customer.user ? order.customer.user.fcmToken : null;
+	if (fcmToken) {
 		const title = `Order Update: ${status}`;
 		const body = subStatus || `Your order is now ${status}`;
-		await sendPushNotification(order.customer.fcmToken, title, body);
+		await sendPushNotification(fcmToken, title, body);
 	}
 
 	// Trigger Rider Search if needed

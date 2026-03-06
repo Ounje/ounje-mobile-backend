@@ -11,7 +11,10 @@ const {
 	logOut,
 	refresh,
 	checkUserExist,
+	updateFcmToken,
 } = require("../controllers/authController");
+
+const { authMiddleware } = require("../middleware/auth");
 
 const {
 	otpRequestLimiter,
@@ -114,6 +117,8 @@ router.post("/request-phone-otp", otpRequestLimiter, requestPhoneOtp);
  *               flow:
  *                 type: string
  *                 enum: [signup, login]
+ *               fcmToken:
+ *                 type: string
  *     responses:
  *       200:
  *         description: Returns otpSession (signup) or auth tokens (login)
@@ -148,6 +153,8 @@ router.post("/verify-otp", otpVerifyLimiter, verifyEmailOtp);
  *               flow:
  *                 type: string
  *                 enum: [signup, login]
+ *               fcmToken:
+ *                 type: string
  *     responses:
  *       200:
  *         description: Returns otpSession (signup) or auth tokens (login)
@@ -211,6 +218,8 @@ router.post("/login", loginLimiter, login);
  *               otpSession:
  *                 type: string
  *                 description: JWT returned from OTP verification
+ *               fcmToken:
+ *                 type: string
  *     responses:
  *       201:
  *         description: User registered successfully
@@ -285,5 +294,34 @@ router.post("/refresh", refresh);
  *         description: Existence check result
  */
 router.post("/check-user", checkUserExist);
+
+/**
+ * @swagger
+ * /api/auth/fcm-token:
+ *   put:
+ *     summary: Update FCM Token
+ *     description: Update the Firebase Cloud Messaging token for the logged in user
+ *     tags: [Auth]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [fcmToken]
+ *             properties:
+ *               fcmToken:
+ *                 type: string
+ *     responses:
+ *       200:
+ *         description: Device token saved!
+ *       400:
+ *         description: FCM token is required
+ *       401:
+ *         description: Unauthorized
+ */
+router.put("/fcm-token", authMiddleware, updateFcmToken);
 
 module.exports = router;

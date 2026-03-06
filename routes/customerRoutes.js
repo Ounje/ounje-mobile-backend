@@ -54,9 +54,6 @@ const router = express.Router();
  *         accountStatus:
  *           type: string
  *           enum: [active, suspended, deactivated]
- *         fcmToken:
- *           type: string
- *           description: Firebase Cloud Messaging token
  *         createdAt:
  *           type: string
  *           format: date-time
