@@ -9,9 +9,8 @@ const customerSchema = new mongoose.Schema(
 			required: true,
 			unique: true,
 		},
-		firstName: { type: String },
-		lastName: { type: String },
-		phone: { type: String },
+		name: { type: String },
+		phone: { type: Number },
 		fcmToken: { type: String },
 		isActive: { type: Boolean, default: true },
 		savedAddresses: [
