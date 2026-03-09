@@ -74,7 +74,7 @@ const updateCustomerProfile = async (req, res) => {
 		}
 
 		if (phone !== undefined) {
-			customerUpdate.phone = Number(phone); // Number on both schemas
+			customerUpdate.phone = Number(phone);
 			userUpdate.phone = Number(phone);
 		}
 
@@ -89,6 +89,8 @@ const updateCustomerProfile = async (req, res) => {
 			};
 
 			const existing = await Customer.findOne({ user: userId });
+			//	console.log("existing customer for location:", existing);
+
 			if (!existing)
 				return res.status(404).json({ error: "Customer not found" });
 
@@ -105,7 +107,9 @@ const updateCustomerProfile = async (req, res) => {
 			};
 		}
 
-		// Bail early if nothing to update
+		// console.log("customerUpdate:", customerUpdate);
+		// console.log("userUpdate:", userUpdate);
+
 		if (
 			Object.keys(customerUpdate).length === 0 &&
 			Object.keys(userUpdate).length === 0
@@ -113,7 +117,22 @@ const updateCustomerProfile = async (req, res) => {
 			return res.status(400).json({ error: "No fields provided to update" });
 		}
 
-		const [customer] = await Promise.all([
+		// Test raw findOne first to confirm document exists
+		//const customerExists = await Customer.findOne({ user: userId });
+		// console.log(
+		// 	"customer exists check:",
+		// 	customerExists
+		// 		? "YES — id: " + customerExists._id
+		// 		: "NO — document not found",
+		// );
+
+		//const userExists = await User.findById(userId);
+		// console.log(
+		// 	"user exists check:",
+		// 	userExists ? "YES — id: " + userExists._id : "NO — document not found",
+		// );
+
+		const [customer, updatedUser] = await Promise.all([
 			Customer.findOneAndUpdate(
 				{ user: userId },
 				{ $set: customerUpdate },
@@ -137,7 +156,6 @@ const updateCustomerProfile = async (req, res) => {
 			customer: formatCustomerProfile(customer),
 		});
 	} catch (err) {
-		console.error(err);
 		res.status(500).json({ error: err.message });
 	}
 };
