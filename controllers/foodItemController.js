@@ -41,10 +41,9 @@ const createFoodItem = async (req, res) => {
 			try {
 				subCategories = JSON.parse(subCategories);
 			} catch {
-				return res.status(400).json({
-					success: false,
-					message: "Invalid subCategories format.",
-				});
+				return res
+					.status(400)
+					.json({ success: false, message: "Invalid subCategories format." });
 			}
 		}
 
@@ -58,9 +57,10 @@ const createFoodItem = async (req, res) => {
 				message: "At least one subcategory is required.",
 			});
 
-		const totalItems = subCategories.reduce((acc, subCat) => {
-			return acc + (subCat.items?.length || 0);
-		}, 0);
+		const totalItems = subCategories.reduce(
+			(acc, subCat) => acc + (subCat.items?.length || 0),
+			0,
+		);
 
 		if (totalItems > 20)
 			return res.status(400).json({
@@ -74,6 +74,8 @@ const createFoodItem = async (req, res) => {
 
 		const images = req.files?.img || [];
 		let imageIndex = 0;
+
+		// ── Validate all subCategories + build items first ────────
 		const builtSubCategories = [];
 
 		for (const subCat of subCategories) {
@@ -111,10 +113,9 @@ const createFoodItem = async (req, res) => {
 					});
 
 				if (item.price <= 0)
-					return res.status(400).json({
-						success: false,
-						message: "Price must be greater than 0.",
-					});
+					return res
+						.status(400)
+						.json({ success: false, message: "Price must be greater than 0." });
 
 				if (serviceType.includes("preOrderMeals") && !item.preparationTime)
 					return res.status(400).json({
@@ -147,16 +148,47 @@ const createFoodItem = async (req, res) => {
 			});
 		}
 
-		const foodItem = await FoodItem.create({
+		// ── Check if a FoodItem for this vendor + category exists ─
+		let foodItem = await FoodItem.findOne({ vendor: vendor._id, category });
+
+		if (foodItem) {
+			// Category exists — merge subcategories
+			for (const builtSubCat of builtSubCategories) {
+				const existingSubCat = foodItem.subCategory.find(
+					(s) => s.name === builtSubCat.name,
+				);
+
+				if (existingSubCat) {
+					// Subcategory exists — append items
+					existingSubCat.items.push(...builtSubCat.items);
+				} else {
+					// New subcategory — push the whole group
+					foodItem.subCategory.push(builtSubCat);
+				}
+			}
+
+			if (typeof isCompulsory === "boolean")
+				foodItem.isCompulsory = isCompulsory;
+
+			await foodItem.save();
+
+			return res.status(200).json({
+				success: true,
+				message: "Food item updated — new data merged into existing category.",
+				data: foodItem,
+			});
+		}
+
+		foodItem = await FoodItem.create({
 			category,
 			vendor: vendor._id,
 			isCompulsory: !!isCompulsory,
 			subCategory: builtSubCategories,
 		});
 
-		res.status(201).json({
+		return res.status(201).json({
 			success: true,
-			message: "Food item created successfully",
+			message: "Food item created successfully.",
 			data: foodItem,
 		});
 	} catch (err) {
