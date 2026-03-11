@@ -44,7 +44,34 @@ const generateNumericOtp = (length = 6) => {
 
 const hashOtp = (otp) => crypto.createHash("sha256").update(otp).digest("hex");
 
-// --- Core Service Methods ---
+const findNearbyRiders = async (vendorLocation, orderId) => {
+	try {
+		const nearbyRiders = await RiderProfile.find({
+			status: "available",
+			isActive: true,
+			currentLocation: {
+				$near: {
+					$geometry: vendorLocation,
+					$maxDistance: 3000,
+				},
+			},
+		});
+
+		if (global.io && nearbyRiders.length > 0) {
+			nearbyRiders.forEach((rider) => {
+				global.io.to(rider.user.toString()).emit("newOrderAvailable", {
+					orderId: orderId,
+					message: "New delivery request nearby!",
+				});
+			});
+			logger.info(`Pings sent to ${nearbyRiders.length} riders.`);
+		}
+
+		return nearbyRiders;
+	} catch (error) {
+		logger.error(`Error finding riders: ${error.message}`);
+	}
+};
 
 // --- Core Service Methods ---
 
@@ -383,6 +410,18 @@ const createOrder = async (userId, data) => {
 		logger.error(`Failed to send new order notification: ${error.message}`);
 	}
 
+	// 7. Real-time socket ping to vendor so their portal refreshes instantly
+	try {
+		if (global.io) {
+			global.io.to(vendorId.toString()).emit("newOrderAvailable", {
+				orderId: order._id,
+				message: "New order received!",
+			});
+		}
+	} catch (error) {
+		logger.error(`Failed to emit newOrderAvailable to vendor: ${error.message}`);
+	}
+
 	return order;
 };
 const updateOrderStatus = async (orderId, status, subStatus) => {
@@ -487,20 +526,16 @@ const verifyDeliveryOtp = async (order, otp, riderId) => {
 	await ledgerService.releaseRiderFee(order.rider, order._id);
 	await order.save();
 
-	// Trigger automatic payouts asynchronously
+	// Increment totalDeliveries for the rider
 	try {
-		logger.info(`Triggering auto payouts for order ${order._id}`);
 		if (order.rider) {
-			await ledgerService.releaseRiderFee(order.rider, order._id);
-
-			// Increment totalDeliveries for the rider
 			await RiderProfile.findByIdAndUpdate(order.rider, {
 				$inc: { totalDeliveries: 1 },
 			});
 		}
 	} catch (err) {
 		logger.error(
-			`Auto payout or stats update failed for order ${order._id}: ${err.message}`,
+			`Stats update failed for order ${order._id}: ${err.message}`,
 		);
 	}
 
@@ -673,7 +708,6 @@ const cancelOrder = async (orderId, customerId) => {
 	return order;
 };
 
-// Removed extraneous rider dashboard and vendor order methods.
 
 module.exports = {
 	createOrder,

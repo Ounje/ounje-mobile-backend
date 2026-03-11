@@ -191,6 +191,55 @@ const deleteVendorProfileImage = async (req, res) => {
 		});
 	}
 };
+const updateVendorLocation = async (req, res) => {
+	try {
+		const { address, coordinates } = req.body;
+		if (!address || !Array.isArray(coordinates) || coordinates.length !== 2) {
+			return res.status(400).json({
+				success: false,
+				message: "address and coordinates [longitude, latitude] are required",
+			});
+		}
+		await VendorProfile.findOneAndUpdate(
+			{ owner: req.user.id },
+			{
+				location: {
+					type: "Point",
+					coordinates, // [longitude, latitude]
+					address,
+				},
+			},
+			{ new: true },
+		);
+		return res.status(200).json({ success: true, message: "Location updated" });
+	} catch (error) {
+		logger.error(`Update Vendor Location Error: ${error.message}`);
+		return res.status(500).json({
+			success: false,
+			message: error.message || "Error updating vendor location",
+		});
+	}
+};
+
+const updateVendorProfile = async (req, res) => {
+	try {
+		const { storeName } = req.body;
+		if (!storeName || !storeName.trim()) {
+			return res.status(400).json({ success: false, message: "Store name is required" });
+		}
+		const vendor = await VendorProfile.findOneAndUpdate(
+			{ owner: req.user.id },
+			{ $set: { "storeDetails.0.storeName": storeName.trim() } },
+			{ new: true },
+		);
+		if (!vendor) return res.status(404).json({ success: false, message: "Vendor not found" });
+		return res.status(200).json({ success: true, message: "Profile updated", vendor });
+	} catch (error) {
+		logger.error(`Update Vendor Profile Error: ${error.message}`);
+		return res.status(500).json({ success: false, message: error.message || "Error updating profile" });
+	}
+};
+
 const deactivateVendorAccount = async (req, res) => {
 	try {
 		const vendorId = req.user.id;
@@ -204,6 +253,54 @@ const deactivateVendorAccount = async (req, res) => {
 		});
 	}
 };
+const toggleVendorOnlineStatus = async (req, res) => {
+	try {
+		const vendor = await VendorProfile.findOne({ owner: req.user.id });
+		if (!vendor) return res.status(404).json({ success: false, message: "Vendor not found" });
+
+		// isActive = account-level activation — NEVER toggled here.
+		// Online/offline is tracked via storeDetails[0].status only.
+		const currentlyOnline = vendor.storeDetails?.[0]?.status === "active";
+		const newStatus = currentlyOnline ? "deactivated" : "active";
+
+		// Guard: vendor cannot go offline while an order is active.
+		// Active = confirming (awaiting acceptance) or pending (accepted, preparing).
+		if (currentlyOnline) {
+			const { Order } = require("../models");
+			const activeOrder = await Order.findOne({
+				vendor: vendor._id,
+				status: { $in: ["confirming", "pending"] },
+			}).select("_id").lean();
+			if (activeOrder) {
+				return res.status(400).json({
+					success: false,
+					blocked: true,
+					message: "You have an active order. Complete it before going offline.",
+				});
+			}
+		}
+
+		if (vendor.storeDetails?.[0]) {
+			vendor.storeDetails[0].status = newStatus;
+		} else {
+			// storeDetails missing — create the entry
+			vendor.storeDetails = [{ status: newStatus }];
+		}
+		await vendor.save();
+
+		const isOnline = newStatus === "active";
+		return res.json({
+			success: true,
+			isOnline,
+			isActive: vendor.isActive, // account status — unchanged
+			message: `Store is now ${isOnline ? "online" : "offline"}`,
+		});
+	} catch (error) {
+		logger.error(`Toggle vendor status error: ${error.message}`);
+		return res.status(500).json({ success: false, message: error.message });
+	}
+};
+
 module.exports = {
 	completeVendorRegistration,
 	getPopularVendors,
@@ -215,4 +312,7 @@ module.exports = {
 	deleteVendorProfileImage,
 	getVendors,
 	deactivateVendorAccount,
+	updateVendorLocation,
+	updateVendorProfile,
+	toggleVendorOnlineStatus,
 };

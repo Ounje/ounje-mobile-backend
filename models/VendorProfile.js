@@ -39,7 +39,7 @@ const vendorProfileSchema = new mongoose.Schema(
 			type: mongoose.Schema.Types.ObjectId,
 			ref: "User",
 			required: true,
-			index: false, // explicit: NOT indexed
+			index: true,
 		},
 		name: { type: String, required: true },
 		description: String,

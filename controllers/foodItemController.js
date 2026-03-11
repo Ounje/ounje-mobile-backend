@@ -17,13 +17,6 @@ const createFoodItem = async (req, res) => {
 				.status(404)
 				.json({ success: false, message: "Vendor profile not found." });
 
-		if (!vendor.isActive)
-			return res.status(403).json({
-				success: false,
-				message:
-					"Please complete your vendor profile before creating food items.",
-			});
-
 		if (!category)
 			return res
 				.status(400)
@@ -150,7 +143,7 @@ const createFoodItem = async (req, res) => {
 		const foodItem = await FoodItem.create({
 			category,
 			vendor: vendor._id,
-			isCompulsory: !!isCompulsory,
+			isCompulsory: isCompulsory === true || isCompulsory === "true",
 			subCategory: builtSubCategories,
 		});
 
@@ -184,13 +177,6 @@ const addSubCategories = async (req, res) => {
 			return res
 				.status(404)
 				.json({ success: false, message: "Vendor profile not found." });
-
-		if (!vendor.isActive)
-			return res.status(403).json({
-				success: false,
-				message:
-					"Please complete your vendor profile before updating food items.",
-			});
 
 		const foodItem = await FoodItem.findOne({
 			_id: foodItemId,
@@ -230,9 +216,6 @@ const addSubCategories = async (req, res) => {
 		const serviceType = Array.isArray(vendor.servicesOffered)
 			? vendor.servicesOffered
 			: [vendor.servicesOffered];
-
-		console.log("servicesOffered:", vendor.servicesOffered);
-		console.log("serviceType array:", serviceType);
 
 		if (serviceType.includes("preOrderMeals") && !preparationTime)
 			return res.status(400).json({
@@ -287,8 +270,8 @@ const addSubCategories = async (req, res) => {
 			});
 		}
 
-		if (typeof isCompulsory === "boolean") {
-			foodItem.isCompulsory = isCompulsory;
+		if (isCompulsory !== undefined) {
+			foodItem.isCompulsory = isCompulsory === true || isCompulsory === "true";
 		}
 
 		await foodItem.save();
@@ -414,7 +397,9 @@ const updateFoodItem = async (req, res) => {
 		allowedFields.forEach((field) => {
 			if (req.body[field] !== undefined) {
 				foodItem[field] =
-					field === "isCompulsory" ? !!req.body[field] : req.body[field];
+					field === "isCompulsory"
+						? req.body[field] === true || req.body[field] === "true"
+						: req.body[field];
 			}
 		});
 
@@ -606,11 +591,6 @@ const createCombo = async (req, res) => {
 			return res
 				.status(404)
 				.json({ success: false, message: "Vendor profile not found." });
-		if (!vendor.isActive)
-			return res.status(403).json({
-				success: false,
-				message: "Please complete your vendor profile before creating combos.",
-			});
 		if (!comboName || !basePrice || !req.file || !time)
 			return res.status(400).json({
 				success: false,
@@ -845,6 +825,30 @@ const getVendorCombosGrouped = async (req, res) => {
 		res.status(500).json({ success: false, message: error.message });
 	}
 };
+const toggleFoodItemAvailability = async (req, res) => {
+	try {
+		const { foodItemId } = req.params;
+		const vendorId = req.user.id;
+
+		const vendor = await VendorProfile.findOne({ owner: vendorId }).lean();
+		if (!vendor) return res.status(404).json({ success: false, message: "Vendor not found" });
+
+		const item = await FoodItem.findOne({ _id: foodItemId, vendor: vendor._id });
+		if (!item) return res.status(404).json({ success: false, message: "Food item not found" });
+
+		item.isAvailable = !item.isAvailable;
+		await item.save();
+
+		return res.json({
+			success: true,
+			isAvailable: item.isAvailable,
+			message: `Item is now ${item.isAvailable ? "available" : "unavailable"}`,
+		});
+	} catch (error) {
+		return res.status(500).json({ success: false, message: error.message });
+	}
+};
+
 module.exports = {
 	createFoodItem,
 	updateFoodItem,
@@ -860,7 +864,7 @@ module.exports = {
 	getAllCombos,
 	getComboById,
 	getMyCombos,
-	getMyCombos,
 	getVendorCombos,
 	getVendorCombosGrouped,
+	toggleFoodItemAvailability,
 };

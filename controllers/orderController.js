@@ -32,6 +32,8 @@ const formatRiderOrder = (order) => {
 			? {
 				id: orderObj.vendor._id || orderObj.vendor,
 				name: orderObj.vendor.name || "Unknown Vendor",
+				address: orderObj.vendor.address || orderObj.vendor.location?.address || null,
+				location: orderObj.vendor.location || null,
 			}
 			: null,
 	};
@@ -129,6 +131,19 @@ exports.vendorDeclineOrder = asyncHandler(async (req, res) => {
 	});
 });
 
+// Vendor marks order as ready for pickup
+exports.vendorMarkReady = asyncHandler(async (req, res) => {
+	const { orderId } = req.params;
+	const vendorId = req.vendor._id;
+
+	const order = await orderVendorService.vendorMarkReady(orderId, vendorId.toString());
+	res.status(200).json({
+		success: true,
+		message: "Order marked as ready for pickup",
+		order,
+	});
+});
+
 // Vendor decline statistics
 exports.getVendorDeclineStats = asyncHandler(async (req, res) => {
 	const vendorId = req.vendor._id;
@@ -145,24 +160,6 @@ exports.acceptOrder = asyncHandler(async (req, res) => {
 	res.status(200).json({
 		success: true,
 		message: "Order accepted",
-		order: formatRiderOrder(order),
-	});
-});
-
-// Rider declines assigned order
-exports.riderDeclineOrder = asyncHandler(async (req, res) => {
-	const { orderId } = req.params;
-	const riderId = req.rider._id;
-
-	const order = await orderRiderService.riderDeclineOrder(
-		orderId,
-		riderId.toString(),
-		req.body,
-	);
-
-	res.status(200).json({
-		success: true,
-		message: "Order declined successfully",
 		order: formatRiderOrder(order),
 	});
 });
@@ -196,7 +193,10 @@ exports.completeDelivery = asyncHandler(async (req, res) => {
 
 // Get available rider requests
 exports.getAvailableRiderRequests = asyncHandler(async (req, res) => {
-	const orders = await orderRiderService.getAvailableRiderRequests();
+	// Filter to the rider's own operating zones so riders never see
+	// orders outside their area (and demo seed data from other zones is hidden).
+	const riderZones = req.rider?.operatingArea ?? [];
+	const orders = await orderRiderService.getAvailableRiderRequests(riderZones);
 	res.status(200).json({
 		count: orders.length,
 		orders: orders.map(formatRiderOrder),
@@ -265,4 +265,66 @@ exports.vendorGetCustomerOrderDetails = asyncHandler(async (req, res) => {
 		vendorId.toString(),
 	);
 	res.status(200).json({ success: true, order });
+});
+
+// Get single order by ID for rider (rider must be assigned or order must be available)
+exports.getRiderOrderById = asyncHandler(async (req, res) => {
+	const { orderId } = req.params;
+	// Order.rider references RiderProfile._id, so compare against req.rider._id
+	const riderProfileId = req.rider._id.toString();
+
+	const order = await Order.findById(orderId)
+		.populate("vendor", "name address phone location")
+		.populate("customer", "name phone address location")
+		.populate("items.item");
+
+	if (!order) throw new AppError("Order not found", 404);
+
+	// Allow if: rider is assigned to this order, OR order is still available (no rider)
+	const isAssigned = order.rider && order.rider.toString() === riderProfileId;
+	const isAvailable = !order.rider;
+
+	if (!isAssigned && !isAvailable) {
+		throw new AppError("You are not authorized to view this order", 403);
+	}
+
+	res.status(200).json({ success: true, order: formatRiderOrder(order) });
+});
+
+// Rider reports a delivery issue
+exports.reportDelivery = asyncHandler(async (req, res) => {
+	const { orderId } = req.params;
+	// Order.rider references RiderProfile._id
+	const riderProfileId = req.rider._id.toString();
+	const { note } = req.body;
+
+	if (!note || !note.trim()) {
+		throw new AppError("Report note is required", 400);
+	}
+
+	const order = await Order.findById(orderId);
+	if (!order) throw new AppError("Order not found", 404);
+
+	// Only the rider who was assigned to this order can report it
+	if (!order.rider || order.rider.toString() !== riderProfileId) {
+		throw new AppError("You are not authorized to report this order", 403);
+	}
+
+	// Prevent duplicate reports
+	if (order.riderReport && order.riderReport.reportedAt) {
+		throw new AppError("This delivery has already been reported", 400);
+	}
+
+	order.riderReport = {
+		reportedAt: new Date(),
+		reportedBy: riderProfileId,
+		note: note.trim(),
+	};
+	await order.save();
+
+	logger.info(`Delivery report submitted: order ${orderId} by rider ${riderProfileId}`);
+	res.status(200).json({
+		success: true,
+		message: "Report submitted. Our team will look into it.",
+	});
 });

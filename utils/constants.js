@@ -10,6 +10,7 @@ const ORDER_STATUS = {
 const ORDER_SUB_STATUS = {
 	CONFIRMING: "confirming",
 	LOOKING_FOR_RIDER: "looking_for_rider",
+	READY_FOR_PICKUP: "ready_for_pickup",
 	RIDER_ASSIGNED: "rider_assigned",
 	PICKED_UP: "picked_up",
 	DELIVERED: "delivered",
@@ -113,6 +114,13 @@ const getCancellationReasonsByCategory = (category) => {
 	);
 };
 
+const AVAILABLE_ZONES = [
+	{ name: "Ikeja", description: "Lagos State capital area" },
+	{ name: "Surulere", description: "Residential & commercial hub" },
+	{ name: "Yaba", description: "Tech & university district" },
+	{ name: "Berger", description: "Major transport interchange" },
+];
+
 module.exports = {
 	ORDER_STATUS,
 	ORDER_SUB_STATUS,
@@ -124,4 +132,5 @@ module.exports = {
 	getAllDeclineReasons,
 	getAllCancellationReasons,
 	getCancellationReasonsByCategory,
+	AVAILABLE_ZONES,
 };

@@ -1,10 +1,11 @@
 const { LedgerAccount, LedgerEntry } = require("../models");
 const { paginate } = require("../utils/paginate");
+const mongoose = require("mongoose");
 /**
  * Move funds from pending -> available when order completes
  */
 async function settleOrderEarnings(accountId, amount, orderId) {
-  const session = await mongooseInstance.startSession();
+  const session = await mongoose.startSession();
   try {
     let result;
     await session.withTransaction(async () => {
@@ -66,9 +67,6 @@ const getAccountHistory = async (req, res) => {
 };
 
 module.exports = {
-  computeBalances,
-  getOrCreateAccount,
-  addLedgerEntry,
   settleOrderEarnings,
   getAccountHistory,
 };

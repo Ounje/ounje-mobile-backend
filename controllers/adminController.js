@@ -1,3 +1,5 @@
+const { Admin } = require("../models");
+const bcrypt = require("bcryptjs");
 const { generateAccessToken, generateRefreshToken } = require("../utils/generateToken");
 
 const createPlatformAccount = async (req, res) => {
@@ -23,7 +25,7 @@ const createPlatformAccount = async (req, res) => {
 const adminLogin = async (req, res) => {
     try {
         const { email, password } = req.body;
-        const admin = await Admin.findOne({ email });
+        const admin = await Admin.findOne({ email }).select("+password");
         if (!admin) {
             return res.status(400).json({ error: "Invalid email or password" });
         }

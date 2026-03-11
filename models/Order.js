@@ -116,6 +116,9 @@ const orderSchema = new mongoose.Schema(
 			default: "unpaid",
 		},
 
+		isPreorder:   { type: Boolean, default: false },
+		scheduledFor: { type: Date }, // null = immediate order; set = scheduled delivery time
+
 		// Vendor decline fields (happens during confirmation stage)
 		declinedAt: Date,
 		declinedBy: {
@@ -185,6 +188,19 @@ const orderSchema = new mongoose.Schema(
 		cancellationCategory: {
 			type: String,
 			enum: ["customer", "vendor", "rider", "system"],
+		},
+
+		// Rider delivery report (submitted from ride history screen)
+		riderReport: {
+			reportedAt: Date,
+			reportedBy: {
+				type: mongoose.Schema.Types.ObjectId,
+				ref: "RiderProfile",
+			},
+			note: {
+				type: String,
+				maxlength: 1000,
+			},
 		},
 	},
 	{
