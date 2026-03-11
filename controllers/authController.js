@@ -26,7 +26,7 @@ const { checkActiveUser } = require("../middleware/auth");
 const { validateUserStatus } = require("../utils/accountValidator");
 
 const register = asyncHandler(async (req, res) => {
-	const { name, role, phone, location, email, otpSession } = req.body;
+	const { name, role, phone, location, email, otpSession, fcmToken } = req.body;
 
 	if (!otpSession) throw new AppError("OTP session token is required", 400);
 
@@ -85,6 +85,7 @@ const register = asyncHandler(async (req, res) => {
 		address: location,
 		location: coordinates,
 		role: role.toLowerCase(),
+		fcmToken: fcmToken || null,
 	});
 	await user.save();
 
@@ -280,7 +281,7 @@ const requestEmailOtp = asyncHandler(async (req, res) => {
 });
 
 const verifyEmailOtp = asyncHandler(async (req, res) => {
-	const { email, otp, role, flow } = req.body;
+	const { email, otp, role, flow, fcmToken } = req.body;
 	if (!email || !otp) throw new AppError("Email and OTP required", 400);
 	if (!role) throw new AppError("Role is required", 400);
 	if (!flow) throw new AppError("Flow (login/signup) is required", 400);
@@ -327,6 +328,12 @@ const verifyEmailOtp = asyncHandler(async (req, res) => {
 		}
 		// checkActiveUser && (await checkActiveUser(user._id));
 		await validateUserStatus(user._id, user.role);
+
+		if (fcmToken) {
+			user.fcmToken = fcmToken;
+			await user.save();
+		}
+
 		const accessToken = generateAccessToken({ id: user._id, role: user.role });
 		const refreshToken = generateRefreshToken({
 			id: user._id,
@@ -434,7 +441,7 @@ const requestPhoneOtp = asyncHandler(async (req, res) => {
 });
 
 const verifyPhoneOtp = asyncHandler(async (req, res) => {
-	let { phone, otp, reference, role, flow } = req.body;
+	let { phone, otp, reference, role, flow, fcmToken } = req.body;
 	if (!phone || !otp || !reference)
 		throw new AppError("Phone, OTP, reference required", 400);
 	if (!role) throw new AppError("Role is required", 400);
@@ -495,6 +502,12 @@ const verifyPhoneOtp = asyncHandler(async (req, res) => {
 		}
 		// checkActiveUser && (await checkActiveUser(user._id));
 		await validateUserStatus(user._id, user.role);
+
+		if (fcmToken) {
+			user.fcmToken = fcmToken;
+			await user.save();
+		}
+
 		const accessToken = generateAccessToken({ id: user._id, role: user.role });
 		const refreshToken = generateRefreshToken({
 			id: user._id,
@@ -573,6 +586,18 @@ const checkUserExist = asyncHandler(async (req, res) => {
 		.json({ exists: false, message: "User does not exist" });
 });
 
+const updateFcmToken = asyncHandler(async (req, res) => {
+	const { fcmToken } = req.body;
+	const userId = req.user.id;
+
+	if (!fcmToken) {
+		throw new AppError("FCM token is required", 400);
+	}
+
+	await User.findByIdAndUpdate(userId, { fcmToken });
+	res.status(200).json({ success: true, message: "Device token saved!" });
+});
+
 module.exports = {
 	register,
 	login,
@@ -583,4 +608,5 @@ module.exports = {
 	logOut,
 	refresh,
 	checkUserExist,
+	updateFcmToken,
 };

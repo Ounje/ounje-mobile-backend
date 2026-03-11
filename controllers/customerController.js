@@ -47,23 +47,6 @@ const getCustomerProfile = async (req, res) => {
 	}
 };
 
-const updateFcmToken = async (req, res) => {
-	try {
-		const { fcmToken } = req.body;
-		const userId = req.user.id;
-
-		if (!fcmToken) {
-			return res.status(400).json({ message: "FCM token is required" });
-		}
-
-		await Customer.findOneAndUpdate({ user: userId }, { fcmToken });
-		res.status(200).json({ success: true, message: "Device token saved!" });
-	} catch (error) {
-		console.error(error);
-		res.status(500).json({ message: "Failed to save token" });
-	}
-};
-
 const updateCustomerProfile = async (req, res) => {
 	const userId = req.user.id;
 	const { firstName, lastName, phone, location } = req.body;
@@ -155,7 +138,6 @@ const deleteCustomerProfile = async (req, res) => {
 
 module.exports = {
 	getCustomerProfile,
-	updateFcmToken,
 	updateCustomerProfile,
 	deleteCustomerProfile,
 };

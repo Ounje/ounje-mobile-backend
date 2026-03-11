@@ -12,7 +12,6 @@ const customerSchema = new mongoose.Schema(
 		firstName: { type: String },
 		lastName: { type: String },
 		phone: { type: String },
-		fcmToken: { type: String },
 		isActive: { type: Boolean, default: true },
 		savedAddresses: [
 			{
