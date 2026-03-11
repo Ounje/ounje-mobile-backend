@@ -21,6 +21,7 @@ const {
 	// Vendor
 	vendorAcceptOrder,
 	vendorDeclineOrder,
+	vendorMarkReady,
 	getVendorDeclineStats,
 	getVendorOrders,
 	vendorGetCustomerOrderDetails,
@@ -277,6 +278,15 @@ router.put(
 	vendorDeclineOrder,
 );
 
+router.put(
+	"/vendor/:orderId/ready",
+	authMiddleware,
+	checkActiveUser,
+	roleGuard(["vendor"]),
+	requireVendor,
+	vendorMarkReady,
+);
+
 /**
  * @swagger
  * /api/orders/vendor/declines/stats:
@@ -510,6 +520,7 @@ router.get(
 	authMiddleware,
 	checkActiveUser,
 	roleGuard(["rider"]),
+	requireRider,
 	getRiderOrderById,
 );
 
@@ -619,6 +630,7 @@ router.post(
 	authMiddleware,
 	checkActiveUser,
 	roleGuard(["rider"]),
+	requireRider,
 	reportDelivery,
 );
 

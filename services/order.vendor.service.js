@@ -116,7 +116,54 @@ const vendorAcceptOrder = async (orderId, vendorId) => {
 		logger.error(`Failed to send acceptance notification: ${error.message}`);
 	}
 
+	// Emit orderUpdate to vendor so their order screen refreshes
+	if (global.io) {
+		global.io.to(vendorId.toString()).emit("orderUpdate", {
+			orderId: updatedOrder._id,
+			status: updatedOrder.status,
+			subStatus: updatedOrder.subStatus,
+		});
+	}
+
 	return updatedOrder;
+};
+
+const vendorMarkReady = async (orderId, vendorId) => {
+	const order = await Order.findById(orderId);
+	if (!order) throw new Error("Order not found");
+
+	if (order.vendor.toString() !== vendorId) {
+		throw new Error("You can only update orders from your restaurant");
+	}
+
+	if (order.status !== ORDER_STATUS.PENDING) {
+		throw new Error("Order must be accepted before marking as ready");
+	}
+
+	order.subStatus = ORDER_SUB_STATUS.READY_FOR_PICKUP;
+	await order.save();
+
+	try {
+		await notificationService.sendNotification({
+			userId: order.customer,
+			title: "Order Ready for Pickup!",
+			body: "Your order has been packed and is ready for pickup by a rider.",
+			type: "order_ready",
+			data: { orderId: order._id },
+		});
+		logger.info(`Order ${orderId} marked ready by vendor ${vendorId}`);
+	} catch (error) {
+		logger.error(`Failed to send ready notification: ${error.message}`);
+	}
+
+	if (global.io) {
+		global.io.to(order.customer.toString()).emit("orderReady", {
+			orderId: order._id,
+			timestamp: new Date(),
+		});
+	}
+
+	return order;
 };
 
 const getDeclineStats = async (vendorId, filters = {}) => {
@@ -252,6 +299,7 @@ module.exports = {
 	getDeclineReasonText,
 	declineOrder,
 	vendorAcceptOrder,
+	vendorMarkReady,
 	getDeclineStats,
 	getVendorOrders,
 	vendorGetCustomerOrderDetails,

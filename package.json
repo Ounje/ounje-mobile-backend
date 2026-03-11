@@ -9,7 +9,9 @@
     "lint": "eslint .",
     "build": "npm install --legacy-peer-deps && npm run lint",
     "seed:rider": "node seeds/riderDemo.js",
-    "seed:rider:reset": "node seeds/riderDemo.js --reset"
+    "seed:rider:reset": "node seeds/riderDemo.js --reset",
+    "seed": "node seeds/fullDemo.js",
+    "seed:reset": "node seeds/fullDemo.js --reset"
   },
   "author": "",
   "license": "ISC",

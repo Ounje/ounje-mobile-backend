@@ -10,6 +10,7 @@ const ORDER_STATUS = {
 const ORDER_SUB_STATUS = {
 	CONFIRMING: "confirming",
 	LOOKING_FOR_RIDER: "looking_for_rider",
+	READY_FOR_PICKUP: "ready_for_pickup",
 	RIDER_ASSIGNED: "rider_assigned",
 	PICKED_UP: "picked_up",
 	DELIVERED: "delivered",

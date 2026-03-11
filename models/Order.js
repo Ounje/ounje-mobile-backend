@@ -116,6 +116,9 @@ const orderSchema = new mongoose.Schema(
 			default: "unpaid",
 		},
 
+		isPreorder:   { type: Boolean, default: false },
+		scheduledFor: { type: Date }, // null = immediate order; set = scheduled delivery time
+
 		// Vendor decline fields (happens during confirmation stage)
 		declinedAt: Date,
 		declinedBy: {

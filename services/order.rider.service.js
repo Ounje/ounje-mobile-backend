@@ -118,11 +118,16 @@ const riderDeclineOrder = async (orderId, riderId, declineData = {}) => {
 	return order;
 };
 
-const getAvailableRiderRequests = async () => {
+const getAvailableRiderRequests = async (riderZones = []) => {
 	try {
-		// Look for orders that are ready for rider assignment
-		// This includes orders in PENDING status or orders actively looking for a rider
+		// Only return orders in the rider's operating zones.
+		// This prevents demo/seed data from other zones leaking into the rider's feed.
+		// If the rider has no zones configured yet, return nothing (empty array) so
+		// stale test data from unrelated zones is never shown.
+		if (riderZones.length === 0) return [];
+
 		const orders = await Order.find({
+			zone: { $in: riderZones },
 			$or: [
 				{ status: ORDER_STATUS.PENDING, rider: null },
 				{
@@ -152,9 +157,14 @@ const getAvailableRiderRequests = async () => {
 };
 
 const getCurrentRiderOrder = async (riderId) => {
+	// Only treat orders updated within the last 12 hours as "active".
+	// Orders stuck in RIDING status beyond 12 h are stale (e.g. test data)
+	// and should not block the rider's home screen.
+	const staleThreshold = new Date(Date.now() - 12 * 60 * 60 * 1000);
 	return await Order.findOne({
 		rider: riderId,
 		status: ORDER_STATUS.RIDING,
+		updatedAt: { $gte: staleThreshold },
 	})
 		.populate("vendor", "name address phone")
 		.populate("customer", "name address phone location")
@@ -205,11 +215,9 @@ const getRiderOrders = async (riderId, statusFilter) => {
 };
 
 module.exports = {
-	getRiderDeclineReasonText,
-	findNearbyRiders,
 	riderDeclineOrder,
 	getAvailableRiderRequests,
 	getCurrentRiderOrder,
 	getRiderCompletedOrdersToday,
-	getRiderOrders
+	getRiderOrders,
 };

@@ -10,6 +10,9 @@ const {
 	updateVendorProfileImage,
 	deleteVendorProfileImage,
 	deactivateVendorAccount,
+	updateVendorLocation,
+	updateVendorProfile,
+	toggleVendorOnlineStatus,
 } = require("../controllers/vendorController");
 const {
 	authMiddleware,
@@ -86,6 +89,22 @@ router.get("/profile", authMiddleware, checkActiveUser, getVendor);
  *       400:
  *         description: Missing fields
  */
+router.put(
+	"/profile",
+	authMiddleware,
+	checkActiveUser,
+	roleGuard(["vendor"]),
+	updateVendorProfile,
+);
+
+router.put(
+	"/profile/location",
+	authMiddleware,
+	checkActiveUser,
+	roleGuard(["vendor"]),
+	updateVendorLocation,
+);
+
 router.put(
 	"/profile/bank-details",
 	authMiddleware,
@@ -211,6 +230,14 @@ router.delete(
 	authMiddleware,
 	roleGuard(["vendor"]),
 	deactivateVendorAccount,
+);
+
+router.patch(
+	"/profile/status",
+	authMiddleware,
+	checkActiveUser,
+	roleGuard(["vendor"]),
+	toggleVendorOnlineStatus,
 );
 
 module.exports = router;

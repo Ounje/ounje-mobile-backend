@@ -26,13 +26,7 @@ const validateUserStatus = async (userId, role) => {
         if (!vendor) {
             throw new AppError("Vendor profile not found", 404);
         }
-        if (!vendor.isActive) {
-            throw new AppError(
-                "Vendor account is not active. Please contact support.",
-                403
-            );
-        }
-        return true;
+            return true;
     }
 
     if (role === "rider") {

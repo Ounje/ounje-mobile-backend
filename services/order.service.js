@@ -410,6 +410,18 @@ const createOrder = async (userId, data) => {
 		logger.error(`Failed to send new order notification: ${error.message}`);
 	}
 
+	// 7. Real-time socket ping to vendor so their portal refreshes instantly
+	try {
+		if (global.io) {
+			global.io.to(vendorId.toString()).emit("newOrderAvailable", {
+				orderId: order._id,
+				message: "New order received!",
+			});
+		}
+	} catch (error) {
+		logger.error(`Failed to emit newOrderAvailable to vendor: ${error.message}`);
+	}
+
 	return order;
 };
 const updateOrderStatus = async (orderId, status, subStatus) => {

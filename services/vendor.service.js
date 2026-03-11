@@ -65,9 +65,9 @@ class VendorService {
 	 * @param {string} userId - The User ID (from req.user.id)
 	 */
 	async getVendorProfile(userId) {
-		const vendor = await VendorProfile.findOne({ owner: userId }).select(
-			"+bankDetails",
-		); // Include bank details for vendor's own view
+		const vendor = await VendorProfile.findOne({ owner: userId })
+			.select("+bankDetails.accountNumber +bankDetails.bankCode +bankDetails.accountName")
+			.populate("owner", "phone email"); // Include phone/email from User
 
 		if (!vendor) throw new Error("Vendor not found");
 		return vendor;
@@ -121,7 +121,7 @@ class VendorService {
 				},
 			},
 			{ new: true },
-		).select("+bankDetails");
+		).select("+bankDetails.accountNumber +bankDetails.bankCode +bankDetails.accountName");
 
 		if (!vendor) throw new Error("Vendor not found");
 

@@ -79,13 +79,42 @@ app.use("/api/announcements", require("./routes/announcementRoutes"));
 logger.info(`Frontend URL: ${process.env.FRONTEND_URL}`);
 
 // Socket.IO Connection Handler
-io.on("connection", (socket) => {
+io.on("connection", async (socket) => {
 	logger.info(`A user connected: ${socket.id}`);
 
-	// The Frontend will call this as soon as the app opens
+	// Auto-join rooms on connect using the auth token so emits reach the right socket
+	// regardless of whether the client sends a manual "join" event.
+	try {
+		const jwt = require("jsonwebtoken");
+		const decoded = jwt.verify(
+			socket.handshake.auth.token,
+			process.env.ACCESS_SECRET,
+		);
+		const userId = decoded.id;
+		if (userId) {
+			socket.join(userId);
+			logger.info(`Socket auto-joined userId room: ${userId}`);
+
+			// Also join the VendorProfile room so backend can emit to vendorProfileId
+			const { VendorProfile } = require("./models");
+			const vendor = await VendorProfile.findOne({ owner: userId })
+				.select("_id")
+				.lean();
+			if (vendor) {
+				socket.join(vendor._id.toString());
+				logger.info(`Socket auto-joined vendorProfile room: ${vendor._id}`);
+			}
+		}
+	} catch {
+		// Unauthenticated socket — fine, public connection
+	}
+
+	// Keep manual join handler for backward compatibility
 	socket.on("join", (userId) => {
-		socket.join(userId);
-		logger.info(`User ${userId} joined their private room`);
+		if (userId) {
+			socket.join(userId);
+			logger.info(`User ${userId} manually joined their private room`);
+		}
 	});
 
 	// 1. Listen for the 'update-location' signal from the Rider's App

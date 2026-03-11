@@ -131,6 +131,19 @@ exports.vendorDeclineOrder = asyncHandler(async (req, res) => {
 	});
 });
 
+// Vendor marks order as ready for pickup
+exports.vendorMarkReady = asyncHandler(async (req, res) => {
+	const { orderId } = req.params;
+	const vendorId = req.vendor._id;
+
+	const order = await orderVendorService.vendorMarkReady(orderId, vendorId.toString());
+	res.status(200).json({
+		success: true,
+		message: "Order marked as ready for pickup",
+		order,
+	});
+});
+
 // Vendor decline statistics
 exports.getVendorDeclineStats = asyncHandler(async (req, res) => {
 	const vendorId = req.vendor._id;
@@ -180,7 +193,10 @@ exports.completeDelivery = asyncHandler(async (req, res) => {
 
 // Get available rider requests
 exports.getAvailableRiderRequests = asyncHandler(async (req, res) => {
-	const orders = await orderRiderService.getAvailableRiderRequests();
+	// Filter to the rider's own operating zones so riders never see
+	// orders outside their area (and demo seed data from other zones is hidden).
+	const riderZones = req.rider?.operatingArea ?? [];
+	const orders = await orderRiderService.getAvailableRiderRequests(riderZones);
 	res.status(200).json({
 		count: orders.length,
 		orders: orders.map(formatRiderOrder),
@@ -254,7 +270,8 @@ exports.vendorGetCustomerOrderDetails = asyncHandler(async (req, res) => {
 // Get single order by ID for rider (rider must be assigned or order must be available)
 exports.getRiderOrderById = asyncHandler(async (req, res) => {
 	const { orderId } = req.params;
-	const riderId = req.user.id;
+	// Order.rider references RiderProfile._id, so compare against req.rider._id
+	const riderProfileId = req.rider._id.toString();
 
 	const order = await Order.findById(orderId)
 		.populate("vendor", "name address phone location")
@@ -264,7 +281,7 @@ exports.getRiderOrderById = asyncHandler(async (req, res) => {
 	if (!order) throw new AppError("Order not found", 404);
 
 	// Allow if: rider is assigned to this order, OR order is still available (no rider)
-	const isAssigned = order.rider && order.rider.toString() === riderId;
+	const isAssigned = order.rider && order.rider.toString() === riderProfileId;
 	const isAvailable = !order.rider;
 
 	if (!isAssigned && !isAvailable) {
@@ -277,7 +294,8 @@ exports.getRiderOrderById = asyncHandler(async (req, res) => {
 // Rider reports a delivery issue
 exports.reportDelivery = asyncHandler(async (req, res) => {
 	const { orderId } = req.params;
-	const riderId = req.user.id;
+	// Order.rider references RiderProfile._id
+	const riderProfileId = req.rider._id.toString();
 	const { note } = req.body;
 
 	if (!note || !note.trim()) {
@@ -288,7 +306,7 @@ exports.reportDelivery = asyncHandler(async (req, res) => {
 	if (!order) throw new AppError("Order not found", 404);
 
 	// Only the rider who was assigned to this order can report it
-	if (!order.rider || order.rider.toString() !== riderId) {
+	if (!order.rider || order.rider.toString() !== riderProfileId) {
 		throw new AppError("You are not authorized to report this order", 403);
 	}
 

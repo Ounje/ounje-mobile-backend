@@ -14,6 +14,7 @@ const {
 	getMyFoodItems,
 	addSubCategories,
 	deleteSubCategory,
+	toggleFoodItemAvailability,
 } = require("../controllers/foodItemController");
 const {
 	getCategoryValues,
