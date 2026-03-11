@@ -209,6 +209,11 @@ const getVendorOrders = async (vendorProfileId, query = {}) => {
 
 	if (status) {
 		if (status === "active") {
+			// Only surface orders updated within the last 24 hours so stale
+			// test/seed orders (confirming/pending/riding stuck for days) are
+			// invisible without requiring a manual DB cleanup every session.
+			const staleThreshold = new Date(Date.now() - 24 * 60 * 60 * 1000);
+			filter.updatedAt = { $gte: staleThreshold };
 			filter.status = {
 				$in: [
 					ORDER_STATUS.CONFIRMING,

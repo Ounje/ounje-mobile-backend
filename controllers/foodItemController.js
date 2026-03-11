@@ -864,7 +864,6 @@ module.exports = {
 	getAllCombos,
 	getComboById,
 	getMyCombos,
-	getMyCombos,
 	getVendorCombos,
 	getVendorCombosGrouped,
 	toggleFoodItemAvailability,

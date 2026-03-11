@@ -14,9 +14,7 @@ const validateUserStatus = async (userId, role) => {
             throw new AppError("Customer profile not found", 404);
         }
         if (!customer.isActive) {
-            // Reactivate customer if they are inactive
-            customer.isActive = true;
-            await customer.save();
+            throw new AppError("Your account has been deactivated. Please contact support.", 403);
         }
         return true;
     }

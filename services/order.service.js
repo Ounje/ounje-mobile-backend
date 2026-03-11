@@ -526,20 +526,16 @@ const verifyDeliveryOtp = async (order, otp, riderId) => {
 	await ledgerService.releaseRiderFee(order.rider, order._id);
 	await order.save();
 
-	// Trigger automatic payouts asynchronously
+	// Increment totalDeliveries for the rider
 	try {
-		logger.info(`Triggering auto payouts for order ${order._id}`);
 		if (order.rider) {
-			await ledgerService.releaseRiderFee(order.rider, order._id);
-
-			// Increment totalDeliveries for the rider
 			await RiderProfile.findByIdAndUpdate(order.rider, {
 				$inc: { totalDeliveries: 1 },
 			});
 		}
 	} catch (err) {
 		logger.error(
-			`Auto payout or stats update failed for order ${order._id}: ${err.message}`,
+			`Stats update failed for order ${order._id}: ${err.message}`,
 		);
 	}
 

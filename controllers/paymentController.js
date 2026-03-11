@@ -2,7 +2,6 @@ const axios = require("axios");
 const { Payment, Customer, Order } = require("../models");
 const crypto = require("crypto");
 const ledgerService = require("../services/ledger.service");
-const payoutService = require("../services/payout.service");
 
 const paystack = axios.create({
 	baseURL: "https://api.paystack.co",
@@ -115,7 +114,7 @@ const webhookHandler = async (req, res) => {
 		.update(JSON.stringify(req.body))
 		.digest("hex");
 
-	if (hash != req.headers["x-paystack-signature"]) {
+	if (hash !== req.headers["x-paystack-signature"]) {
 		return res.status(400).send("Invalid signature");
 	}
 

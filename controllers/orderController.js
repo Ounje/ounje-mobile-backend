@@ -317,12 +317,12 @@ exports.reportDelivery = asyncHandler(async (req, res) => {
 
 	order.riderReport = {
 		reportedAt: new Date(),
-		reportedBy: riderId,
+		reportedBy: riderProfileId,
 		note: note.trim(),
 	};
 	await order.save();
 
-	logger.info(`Delivery report submitted: order ${orderId} by rider ${riderId}`);
+	logger.info(`Delivery report submitted: order ${orderId} by rider ${riderProfileId}`);
 	res.status(200).json({
 		success: true,
 		message: "Report submitted. Our team will look into it.",
