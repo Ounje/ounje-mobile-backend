@@ -26,8 +26,15 @@ const customerSchema = new mongoose.Schema(
 			pushNotifications: { type: Boolean, default: true },
 		},
 	},
-	{ timestamps: true },
+	{ timestamps: true, toJSON: { virtuals: true }, toObject: { virtuals: true } },
 );
+
+customerSchema.virtual("orderCount", {
+    ref: "Order",           // The model to count from
+    localField: "_id",      // The ID of the Customer
+    foreignField: "customer", // The field in the Order model that stores the Customer ID
+    count: true,            // Return just the number
+});
 
 customerSchema.plugin(toJSON);
 

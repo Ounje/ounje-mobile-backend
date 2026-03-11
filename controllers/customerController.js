@@ -19,6 +19,7 @@ const formatCustomerProfile = (customer) => {
 		phone: customer.phone || user.phone,
 		address: customer.savedAddresses && customer.savedAddresses.length > 0 ? customer.savedAddresses[0].address : user.address,
 		// Location preferences
+		totalOrders: customer.orderCount || 0,
 		location: customer.savedAddresses && customer.savedAddresses.length > 0
 			? {
 				type: "Point",
