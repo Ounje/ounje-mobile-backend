@@ -121,13 +121,16 @@ const riderDeclineOrder = async (orderId, riderId, declineData = {}) => {
 const getAvailableRiderRequests = async (riderZones = []) => {
 	try {
 		// Only return orders in the rider's operating zones.
-		// This prevents demo/seed data from other zones leaking into the rider's feed.
-		// If the rider has no zones configured yet, return nothing (empty array) so
-		// stale test data from unrelated zones is never shown.
+		// If the rider has no zones configured yet, return nothing.
 		if (riderZones.length === 0) return [];
+
+		// Only show orders created in the last 24 hours to prevent
+		// stale seeded/test orders from appearing in the rider's feed.
+		const since = new Date(Date.now() - 24 * 60 * 60 * 1000);
 
 		const orders = await Order.find({
 			zone: { $in: riderZones },
+			createdAt: { $gte: since },
 			$or: [
 				{ status: ORDER_STATUS.PENDING, rider: null },
 				{
