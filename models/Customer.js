@@ -26,8 +26,18 @@ const customerSchema = new mongoose.Schema(
 			pushNotifications: { type: Boolean, default: true },
 		},
 	},
-	{ timestamps: true },
+	{ timestamps: true,
+		toJSON: { virtuals: true },
+        toObject: { virtuals: true }
+	},
 );
+
+customerSchema.virtual("orderCount", {
+    ref: "Order",           
+    localField: "_id",      
+    foreignField: "customer", 
+    count: true,            
+});
 
 customerSchema.plugin(toJSON);
 

@@ -13,6 +13,7 @@ const formatCustomerProfile = (customer) => {
 		...customerData,
 		name: customer.name || user.name,
 		phone: customer.phone || user.phone,
+		totalOrders: customer.orderCount || 0,
 		address:
 			customer.savedAddresses?.length > 0
 				? customer.savedAddresses[0].address
@@ -31,7 +32,9 @@ const formatCustomerProfile = (customer) => {
 const getCustomerProfile = async (req, res) => {
 	const userId = req.user.id;
 	try {
-		const customer = await Customer.findOne({ user: userId }).populate("user");
+		const customer = await Customer.findOne({ user: userId })
+			.populate("user")
+			.populate("orderCount");
 
 		if (!customer) {
 			return res.status(404).json({ error: "Customer not found" });
