@@ -92,32 +92,40 @@ class VendorService {
 	 * Get vendor details with products (for customers viewing vendor)
 	 * @param {string} vendorId - The VendorProfile document ID
 	 */
-	async getVendorWithProducts(vendorId) {
-		// Exclude sensitive fields: balance, earnings, storeDetails
+	async getVendorWithProducts(vendorId, customerLocation) {
+		const { getEstimatedDeliveryTime } = require("../utils/delivery");
+
 		const vendor = await VendorProfile.findById(vendorId).select(
-			"-balance -earnings -storeDetails",
+			"-balance -earnings -storeDetails"
 		);
 		if (!vendor) throw new Error("Vendor not found");
 
-		// Fetch food items and combos for this vendor
-		// FoodItem and Combo reference the vendor by the User ID (owner field)
 		const FoodItem = require("../models").FoodItem;
 		const Combo = require("../models").Combo;
 
 		const [foodItems, combos] = await Promise.all([
 			FoodItem.find({ vendor: vendor._id, isAvailable: true }).select(
-				"name price description category subCategory img preparationTime",
+				"name price description category subCategory img preparationTime"
 			),
 			Combo.find({ vendor: vendor._id, isAvailable: { $ne: false } }).select(
-				"comboName basePrice description img time selections",
+				"comboName basePrice description img time selections"
 			),
 		]);
 
-		// Return vendor profile with products
+		// Calculate ETA if customer location provided
+		let estimatedDeliveryTime = null;
+		if (customerLocation && vendor.location?.address) {
+			estimatedDeliveryTime = await getEstimatedDeliveryTime(
+				vendor.location.address,
+				customerLocation
+			);
+		}
+
 		return {
 			...vendor.toJSON(),
 			foodItems,
 			combos,
+			estimatedDeliveryTime, // in minutes, null if not calculable
 		};
 	}
 

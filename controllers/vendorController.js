@@ -43,28 +43,28 @@ const getVendors = async (req, res) => {
 //Customer side
 //with this you'll get the vendor details along with their menu and options
 const userGetVendor = async (req, res) => {
-	try {
-		const vendorId = req.params.id;
-		// Keep validation here as it's an HTTP concern (bad request), or move to service and catch error.
-		// VendorService throws "Vendor not found", but might choke on invalid ID format if not checked.
-		// Let's keep ID format check here for clarity.
-		if (!mongoose.Types.ObjectId.isValid(vendorId)) {
-			return res.status(400).json({ message: "Invalid Vendor ID format" });
-		}
+    try {
+        const vendorId = req.params.id;
+        if (!mongoose.Types.ObjectId.isValid(vendorId)) {
+            return res.status(400).json({ message: "Invalid Vendor ID format" });
+        }
 
-		const vendor = await vendorService.getVendorWithProducts(vendorId);
+        // Automatically get customer's saved address from DB
+        let customerLocation = null;
+        if (req.user) {
+            const { Customer } = require("../models");
+            const customer = await Customer.findOne({ user: req.user.id });
+            customerLocation = customer?.savedAddresses?.[0]?.address || null;
+        }
 
-		// Always return a proper JSON object
-		res.status(200).json(vendor);
-	} catch (err) {
-		logger.error(`USER_GET_VENDOR_ERROR: ${err.message}`);
-		if (err.message === "Vendor not found")
-			return res.status(404).json({ message: err.message });
-
-		res
-			.status(500)
-			.json({ message: "Internal Server Error", error: err.message });
-	}
+        const vendor = await vendorService.getVendorWithProducts(vendorId, customerLocation);
+        res.status(200).json(vendor);
+    } catch (err) {
+        logger.error(`USER_GET_VENDOR_ERROR: ${err.message}`);
+        if (err.message === "Vendor not found")
+            return res.status(404).json({ message: err.message });
+        res.status(500).json({ message: "Internal Server Error", error: err.message });
+    }
 };
 
 const updateBankDetails = async (req, res) => {

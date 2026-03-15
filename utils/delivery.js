@@ -106,5 +106,27 @@ const getCoordsFromAddress = async (address) => {
     }
 };
 
+async function getEstimatedDeliveryTime(vendorAddr, customerAddr) {
+    try {
+        const response = await googleClient.distancematrix({
+            params: {
+                origins: [vendorAddr],
+                destinations: [customerAddr],
+                key: process.env.GOOGLE_MAPS_API_KEY,
+            },
+        });
+
+        const element = response.data.rows[0].elements[0];
+        if (element.status !== "OK") return null;
+
+        const durationMinutes = Math.ceil(element.duration.value / 60);
+        // Add 10 mins preparation time
+        return durationMinutes + 10;
+    } catch (error) {
+        console.error("ETA Error:", error.message);
+        return null;
+    }
+}
+
 // Updated exports to include this
 module.exports = { calculateOunjeFee, identifyZone, getCoordsFromAddress };
