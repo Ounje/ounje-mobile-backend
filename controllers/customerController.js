@@ -1,4 +1,6 @@
-const { Customer, User } = require("../models");
+const { Customer, User, Order"
+	
+ } = require("../models");
 const { getCoordsFromAddress } = require("../utils/delivery");
 
 const formatCustomerProfile = (customer) => {
