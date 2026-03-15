@@ -1,4 +1,4 @@
-const { Customer } = require("../models");
+const { Customer, User } = require("../models");
 const { getCoordsFromAddress } = require("../utils/delivery");
 
 // Helper to format customer profile
@@ -15,6 +15,7 @@ const formatCustomerProfile = (customer) => {
 		...user,
 		...customerData,
 		// Ensure essential fields are present even if they are in User
+		email: user.email ?? null,
 		name: customer.firstName && customer.lastName ? `${customer.firstName} ${customer.lastName}` : user.name,
 		phone: customer.phone || user.phone,
 		address: customer.savedAddresses && customer.savedAddresses.length > 0 ? customer.savedAddresses[0].address : user.address,
@@ -50,15 +51,17 @@ const getCustomerProfile = async (req, res) => {
 
 const updateCustomerProfile = async (req, res) => {
 	const userId = req.user.id;
-	const { firstName, lastName, phone, location } = req.body;
+	const { firstName, lastName, phone, location, email } = req.body;
 
 	try {
 		const updateData = {};
+		const userUpdate = {};
 
 		// Add fields to update only if they are provided
 		if (firstName) updateData.firstName = firstName;
 		if (lastName) updateData.lastName = lastName;
 		if (phone) updateData.phone = phone;
+		if (email !== undefined) userUpdate.email = email;
 
 		// If location is provided, add it to savedAddresses
 		if (location) {
@@ -85,14 +88,16 @@ const updateCustomerProfile = async (req, res) => {
 			}
 		}
 
-		const customer = await Customer.findOneAndUpdate(
-			{ user: userId },
-			updateData,
-			{
-				new: true,
-				runValidators: true,
-			}
-		).populate("user", "email role");
+		const [customer] = await Promise.all([
+			Customer.findOneAndUpdate(
+				{ user: userId },
+				updateData,
+				{ new: true, runValidators: true }
+			).populate("user", "email role name phone address location"),
+			Object.keys(userUpdate).length > 0
+				? User.findByIdAndUpdate(userId, { $set: userUpdate }, { new: true })
+				: Promise.resolve(null),
+		]);
 
 		if (!customer) {
 			return res.status(404).json({ error: "Customer not found" });
