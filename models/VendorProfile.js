@@ -120,6 +120,7 @@ vendorProfileSchema.index(
 		name: "vendor_search_index",
 	},
 );
+vendorProfileSchema.index({ location: "2dsphere" });
 vendorProfileSchema.plugin(toJSON);
 
 module.exports = mongoose.model("VendorProfile", vendorProfileSchema);

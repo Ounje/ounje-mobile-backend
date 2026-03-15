@@ -17,32 +17,47 @@ class VendorService {
 			}
 
 			if (lat && lng) {
-				const vendors = await VendorProfile.find({
-					isActive: true,
-					location: {
-						$near: {
-							$geometry: {
-								type: "Point",
-								coordinates: [parseFloat(lng), parseFloat(lat)],
-							},
-							$maxDistance: 10000,
+				const coordinates = [parseFloat(lng), parseFloat(lat)];
+
+				// Fetch vendors within 10km sorted by distance (closest first)
+				const nearbyVendors = await VendorProfile.aggregate([
+					{
+						$geoNear: {
+							near: { type: "Point", coordinates },
+							distanceField: "distanceMeters",
+							maxDistance: 10000,
+							query: { isActive: true },
+							spherical: true,
 						},
 					},
-				});
+				]);
 
-				if (vendors.length > 0) {
-					return {
-						status: "success",
-						source: "location-based",
-						results: vendors.length,
-						data: vendors,
-					};
-				}
+				// Fetch vendors beyond 10km sorted by distance
+				const furtherVendors = await VendorProfile.aggregate([
+					{
+						$geoNear: {
+							near: { type: "Point", coordinates },
+							distanceField: "distanceMeters",
+							minDistance: 10001,
+							query: { isActive: true },
+							spherical: true,
+						},
+					},
+				]);
+
+				const data = [...nearbyVendors, ...furtherVendors];
+
+				return {
+					status: "success",
+					source: "location-based",
+					results: data.length,
+					nearby: nearbyVendors.length,
+					further: furtherVendors.length,
+					data,
+				};
 			}
 
-			const allVendors = await VendorProfile.find({
-				isActive: true,
-			}).limit(20);
+			const allVendors = await VendorProfile.find({ isActive: true }).limit(20);
 
 			return {
 				status: "success",
@@ -56,7 +71,7 @@ class VendorService {
 	}
 
 	async getPopularVendors() {
-		return await VendorProfile.find().sort({ totalOrders: -1 });
+		return await VendorProfile.find({ isActive: true }).sort({ averageRating: -1 }).limit(20);
 	}
 
 	/**
