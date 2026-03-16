@@ -95,6 +95,7 @@ exports.getMyOrders = asyncHandler(async (req, res) => {
 });
 
 // Get single order (customer only)
+// Get single order (customer only)
 exports.getOrderById = asyncHandler(async (req, res) => {
   const order = await Order.findById(req.params.id)
     .populate("vendor", "name profileImage location")
@@ -111,14 +112,30 @@ exports.getOrderById = asyncHandler(async (req, res) => {
   const orderObj = order.toObject();
   cleanOrderItems(orderObj.items);
 
-  // Manually fetch rider's user data (name, phone, profileImage)
-  if (orderObj.rider && orderObj.rider.user) {
-    const { User } = require("../models");
-    const riderUser = await User.findById(orderObj.rider.user).select(
-      "name phone profileImage",
-    );
-    if (riderUser) {
-      orderObj.rider.user = riderUser.toObject();
+  // Fetch rider user details manually
+  if (orderObj.rider) {
+    // Remove sensitive fields
+    delete orderObj.rider.bankDetails;
+    delete orderObj.rider.earnings;
+    delete orderObj.rider.fcmToken;
+    delete orderObj.rider.deletedAt;
+    delete orderObj.rider.deletedBy;
+    delete orderObj.rider.notificationPreferences;
+
+    // Fetch user details using the raw rider (before toObject) to preserve ObjectId
+    if (order.rider && order.rider.user) {
+      const { User } = require("../models");
+      const riderUser = await User.findById(order.rider.user).select(
+        "name phone profileImage",
+      );
+      if (riderUser) {
+        orderObj.rider.user = {
+          _id: riderUser._id,
+          name: riderUser.name,
+          phone: riderUser.phone,
+          profileImage: riderUser.profileImage,
+        };
+      }
     }
   }
 
