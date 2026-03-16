@@ -169,7 +169,7 @@ const getCurrentRiderOrder = async (riderId) => {
 		status: ORDER_STATUS.RIDING,
 		updatedAt: { $gte: staleThreshold },
 	})
-		.populate("vendor", "name address phone")
+		.populate("vendor", "name address phone location")
 		.populate("customer", "name address phone location")
 		.populate("items.item");
 };
