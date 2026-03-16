@@ -303,7 +303,7 @@ const _calculateAndValidateItemPrice = async (item, models) => {
 };
 
 const createOrder = async (userId, data) => {
-	const { items, vendorId, deliveryAddress } = data;
+	const { items, vendorId, deliveryAddress, deliveryLatitude, deliveryLongitude } = data;
 
 	if (!mongoose.isValidObjectId(vendorId)) {
 		throw new Error(`Invalid Vendor ID: ${vendorId}`);
@@ -395,6 +395,8 @@ const createOrder = async (userId, data) => {
 		totalPrice: itemsTotalPrice + fee,
 		deliveryFee: fee,
 		deliveryAddress,
+		deliveryLatitude: deliveryLatitude ?? null,
+		deliveryLongitude: deliveryLongitude ?? null,
 		status: ORDER_STATUS.CONFIRMING,
 		subStatus: ORDER_SUB_STATUS.CONFIRMING,
 		zone: orderZone,

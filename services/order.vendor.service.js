@@ -231,7 +231,7 @@ const getVendorOrders = async (vendorProfileId, query = {}) => {
 	}
 
 	const orders = await Order.find(filter)
-		.populate("customer", "firstName lastName phone")
+		.populate("customer", "firstName lastName")
 		.populate("rider", "name phone")
 		.populate("items.item")
 		.sort({ createdAt: -1 });
@@ -244,7 +244,7 @@ const vendorGetCustomerOrderDetails = async (orderId, vendorProfileId) => {
 		_id: orderId,
 		vendor: vendorProfileId,
 	})
-		.populate("customer", "firstName lastName phone")
+		.populate("customer", "firstName lastName")
 		.populate("rider", "name phone")
 		.populate({
 			path: "items.item",
