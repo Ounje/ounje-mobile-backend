@@ -87,9 +87,17 @@ exports.getMyOrders = asyncHandler(async (req, res) => {
 // Get single order (customer only)
 exports.getOrderById = asyncHandler(async (req, res) => {
 	const order = await Order.findById(req.params.id)
-		.populate("vendor", "name")
+		.populate("vendor", "name profileImage location")
 		.populate("items.item")
-		.populate("customer");
+		.populate("customer")
+		.populate({
+			path: "rider",
+			select: "user currentLocation",
+			populate: {
+				path: "user",
+				select: "name phone profileImage",
+			},
+		});
 
 	if (!order) throw new AppError("Order not found", 404);
 
@@ -102,7 +110,7 @@ exports.getOrderById = asyncHandler(async (req, res) => {
 	cleanOrderItems(orderObj.items);
 
 	res.status(200).json({ success: true, order: orderObj });
-});
+}); 
 
 // Vendor accepts order
 exports.vendorAcceptOrder = asyncHandler(async (req, res) => {
