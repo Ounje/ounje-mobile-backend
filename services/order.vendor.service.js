@@ -231,7 +231,7 @@ const getVendorOrders = async (vendorProfileId, query = {}) => {
 	}
 
 	const orders = await Order.find(filter)
-		.populate("customer", "name address phone")
+		.populate("customer", "firstName lastName phone")
 		.populate("rider", "name phone")
 		.populate("items.item")
 		.sort({ createdAt: -1 });
@@ -244,60 +244,16 @@ const vendorGetCustomerOrderDetails = async (orderId, vendorProfileId) => {
 		_id: orderId,
 		vendor: vendorProfileId,
 	})
-		.populate("customer", "name")
+		.populate("customer", "firstName lastName phone")
+		.populate("rider", "name phone")
 		.populate({
 			path: "items.item",
-			select: "category subCategory name basePrice price",
+			select: "category subCategory name comboName plateName basePrice price",
 		});
 
 	if (!order) throw new Error("Order not found");
 
-	const itemsList = order.items.map((orderItem) => {
-		let itemName = null;
-
-		if (orderItem.itemType === "FoodItem" && orderItem.item) {
-			for (const subCat of orderItem.item.subCategory || []) {
-				const found = subCat.items.find(
-					(i) => i._id.toString() === orderItem.subCategoryItemId?.toString(),
-				);
-				if (found) {
-					itemName = found.name;
-					break;
-				}
-			}
-		} else if (
-			orderItem.itemType === "Combo" ||
-			orderItem.itemType === "Plate"
-		) {
-			itemName = orderItem.item?.name || null;
-		}
-
-		const formattedItem = {
-			itemType: orderItem.itemType,
-			itemName,
-			quantity: orderItem.quantity,
-			price: orderItem.price,
-			totalPrice: orderItem.price * orderItem.quantity,
-			notes: orderItem.notes || null,
-		};
-
-		if (orderItem.itemType === "Combo") {
-			formattedItem.comboSelections = orderItem.comboSelections || [];
-		}
-
-		return formattedItem;
-	});
-
-	return {
-		customerName: order.customer.name,
-		totalAmount: order.totalPrice,
-		deliveryFee: order.deliveryFee,
-		grandTotal: order.totalPrice + order.deliveryFee,
-		status: order.status,
-		subStatus: order.subStatus,
-		deliveryAddress: order.deliveryAddress,
-		items: itemsList,
-	};
+	return order.toObject();
 };
 
 module.exports = {
