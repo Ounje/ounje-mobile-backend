@@ -100,15 +100,7 @@ exports.getOrderById = asyncHandler(async (req, res) => {
     .populate("vendor", "name profileImage location")
     .populate("items.item")
     .populate("customer")
-    .populate({
-      path: "rider",
-      model: "RiderProfile",
-      populate: {
-        path: "user",
-        model: "User",
-        select: "name phone profileImage",
-      },
-    });
+    .populate("rider");
 
   if (!order) throw new AppError("Order not found", 404);
 
@@ -118,6 +110,17 @@ exports.getOrderById = asyncHandler(async (req, res) => {
 
   const orderObj = order.toObject();
   cleanOrderItems(orderObj.items);
+
+  // Manually fetch rider's user data (name, phone, profileImage)
+  if (orderObj.rider && orderObj.rider.user) {
+    const { User } = require("../models");
+    const riderUser = await User.findById(orderObj.rider.user).select(
+      "name phone profileImage",
+    );
+    if (riderUser) {
+      orderObj.rider.user = riderUser.toObject();
+    }
+  }
 
   res.status(200).json({ success: true, order: orderObj });
 });
