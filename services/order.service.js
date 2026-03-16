@@ -20,9 +20,6 @@ const AppError = require("../utils/AppError");
 
 // --- Helpers ---
 
-/**
- * Standardize real-time order updates to customers via Socket.io
- */
 const _emitOrderUpdate = (customerId, payload) => {
 	try {
 		if (global.io) {
@@ -88,7 +85,6 @@ const _calculateAndValidateItemPrice = async (item, models) => {
 			.select("subCategory isAvailable name price")
 			.lean();
 
-		// If the frontend passed the specific sub-option ID as `itemId` instead of the parent FoodItem ID
 		if (!product) {
 			product = await ProductModel.findOne({
 				"subCategory.items._id": actualItemId,
@@ -97,8 +93,8 @@ const _calculateAndValidateItemPrice = async (item, models) => {
 				.lean();
 
 			if (product) {
-				finalSubCatId = actualItemId; // That ID they sent was actually the specific sub-item option
-				actualItemId = product._id; // Correct the parent ID for the database foreign key reference
+				finalSubCatId = actualItemId;
+				actualItemId = product._id;
 			}
 		}
 
@@ -113,7 +109,6 @@ const _calculateAndValidateItemPrice = async (item, models) => {
 
 		let isFlatItem = false;
 
-		// If subCategoryItemId is not provided, check if we can auto-resolve it
 		if (!finalSubCatId) {
 			let totalOptions = 0;
 			let onlyOptionId = null;
@@ -151,7 +146,6 @@ const _calculateAndValidateItemPrice = async (item, models) => {
 			if (!mongoose.isValidObjectId(finalSubCatId))
 				throw new AppError(`Invalid subCategoryItemId: ${finalSubCatId}`, 400);
 
-			// Find the specific subcategory item ordered
 			let foundItem = null;
 			for (const subCat of product.subCategory) {
 				const match = subCat.items.find(
@@ -191,14 +185,10 @@ const _calculateAndValidateItemPrice = async (item, models) => {
 
 			for (const group of product.selections) {
 				const matchedItemsInGroup = [];
-
 				let totalGroupQuantity = 0;
 
-				// Find which of the user's selected items belong to this group
-				// We iterate backwards to safely modify the unmatched array
 				for (let i = unmatchedUserSelections.length - 1; i >= 0; i--) {
 					const uItemId = unmatchedUserSelections[i];
-					// Support both plain string IDs and objects like { itemId, quantity } just in case
 					const uIdStr = uItemId?.itemId
 						? uItemId.itemId.toString()
 						: uItemId?.toString() || "";
@@ -216,7 +206,6 @@ const _calculateAndValidateItemPrice = async (item, models) => {
 							);
 						}
 
-						// Check if we already matched this item (to merge duplicate IDs sent in array)
 						const existingMatch = matchedItemsInGroup.find(
 							(m) => m.item.toString() === uIdStr,
 						);
@@ -323,20 +312,16 @@ const createOrder = async (userId, data) => {
 		throw new Error("Vendor has no location set");
 	}
 
-	// 3. Calculate Fee
+	// 3. Calculate Delivery Fee
 	const vendorAddress = vendor.location ? vendor.location.address : null;
-
 	if (!vendorAddress) {
 		throw new Error("Vendor address is missing");
 	}
-
 	const fee = await calculateOunjeFee(vendorAddress, deliveryAddress);
 
-	// --- Updated Logic inside createOrder ---
-
+	// 4. Build Order Items
 	let itemsTotalPrice = 0;
 	const orderItems = [];
-
 	const models = { FoodItem, Combo, Plate };
 
 	for (const item of items) {
@@ -353,7 +338,6 @@ const createOrder = async (userId, data) => {
 			throw new AppError(`Invalid Item ID: ${itemId}`, 400);
 		}
 
-		// If the itemType sent doesn't exist in our mapping, we stop early
 		if (!models[itemType]) {
 			throw new AppError(`Invalid itemType: ${itemType}`, 400);
 		}
@@ -362,6 +346,7 @@ const createOrder = async (userId, data) => {
 			await _calculateAndValidateItemPrice(item, models);
 
 		itemsTotalPrice += itemPrice * quantity;
+
 		const orderItemData = {
 			itemType,
 			item: actualItemId,
@@ -383,17 +368,21 @@ const createOrder = async (userId, data) => {
 		orderItems.push(orderItemData);
 	}
 
-	// 4. Lookup Customer document ID from User ID
+	// 5. Lookup Customer
 	const customer = await Customer.findOne({ user: userId });
 	if (!customer) throw new Error("Customer profile not found");
 
-	// 5. Create Order
+	// 6. Calculate Service Fee (10% of food total)
+	const serviceFee = Math.round(itemsTotalPrice * 0.10);
+
+	// 7. Create Order
 	const order = await Order.create({
 		customer: customer._id,
 		vendor: vendorId,
 		items: orderItems,
-		totalPrice: itemsTotalPrice + fee,
+		totalPrice: itemsTotalPrice + fee + serviceFee,
 		deliveryFee: fee,
+		serviceFee,
 		deliveryAddress,
 		deliveryLatitude: deliveryLatitude ?? null,
 		deliveryLongitude: deliveryLongitude ?? null,
@@ -404,7 +393,7 @@ const createOrder = async (userId, data) => {
 	order.orderNumber = await generateOrderNumber(order._id);
 	await order.save();
 
-	// 6. Send notification to vendor
+	// 8. Notify vendor
 	try {
 		await notificationService.notifyNewOrder(vendorId, order);
 		logger.info(`New order notification sent to vendor ${vendorId}`);
@@ -412,7 +401,7 @@ const createOrder = async (userId, data) => {
 		logger.error(`Failed to send new order notification: ${error.message}`);
 	}
 
-	// 7. Real-time socket ping to vendor so their portal refreshes instantly
+	// 9. Real-time socket ping to vendor
 	try {
 		if (global.io) {
 			global.io.to(vendorId.toString()).emit("newOrderAvailable", {
@@ -426,6 +415,7 @@ const createOrder = async (userId, data) => {
 
 	return order;
 };
+
 const updateOrderStatus = async (orderId, status, subStatus) => {
 	const order = await Order.findById(orderId).populate({
 		path: "customer",
@@ -433,19 +423,16 @@ const updateOrderStatus = async (orderId, status, subStatus) => {
 	});
 	if (!order) throw new Error("Order not found");
 
-	// Update Database
 	order.status = status;
 	order.subStatus = subStatus || "";
 	await order.save();
 
-	// Send Real-Time Update to the specific Customer
 	_emitOrderUpdate(order.customer._id, {
 		orderId: order._id,
 		status: order.status,
 		subStatus: order.subStatus,
 	});
 
-	// Firebase Notification
 	const fcmToken = order.customer && order.customer.user ? order.customer.user.fcmToken : null;
 	if (fcmToken) {
 		const title = `Order Update: ${status}`;
@@ -453,7 +440,6 @@ const updateOrderStatus = async (orderId, status, subStatus) => {
 		await sendPushNotification(fcmToken, title, body);
 	}
 
-	// Trigger Rider Search if needed
 	if (
 		status === ORDER_STATUS.RIDING &&
 		subStatus === ORDER_SUB_STATUS.LOOKING_FOR_RIDER
@@ -474,7 +460,7 @@ const sendDeliveryOtp = async (order) => {
 		parseInt(process.env.DELIVERY_OTP_LENGTH || 6),
 	);
 	const otpHash = hashOtp(otp);
-	const duration = parseInt(process.env.DELIVERY_OTP_DURATION || 5); // minutes
+	const duration = parseInt(process.env.DELIVERY_OTP_DURATION || 5);
 
 	order.deliveryOtpCode = otp;
 	logger.info(`Generated OTP for order ${order._id}: ${otp}`);
@@ -483,7 +469,6 @@ const sendDeliveryOtp = async (order) => {
 	order.deliveryOtpExpiresAt = new Date(Date.now() + duration * 60 * 1000);
 	await order.save();
 
-	// Emit via socket.io
 	try {
 		if (global.io) {
 			global.io.to(order.customer.toString()).emit("delivery-otp", {
@@ -506,7 +491,6 @@ const verifyDeliveryOtp = async (order, otp, riderId) => {
 	if (!order.deliveryOtpHash || !order.deliveryOtpExpiresAt)
 		throw new Error("No OTP session found for this order");
 
-	// Expiry check
 	if (new Date() > new Date(order.deliveryOtpExpiresAt))
 		throw new Error("OTP expired");
 
@@ -518,17 +502,14 @@ const verifyDeliveryOtp = async (order, otp, riderId) => {
 	order.deliveryConfirmedAt = new Date();
 	order.deliveryConfirmedBy = riderId;
 
-	// Clear OTP fields
 	order.deliveryOtpCode = null;
 	order.deliveryOtpHash = null;
 	order.deliveryOtpExpiresAt = null;
 	order.deliveryOtpSentAt = null;
 
-	// RELEASE THE MONEY TO RIDER WALLET
 	await ledgerService.releaseRiderFee(order.rider, order._id);
 	await order.save();
 
-	// Increment totalDeliveries for the rider
 	try {
 		if (order.rider) {
 			await RiderProfile.findByIdAndUpdate(order.rider, {
@@ -544,11 +525,7 @@ const verifyDeliveryOtp = async (order, otp, riderId) => {
 	return { success: true };
 };
 
-// --- Core Service Methods ---
-
 const acceptOrder = async (orderId, riderId) => {
-	// Atomic update to prevent race conditions
-	// Accept orders that are either PENDING or actively looking for a rider
 	const order = await Order.findOneAndUpdate(
 		{
 			_id: orderId,
@@ -572,16 +549,13 @@ const acceptOrder = async (orderId, riderId) => {
 	).populate("rider", "name");
 
 	if (!order) {
-		// Double check if it was just because of status or if it doesn't exist
 		const existingOrder = await Order.findById(orderId);
 		if (!existingOrder) throw new Error("Order not found");
-
 		throw new Error(
 			"Order is no longer available. Another rider may have accepted it.",
 		);
 	}
 
-	// Notify Customer about rider assignment
 	try {
 		const riderName = order.rider?.name || "A rider";
 		await notificationService.notifyCustomerRiderAssigned(
@@ -598,7 +572,6 @@ const acceptOrder = async (orderId, riderId) => {
 		);
 	}
 
-	// Notify Customer via Socket.io
 	_emitOrderUpdate(order.customer, {
 		orderId: order._id,
 		status: order.status,
@@ -622,10 +595,8 @@ const pickUpOrder = async (orderId, riderId) => {
 	order.subStatus = ORDER_SUB_STATUS.PICKED_UP;
 	await order.save();
 
-	// Send OTP to customer
 	await sendDeliveryOtp(order);
 
-	// Notify customer that order has been picked up
 	try {
 		await notificationService.notifyCustomerOrderPickedUp(
 			order.customer,
@@ -651,7 +622,6 @@ const completeDelivery = async (orderId, riderId, otp) => {
 
 	await verifyDeliveryOtp(order, otp, riderId);
 
-	// Notify customer about delivery completion
 	try {
 		await notificationService.notifyCustomerDeliveryComplete(
 			order.customer,
@@ -666,7 +636,6 @@ const completeDelivery = async (orderId, riderId, otp) => {
 		);
 	}
 
-	// Real-time update
 	_emitOrderUpdate(order.customer, {
 		orderId: order._id,
 		status: ORDER_STATUS.DELIVERED,
@@ -709,7 +678,6 @@ const cancelOrder = async (orderId, customerId) => {
 
 	return order;
 };
-
 
 module.exports = {
 	createOrder,

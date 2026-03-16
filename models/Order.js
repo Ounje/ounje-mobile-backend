@@ -76,6 +76,10 @@ const orderSchema = new mongoose.Schema(
 			type: Number,
 			required: true,
 		},
+		serviceFee: { 
+			type: Number, 
+			default: 0 
+		},
 		zone: {
 			type: String,
 		}, // e.g., "Ikeja"
