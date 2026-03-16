@@ -232,11 +232,20 @@ const getVendorOrders = async (vendorProfileId, query = {}) => {
 
 	const orders = await Order.find(filter)
 		.populate("customer", "firstName lastName")
-		.populate("rider", "name phone")
+		.populate({ path: "rider", select: "user", populate: { path: "user", select: "name phone" } })
 		.populate("items.item")
 		.sort({ createdAt: -1 });
 
-	return orders;
+	// Flatten rider.user.name → rider.name so frontend reads work unchanged
+	return orders.map((order) => {
+		const obj = order.toObject();
+		if (obj.rider?.user) {
+			obj.rider.name = obj.rider.user.name ?? null;
+			obj.rider.phone = obj.rider.user.phone ?? null;
+			delete obj.rider.user;
+		}
+		return obj;
+	});
 };
 
 const vendorGetCustomerOrderDetails = async (orderId, vendorProfileId) => {
@@ -245,7 +254,7 @@ const vendorGetCustomerOrderDetails = async (orderId, vendorProfileId) => {
 		vendor: vendorProfileId,
 	})
 		.populate("customer", "firstName lastName")
-		.populate("rider", "name phone")
+		.populate({ path: "rider", select: "user", populate: { path: "user", select: "name phone" } })
 		.populate({
 			path: "items.item",
 			select: "category subCategory name comboName plateName basePrice price",
@@ -253,7 +262,13 @@ const vendorGetCustomerOrderDetails = async (orderId, vendorProfileId) => {
 
 	if (!order) throw new Error("Order not found");
 
-	return order.toObject();
+	const obj = order.toObject();
+	if (obj.rider?.user) {
+		obj.rider.name = obj.rider.user.name ?? null;
+		obj.rider.phone = obj.rider.user.phone ?? null;
+		delete obj.rider.user;
+	}
+	return obj;
 };
 
 module.exports = {
