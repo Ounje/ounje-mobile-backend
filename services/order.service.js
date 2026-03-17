@@ -560,6 +560,11 @@ const acceptOrder = async (orderId, riderId) => {
 					subStatus: ORDER_SUB_STATUS.LOOKING_FOR_RIDER,
 					rider: null,
 				},
+				{
+					status: ORDER_STATUS.CONFIRMING,
+					subStatus: ORDER_SUB_STATUS.PACKAGED,
+					rider: null,
+				},
 			],
 		},
 		{
@@ -719,7 +724,7 @@ const vendorMarkReady = async (orderId, vendorId) => {
 		throw new Error("Order cannot be marked as ready at this stage");
 	}
 
-	order.status = ORDER_STATUS.CONFIRMING;
+	order.status = ORDER_STATUS.PACKAGING;
 	order.subStatus = ORDER_SUB_STATUS.PACKAGED;
 	await order.save();
 
@@ -757,7 +762,7 @@ const vendorAcceptOrder = async (orderId, vendorId) => {
 		throw new Error("Order is no longer in confirming status");
 	}
 
-	order.status = ORDER_STATUS.PACKAGING;
+	order.status = ORDER_STATUS.CONFIRMING;
 	order.subStatus = ORDER_SUB_STATUS.CONFIRMED;
 	await order.save();
 
