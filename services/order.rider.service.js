@@ -217,10 +217,39 @@ const getRiderOrders = async (riderId, statusFilter) => {
 		.sort({ createdAt: -1 });
 };
 
+const riderMarkOnTheWay = async (orderId, riderId) => {
+	const order = await Order.findById(orderId);
+	if (!order) throw new Error("Order not found");
+
+	if (!order.rider || order.rider.toString() !== riderId) {
+		throw new Error("You are not assigned to this order");
+	}
+
+	if (order.status !== ORDER_STATUS.RIDING) {
+		throw new Error("Order is not in riding status");
+	}
+
+	order.subStatus = ORDER_SUB_STATUS.ON_THE_WAY;
+	await order.save();
+
+	if (global.io) {
+		global.io.to(order.customer.toString()).emit("orderUpdate", {
+			orderId: order._id,
+			status: order.status,
+			subStatus: order.subStatus,
+		});
+	}
+
+	logger.info(`Order ${orderId} — rider ${riderId} is on the way`);
+	return order;
+};
+
 module.exports = {
+	findNearbyRiders,
 	riderDeclineOrder,
 	getAvailableRiderRequests,
 	getCurrentRiderOrder,
 	getRiderCompletedOrdersToday,
 	getRiderOrders,
+	riderMarkOnTheWay,
 };

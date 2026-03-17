@@ -98,34 +98,86 @@ const vendorAcceptOrder = async (orderId, vendorId) => {
 		throw new Error("Order is no longer in confirming status");
 	}
 
-	// NOTE: We update the status cleanly then pass it back to the core service
-	// so that the core service can handle the side effect (broadcasting to Riders + socket).
-	const updatedOrder = await orderService.updateOrderStatus(
-		orderId,
-		ORDER_STATUS.PENDING,
-		ORDER_SUB_STATUS.LOOKING_FOR_RIDER
-	);
+	// Set confirming/confirmed — vendor has acknowledged the order.
+	// Rider search starts only when vendor begins preparing (vendorStartPreparing).
+	order.status = ORDER_STATUS.CONFIRMING;
+	order.subStatus = ORDER_SUB_STATUS.CONFIRMED;
+	await order.save();
 
 	try {
 		await notificationService.notifyCustomerOrderAccepted(
-			updatedOrder.customer,
-			updatedOrder,
+			order.customer,
+			order,
 		);
 		logger.info(`Order ${orderId} accepted by vendor ${vendorId}`);
 	} catch (error) {
 		logger.error(`Failed to send acceptance notification: ${error.message}`);
 	}
 
-	// Emit orderUpdate to vendor so their order screen refreshes
+	// Notify customer that their order has been confirmed
 	if (global.io) {
-		global.io.to(vendorId.toString()).emit("orderUpdate", {
-			orderId: updatedOrder._id,
-			status: updatedOrder.status,
-			subStatus: updatedOrder.subStatus,
+		global.io.to(order.customer.toString()).emit("orderUpdate", {
+			orderId: order._id,
+			status: order.status,
+			subStatus: order.subStatus,
 		});
 	}
 
-	return updatedOrder;
+	return order;
+};
+
+const vendorStartPreparing = async (orderId, vendorId) => {
+	const order = await Order.findById(orderId).populate("vendor", "name location");
+	if (!order) throw new Error("Order not found");
+
+	if (order.vendor._id.toString() !== vendorId) {
+		throw new Error("You can only update orders from your restaurant");
+	}
+
+	const allowedStatuses = [ORDER_STATUS.CONFIRMING, ORDER_STATUS.PENDING];
+	if (!allowedStatuses.includes(order.status)) {
+		throw new Error("Order must be confirmed before starting preparation");
+	}
+
+	order.status = ORDER_STATUS.PACKAGING;
+	order.subStatus = ORDER_SUB_STATUS.PACKAGING;
+	await order.save();
+
+	// Notify customer
+	if (global.io) {
+		global.io.to(order.customer.toString()).emit("orderUpdate", {
+			orderId: order._id,
+			status: order.status,
+			subStatus: order.subStatus,
+		});
+	}
+
+	// Now start looking for a rider (cancel can no longer happen from customer side)
+	try {
+		const vendorLocation = order.vendor?.location;
+		if (vendorLocation) {
+			const { findNearbyRiders } = require("./order.rider.service");
+			await findNearbyRiders(vendorLocation, order._id);
+		}
+		// Also update subStatus to looking_for_rider in the background (after packaging emitted)
+		await orderService.updateOrderStatus(
+			orderId,
+			ORDER_STATUS.RIDING,
+			ORDER_SUB_STATUS.LOOKING_FOR_RIDER,
+		);
+		if (global.io) {
+			global.io.to(order.customer.toString()).emit("orderUpdate", {
+				orderId: order._id,
+				status: ORDER_STATUS.RIDING,
+				subStatus: ORDER_SUB_STATUS.LOOKING_FOR_RIDER,
+			});
+		}
+	} catch (error) {
+		logger.error(`Failed to find riders after preparing: ${error.message}`);
+	}
+
+	logger.info(`Order ${orderId} — vendor ${vendorId} started preparing`);
+	return order;
 };
 
 const vendorMarkReady = async (orderId, vendorId) => {
@@ -136,11 +188,13 @@ const vendorMarkReady = async (orderId, vendorId) => {
 		throw new Error("You can only update orders from your restaurant");
 	}
 
-	if (order.status !== ORDER_STATUS.PENDING) {
+	const allowedForReady = [ORDER_STATUS.PENDING, ORDER_STATUS.PACKAGING];
+	if (!allowedForReady.includes(order.status)) {
 		throw new Error("Order must be accepted before marking as ready");
 	}
 
-	order.subStatus = ORDER_SUB_STATUS.READY_FOR_PICKUP;
+	order.status = ORDER_STATUS.PACKAGING;
+	order.subStatus = ORDER_SUB_STATUS.PACKAGED;
 	await order.save();
 
 	try {
@@ -157,9 +211,10 @@ const vendorMarkReady = async (orderId, vendorId) => {
 	}
 
 	if (global.io) {
-		global.io.to(order.customer.toString()).emit("orderReady", {
+		global.io.to(order.customer.toString()).emit("orderUpdate", {
 			orderId: order._id,
-			timestamp: new Date(),
+			status: order.status,
+			subStatus: order.subStatus,
 		});
 	}
 
@@ -217,6 +272,7 @@ const getVendorOrders = async (vendorProfileId, query = {}) => {
 			filter.status = {
 				$in: [
 					ORDER_STATUS.CONFIRMING,
+					ORDER_STATUS.PACKAGING,
 					ORDER_STATUS.PENDING,
 					ORDER_STATUS.RIDING,
 				],
@@ -275,6 +331,7 @@ module.exports = {
 	getDeclineReasonText,
 	declineOrder,
 	vendorAcceptOrder,
+	vendorStartPreparing,
 	vendorMarkReady,
 	getDeclineStats,
 	getVendorOrders,

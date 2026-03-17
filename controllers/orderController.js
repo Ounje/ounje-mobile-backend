@@ -176,6 +176,22 @@ exports.vendorDeclineOrder = asyncHandler(async (req, res) => {
   });
 });
 
+// Vendor starts preparing (packaging/packaging)
+exports.vendorStartPreparing = asyncHandler(async (req, res) => {
+  const { orderId } = req.params;
+  const vendorId = req.vendor._id;
+
+  const order = await orderVendorService.vendorStartPreparing(
+    orderId,
+    vendorId.toString(),
+  );
+  res.status(200).json({
+    success: true,
+    message: "Order preparation started",
+    order,
+  });
+});
+
 // Vendor marks order as ready for pickup
 exports.vendorMarkReady = asyncHandler(async (req, res) => {
   const { orderId } = req.params;
@@ -224,6 +240,22 @@ exports.pickUpOrder = asyncHandler(async (req, res) => {
   res.status(200).json({
     success: true,
     message: "Order picked up. OTP sent to customer.",
+    order: formatRiderOrder(order),
+  });
+});
+
+// Rider marks on the way (riding/on_the_way)
+exports.riderMarkOnTheWay = asyncHandler(async (req, res) => {
+  const { orderId } = req.params;
+  const riderId = req.rider._id;
+
+  const order = await orderRiderService.riderMarkOnTheWay(
+    orderId,
+    riderId.toString(),
+  );
+  res.status(200).json({
+    success: true,
+    message: "Status updated: on the way to customer",
     order: formatRiderOrder(order),
   });
 });
