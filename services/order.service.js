@@ -712,11 +712,14 @@ const vendorMarkReady = async (orderId, vendorId) => {
 		throw new Error("You can only update orders from your restaurant");
 	}
 
-	if (order.status !== ORDER_STATUS.PACKAGING) {
-		throw new Error("Order must be in PACKAGING status to mark as ready");
+	if (
+    order.status !== ORDER_STATUS.CONFIRMING &&
+    order.status !== ORDER_STATUS.PACKAGING
+	) {
+		throw new Error("Order cannot be marked as ready at this stage");
 	}
 
-	order.status = ORDER_STATUS.PACKAGING;
+	order.status = ORDER_STATUS.CONFIRMING;
 	order.subStatus = ORDER_SUB_STATUS.PACKAGED;
 	await order.save();
 
