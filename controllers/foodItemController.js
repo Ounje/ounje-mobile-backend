@@ -522,7 +522,6 @@ const getMyFoodItems = async (req, res) => {
 // Helper to process selections
 const processSelections = async (selections, vendorId) => {
 	if (!selections) return [];
-
 	let parsedSelections = selections;
 	if (typeof selections === "string") {
 		try {
@@ -531,42 +530,52 @@ const processSelections = async (selections, vendorId) => {
 			throw new Error("Invalid selections format");
 		}
 	}
-
 	if (!Array.isArray(parsedSelections)) return [];
 
-	// Extract all item IDs
 	const itemIds = [];
 	parsedSelections.forEach((group) => {
 		if (group.items && Array.isArray(group.items)) {
 			group.items.forEach((selectionItem) => {
-				if (selectionItem.item) itemIds.push(selectionItem.item);
+				if (selectionItem.item) itemIds.push(selectionItem.item.toString());
 			});
 		}
 	});
 
 	if (itemIds.length === 0) return parsedSelections;
 
-	// Fetch all items
-	const foodItems = await FoodItem.find({
-		_id: { $in: itemIds },
-		vendor: vendorId, // Ensure items belong to this vendor profile
+	// Query parent FoodItem docs that contain any of these nested item _ids
+	const foodItemDocs = await FoodItem.find({
+		vendor: vendorId,
+		"subCategory.items._id": { $in: itemIds },
 	});
 
-	const foodItemMap = new Map(foodItems.map((item) => [item.id, item]));
+	// Build a flat map of itemId -> nested item data
+	const itemMap = new Map();
+	foodItemDocs.forEach((doc) => {
+		doc.subCategory.forEach((sub) => {
+			sub.items.forEach((item) => {
+				itemMap.set(item._id.toString(), item);
+			});
+		});
+	});
 
-	// Reconstruct selections with populated data
+	console.log("itemMap keys:", [...itemMap.keys()]);
+
 	return parsedSelections.map((group) => {
 		const populatedItems = [];
 		if (group.items && Array.isArray(group.items)) {
 			group.items.forEach((selectionItem) => {
-				const foodItem = foodItemMap.get(selectionItem.item.toString());
-				if (foodItem) {
+				const key = selectionItem.item.toString();
+				const foundItem = itemMap.get(key);
+				if (foundItem) {
 					populatedItems.push({
-						item: foodItem._id,
-						name: foodItem.name,
-						price: foodItem.price,
-						isAvailable: foodItem.isAvailable,
+						item: foundItem._id,
+						name: foundItem.name,
+						price: foundItem.price,
+						isAvailable: foundItem.isAvailable,
 					});
+				} else {
+					console.warn("Item not found for id:", key);
 				}
 			});
 		}
@@ -831,10 +840,19 @@ const toggleFoodItemAvailability = async (req, res) => {
 		const vendorId = req.user.id;
 
 		const vendor = await VendorProfile.findOne({ owner: vendorId }).lean();
-		if (!vendor) return res.status(404).json({ success: false, message: "Vendor not found" });
+		if (!vendor)
+			return res
+				.status(404)
+				.json({ success: false, message: "Vendor not found" });
 
-		const item = await FoodItem.findOne({ _id: foodItemId, vendor: vendor._id });
-		if (!item) return res.status(404).json({ success: false, message: "Food item not found" });
+		const item = await FoodItem.findOne({
+			_id: foodItemId,
+			vendor: vendor._id,
+		});
+		if (!item)
+			return res
+				.status(404)
+				.json({ success: false, message: "Food item not found" });
 
 		item.isAvailable = !item.isAvailable;
 		await item.save();
