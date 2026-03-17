@@ -375,8 +375,7 @@ const createOrder = async (userId, data) => {
 	// 6. Calculate Service Fee (10% of food total)
 	const serviceFee = Math.round(itemsTotalPrice * 0.10);
 
-	// 6b. Resolve delivery coordinates — use provided values, or fall back to
-	//     the customer's saved address that matches the delivery address text.
+	// 6b. Resolve delivery coordinates
 	let finalDeliveryLat = deliveryLatitude ?? null;
 	let finalDeliveryLng = deliveryLongitude ?? null;
 	if ((finalDeliveryLat === null || finalDeliveryLng === null) && customer.savedAddresses?.length > 0) {
@@ -388,7 +387,7 @@ const createOrder = async (userId, data) => {
 					a.address.toLowerCase().trim() === deliveryAddress.toLowerCase().trim(),
 			) || customer.savedAddresses[0];
 		if (matched?.coordinates?.length === 2) {
-			finalDeliveryLng = matched.coordinates[0]; // GeoJSON: [lng, lat]
+			finalDeliveryLng = matched.coordinates[0];
 			finalDeliveryLat = matched.coordinates[1];
 		}
 	}
@@ -458,8 +457,9 @@ const updateOrderStatus = async (orderId, status, subStatus) => {
 		await sendPushNotification(fcmToken, title, body);
 	}
 
+	// CHANGED: was ORDER_STATUS.RIDING, now ORDER_STATUS.PACKAGING to match new flow
 	if (
-		status === ORDER_STATUS.RIDING &&
+		status === ORDER_STATUS.PACKAGING &&
 		subStatus === ORDER_SUB_STATUS.LOOKING_FOR_RIDER
 	) {
 		const vendor = await VendorProfile.findById(order.vendor);
@@ -543,14 +543,20 @@ const verifyDeliveryOtp = async (order, otp, riderId) => {
 	return { success: true };
 };
 
+// CHANGED: acceptOrder now looks for PACKAGING/PACKAGED or PACKAGING/LOOKING_FOR_RIDER
+// instead of old PENDING or RIDING/LOOKING_FOR_RIDER
 const acceptOrder = async (orderId, riderId) => {
 	const order = await Order.findOneAndUpdate(
 		{
 			_id: orderId,
 			$or: [
-				{ status: ORDER_STATUS.PENDING, rider: null },
 				{
-					status: ORDER_STATUS.RIDING,
+					status: ORDER_STATUS.PACKAGING,
+					subStatus: ORDER_SUB_STATUS.PACKAGED,
+					rider: null,
+				},
+				{
+					status: ORDER_STATUS.PACKAGING,
 					subStatus: ORDER_SUB_STATUS.LOOKING_FOR_RIDER,
 					rider: null,
 				},
@@ -697,6 +703,82 @@ const cancelOrder = async (orderId, customerId) => {
 	return order;
 };
 
+// NEW: vendor marks food as packaged/ready — triggers rider search
+const vendorMarkReady = async (orderId, vendorId) => {
+	const order = await Order.findById(orderId);
+	if (!order) throw new Error("Order not found");
+
+	if (order.vendor.toString() !== vendorId) {
+		throw new Error("You can only update orders from your restaurant");
+	}
+
+	if (order.status !== ORDER_STATUS.PACKAGING) {
+		throw new Error("Order must be in PACKAGING status to mark as ready");
+	}
+
+	order.status = ORDER_STATUS.PACKAGING;
+	order.subStatus = ORDER_SUB_STATUS.PACKAGED;
+	await order.save();
+
+	// Notify nearby riders that food is ready
+	try {
+		const vendor = await VendorProfile.findById(order.vendor);
+		if (vendor && vendor.location) {
+			await findNearbyRiders(vendor.location, order._id);
+		}
+	} catch (error) {
+		logger.error(`Failed to notify riders: ${error.message}`);
+	}
+
+	// Notify customer food is packaged
+	_emitOrderUpdate(order.customer, {
+		orderId: order._id,
+		status: order.status,
+		subStatus: order.subStatus,
+		message: "Your food is packaged and a rider is on the way!",
+	});
+
+	return order;
+};
+
+// NEW: vendor accepts order → moves to PACKAGING/CONFIRMED
+const vendorAcceptOrder = async (orderId, vendorId) => {
+	const order = await Order.findById(orderId);
+	if (!order) throw new Error("Order not found");
+
+	if (order.vendor.toString() !== vendorId) {
+		throw new Error("You can only accept orders from your restaurant");
+	}
+
+	if (order.status !== ORDER_STATUS.CONFIRMING) {
+		throw new Error("Order is no longer in confirming status");
+	}
+
+	order.status = ORDER_STATUS.PACKAGING;
+	order.subStatus = ORDER_SUB_STATUS.CONFIRMED;
+	await order.save();
+
+	try {
+		await notificationService.notifyCustomerOrderAccepted(
+			order.customer,
+			order,
+		);
+		logger.info(`Order ${orderId} accepted by vendor ${vendorId}`);
+	} catch (error) {
+		logger.error(`Failed to send acceptance notification: ${error.message}`);
+	}
+
+	if (global.io) {
+		global.io.to(order.customer.toString()).emit("orderAccepted", {
+			orderId: order._id,
+			status: order.status,
+			subStatus: order.subStatus,
+		});
+	}
+
+	return order;
+};
+
 module.exports = {
 	createOrder,
 	updateOrderStatus,
@@ -706,6 +788,8 @@ module.exports = {
 	pickUpOrder,
 	completeDelivery,
 	cancelOrder,
+	vendorAcceptOrder,
+	vendorMarkReady,
 	generateNumericOtp,
 	hashOtp,
 };
