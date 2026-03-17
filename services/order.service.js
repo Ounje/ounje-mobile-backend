@@ -375,6 +375,24 @@ const createOrder = async (userId, data) => {
 	// 6. Calculate Service Fee (10% of food total)
 	const serviceFee = Math.round(itemsTotalPrice * 0.10);
 
+	// 6b. Resolve delivery coordinates — use provided values, or fall back to
+	//     the customer's saved address that matches the delivery address text.
+	let finalDeliveryLat = deliveryLatitude ?? null;
+	let finalDeliveryLng = deliveryLongitude ?? null;
+	if ((finalDeliveryLat === null || finalDeliveryLng === null) && customer.savedAddresses?.length > 0) {
+		const matched =
+			customer.savedAddresses.find(
+				(a) =>
+					a.address &&
+					deliveryAddress &&
+					a.address.toLowerCase().trim() === deliveryAddress.toLowerCase().trim(),
+			) || customer.savedAddresses[0];
+		if (matched?.coordinates?.length === 2) {
+			finalDeliveryLng = matched.coordinates[0]; // GeoJSON: [lng, lat]
+			finalDeliveryLat = matched.coordinates[1];
+		}
+	}
+
 	// 7. Create Order
 	const order = await Order.create({
 		customer: customer._id,
@@ -384,8 +402,8 @@ const createOrder = async (userId, data) => {
 		deliveryFee: fee,
 		serviceFee,
 		deliveryAddress,
-		deliveryLatitude: deliveryLatitude ?? null,
-		deliveryLongitude: deliveryLongitude ?? null,
+		deliveryLatitude: finalDeliveryLat,
+		deliveryLongitude: finalDeliveryLng,
 		status: ORDER_STATUS.CONFIRMING,
 		subStatus: ORDER_SUB_STATUS.CONFIRMING,
 		zone: orderZone,
