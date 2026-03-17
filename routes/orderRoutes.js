@@ -36,7 +36,6 @@ const {
 	getRiderOrders,
 	getRiderOrderById,
 	reportDelivery,
-	vendorMarkReady,
 	updateOrderStatus,
 } = require("../controllers/orderController");
 
