@@ -21,6 +21,7 @@ const {
 	// Vendor
 	vendorAcceptOrder,
 	vendorDeclineOrder,
+	vendorStartPreparing,
 	vendorMarkReady,
 	getVendorDeclineStats,
 	getVendorOrders,
@@ -29,6 +30,7 @@ const {
 	// Rider
 	acceptOrder,
 	pickUpOrder,
+	riderMarkOnTheWay,
 	completeDelivery,
 	getAvailableRiderRequests,
 	getCurrentRiderOrder,
@@ -275,6 +277,15 @@ router.put(
 	roleGuard(["vendor"]),
 	requireVendor,
 	vendorDeclineOrder,
+);
+
+router.put(
+	"/vendor/:orderId/preparing",
+	authMiddleware,
+	checkActiveUser,
+	roleGuard(["vendor"]),
+	requireVendor,
+	vendorStartPreparing,
 );
 
 router.put(
@@ -579,6 +590,15 @@ router.put(
  *             type: object
  *             required: [otp]
  */
+router.put(
+	"/rider/:orderId/on-the-way",
+	authMiddleware,
+	checkActiveUser,
+	roleGuard(["rider"]),
+	requireRider,
+	riderMarkOnTheWay,
+);
+
 router.put(
 	"/rider/:orderId/complete",
 	authMiddleware,

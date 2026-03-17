@@ -1,24 +1,26 @@
 const ORDER_STATUS = {
-	CONFIRMING: "CONFIRMING",
-	PACKAGING: "PACKAGING",
-	RIDING: "RIDING",
-	DELIVERED: "DELIVERED",
-	CANCELLED: "CANCELLED",
-	DECLINED: "DECLINED",
+	CONFIRMING: "confirming",
+	PACKAGING: "packaging",
+	PENDING: "pending",
+	RIDING: "riding",
+	DELIVERED: "delivered",
+	CANCELLED: "cancelled",
+	DECLINED: "declined",
 };
 
 const ORDER_SUB_STATUS = {
-	CONFIRMING: "CONFIRMING",
-	CONFIRMED: "CONFIRMED",
-	PACKAGING: "PACKAGING",
-	PACKAGED: "PACKAGED",
-	LOOKING_FOR_RIDER: "LOOKING_FOR_RIDER",
-	RIDER_ASSIGNED: "RIDER_ASSIGNED",
-	PICKED_UP: "PICKED_UP",
-	ON_THE_WAY: "ON_THE_WAY",
-	DELIVERED: "DELIVERED",
-	CANCELLED: "CANCELLED",
-	DECLINED: "DECLINED",
+	CONFIRMING: "confirming",
+	CONFIRMED: "confirmed",
+	PACKAGING: "packaging",
+	PACKAGED: "packaged",
+	LOOKING_FOR_RIDER: "looking_for_rider",
+	READY_FOR_PICKUP: "ready_for_pickup",
+	RIDER_ASSIGNED: "rider_assigned",
+	PICKED_UP: "picked_up",
+	ON_THE_WAY: "on_the_way",
+	DELIVERED: "delivered",
+	CANCELLED: "cancelled",
+	DECLINED: "declined",
 };
 
 const DECLINE_REASONS = {
