@@ -160,13 +160,19 @@ const getAvailableRiderRequests = async (riderZones = []) => {
 };
 
 const getCurrentRiderOrder = async (riderId) => {
-	// Only treat orders updated within the last 12 hours as "active".
-	// Orders stuck in RIDING status beyond 12 h are stale (e.g. test data)
-	// and should not block the rider's home screen.
-	const staleThreshold = new Date(Date.now() - 12 * 60 * 60 * 1000);
+	// Only treat orders updated within the last 2 hours as "active".
+	// Orders stuck in RIDING beyond 2 h are treated as stale/abandoned.
+	const staleThreshold = new Date(Date.now() - 2 * 60 * 60 * 1000);
 	return await Order.findOne({
 		rider: riderId,
 		status: ORDER_STATUS.RIDING,
+		subStatus: {
+			$in: [
+				ORDER_SUB_STATUS.RIDER_ASSIGNED,
+				ORDER_SUB_STATUS.PICKED_UP,
+				ORDER_SUB_STATUS.ON_THE_WAY,
+			],
+		},
 		updatedAt: { $gte: staleThreshold },
 	})
 		.populate("vendor", "name address phone location")
