@@ -110,10 +110,33 @@ io.on("connection", async (socket) => {
 	}
 
 	// Keep manual join handler for backward compatibility
-	socket.on("join", (userId) => {
-		if (userId) {
-			socket.join(userId);
-			logger.info(`User ${userId} manually joined their private room`);
+	socket.on("join", async (userId) => {
+		socket.join(userId);
+		logger.info(`User ${userId} joined their private room`);
+
+		// Auto-join Customer profile room
+		try {
+			const { Customer, VendorProfile, RiderProfile } = require("./models");
+
+			const customer = await Customer.findOne({ user: userId }).select("_id").lean();
+			if (customer) {
+				socket.join(customer._id.toString());
+				logger.info(`Socket auto-joined customerProfile room: ${customer._id}`);
+			}
+
+			const vendor = await VendorProfile.findOne({ owner: userId }).select("_id").lean();
+			if (vendor) {
+				socket.join(vendor._id.toString());
+				logger.info(`Socket auto-joined vendorProfile room: ${vendor._id}`);
+			}
+
+			const rider = await RiderProfile.findOne({ user: userId }).select("_id").lean();
+			if (rider) {
+				socket.join(rider._id.toString());
+				logger.info(`Socket auto-joined riderProfile room: ${rider._id}`);
+			}
+		} catch (err) {
+			logger.error(`Auto-join profile room failed: ${err.message}`);
 		}
 	});
 
