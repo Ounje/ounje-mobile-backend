@@ -143,7 +143,7 @@ const vendorStartPreparing = async (orderId, vendorId) => {
 	order.subStatus = ORDER_SUB_STATUS.PACKAGING;
 	await order.save();
 
-	// Notify customer
+	// Notify customer — they see "Restaurant is preparing your order"
 	if (global.io) {
 		global.io.to(order.customer.toString()).emit("orderUpdate", {
 			orderId: order._id,
@@ -152,50 +152,36 @@ const vendorStartPreparing = async (orderId, vendorId) => {
 		});
 	}
 
-	// Now start looking for a rider (cancel can no longer happen from customer side)
-	try {
-		const vendorLocation = order.vendor?.location;
-		if (vendorLocation) {
-			const { findNearbyRiders } = require("./order.rider.service");
-			await findNearbyRiders(vendorLocation, order._id);
-		}
-		// Also update subStatus to looking_for_rider in the background (after packaging emitted)
-		await orderService.updateOrderStatus(
-			orderId,
-			ORDER_STATUS.RIDING,
-			ORDER_SUB_STATUS.LOOKING_FOR_RIDER,
-		);
-		if (global.io) {
-			global.io.to(order.customer.toString()).emit("orderUpdate", {
-				orderId: order._id,
-				status: ORDER_STATUS.RIDING,
-				subStatus: ORDER_SUB_STATUS.LOOKING_FOR_RIDER,
-			});
-		}
-	} catch (error) {
-		logger.error(`Failed to find riders after preparing: ${error.message}`);
-	}
-
+	// Rider search is triggered in vendorMarkReady (when order is actually packed and ready)
 	logger.info(`Order ${orderId} — vendor ${vendorId} started preparing`);
 	return order;
 };
 
 const vendorMarkReady = async (orderId, vendorId) => {
-	const order = await Order.findById(orderId);
+	const order = await Order.findById(orderId).populate("vendor", "name location");
 	if (!order) throw new Error("Order not found");
 
-	if (order.vendor.toString() !== vendorId) {
+	if (order.vendor._id.toString() !== vendorId) {
 		throw new Error("You can only update orders from your restaurant");
 	}
 
 	const allowedForReady = [ORDER_STATUS.PENDING, ORDER_STATUS.PACKAGING];
 	if (!allowedForReady.includes(order.status)) {
-		throw new Error("Order must be accepted before marking as ready");
+		throw new Error("Order must be in preparation before marking as ready");
 	}
 
 	order.status = ORDER_STATUS.PACKAGING;
 	order.subStatus = ORDER_SUB_STATUS.PACKAGED;
 	await order.save();
+
+	// Notify customer — they see "Order is packed and ready"
+	if (global.io) {
+		global.io.to(order.customer.toString()).emit("orderUpdate", {
+			orderId: order._id,
+			status: order.status,
+			subStatus: order.subStatus,
+		});
+	}
 
 	try {
 		await notificationService.sendNotification({
@@ -210,12 +196,27 @@ const vendorMarkReady = async (orderId, vendorId) => {
 		logger.error(`Failed to send ready notification: ${error.message}`);
 	}
 
-	if (global.io) {
-		global.io.to(order.customer.toString()).emit("orderUpdate", {
-			orderId: order._id,
-			status: order.status,
-			subStatus: order.subStatus,
-		});
+	// NOW trigger rider search — order is physically ready for pickup
+	try {
+		const vendorLocation = order.vendor?.location;
+		if (vendorLocation) {
+			const { findNearbyRiders } = require("./order.rider.service");
+			await findNearbyRiders(vendorLocation, order._id);
+		}
+		await orderService.updateOrderStatus(
+			orderId,
+			ORDER_STATUS.RIDING,
+			ORDER_SUB_STATUS.LOOKING_FOR_RIDER,
+		);
+		if (global.io) {
+			global.io.to(order.customer.toString()).emit("orderUpdate", {
+				orderId: order._id,
+				status: ORDER_STATUS.RIDING,
+				subStatus: ORDER_SUB_STATUS.LOOKING_FOR_RIDER,
+			});
+		}
+	} catch (error) {
+		logger.error(`Failed to find riders after mark ready: ${error.message}`);
 	}
 
 	return order;
