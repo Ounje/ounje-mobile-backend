@@ -688,6 +688,17 @@ const completeDelivery = async (orderId, riderId, otp) => {
 		subStatus: ORDER_SUB_STATUS.DELIVERED,
 		message: "Delivery confirmed! Enjoy your meal.",
 	});
+
+	// Notify vendor so their order detail updates to "Delivered"
+	if (global.io && order.vendor) {
+		global.io.to(order.vendor.toString()).emit("orderUpdate", {
+			orderId: order._id,
+			status: ORDER_STATUS.DELIVERED,
+			subStatus: ORDER_SUB_STATUS.DELIVERED,
+		});
+		logger.info(`Delivered status emitted to vendor ${order.vendor}`);
+	}
+
 	logger.info(`Order ${orderId} delivered by Rider ${riderId}`);
 
 	return order;
