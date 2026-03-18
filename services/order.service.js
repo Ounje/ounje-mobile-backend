@@ -560,6 +560,13 @@ const acceptOrder = async (orderId, riderId) => {
 		{
 			_id: orderId,
 			$or: [
+				// Primary state: vendor marked ready → rider search triggered
+				{
+					status: ORDER_STATUS.RIDING,
+					subStatus: ORDER_SUB_STATUS.LOOKING_FOR_RIDER,
+					rider: null,
+				},
+				// Fallback: order packaged but rider search not yet complete
 				{
 					status: ORDER_STATUS.PACKAGING,
 					subStatus: ORDER_SUB_STATUS.PACKAGED,
