@@ -543,13 +543,30 @@ const verifyDeliveryOtp = async (order, otp, riderId) => {
 	return { success: true };
 };
 
-// CHANGED: acceptOrder now looks for PACKAGING/PACKAGED or PACKAGING/LOOKING_FOR_RIDER
-// instead of old PENDING or RIDING/LOOKING_FOR_RIDER
 const acceptOrder = async (orderId, riderId) => {
+	// Prevent a rider from accepting a new order while they have an active delivery
+	const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60 * 1000);
+	const activeRide = await Order.findOne({
+		rider: riderId,
+		status: ORDER_STATUS.RIDING,
+		subStatus: { $in: [ORDER_SUB_STATUS.RIDER_ASSIGNED, ORDER_SUB_STATUS.PICKED_UP, ORDER_SUB_STATUS.ON_THE_WAY] },
+		updatedAt: { $gte: twoHoursAgo },
+	});
+	if (activeRide) {
+		throw new Error("You already have an active delivery. Complete or decline it first.");
+	}
+
 	const order = await Order.findOneAndUpdate(
 		{
 			_id: orderId,
 			$or: [
+				// Primary state: vendor marked ready → rider search triggered
+				{
+					status: ORDER_STATUS.RIDING,
+					subStatus: ORDER_SUB_STATUS.LOOKING_FOR_RIDER,
+					rider: null,
+				},
+				// Fallback: order packaged but rider search not yet complete
 				{
 					status: ORDER_STATUS.PACKAGING,
 					subStatus: ORDER_SUB_STATUS.PACKAGED,
@@ -671,6 +688,17 @@ const completeDelivery = async (orderId, riderId, otp) => {
 		subStatus: ORDER_SUB_STATUS.DELIVERED,
 		message: "Delivery confirmed! Enjoy your meal.",
 	});
+
+	// Notify vendor so their order detail updates to "Delivered"
+	if (global.io && order.vendor) {
+		global.io.to(order.vendor.toString()).emit("orderUpdate", {
+			orderId: order._id,
+			status: ORDER_STATUS.DELIVERED,
+			subStatus: ORDER_SUB_STATUS.DELIVERED,
+		});
+		logger.info(`Delivered status emitted to vendor ${order.vendor}`);
+	}
+
 	logger.info(`Order ${orderId} delivered by Rider ${riderId}`);
 
 	return order;

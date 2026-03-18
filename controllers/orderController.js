@@ -31,7 +31,7 @@ const formatRiderOrder = (order) => {
   return {
     ...orderObj,
     id: orderObj._id,
-    amount: orderObj.totalPrice, // Map totalPrice to amount
+    amount: orderObj.deliveryFee ?? 0, // Riders earn delivery fee only
     vendor: orderObj.vendor
       ? {
           id: orderObj.vendor._id || orderObj.vendor,
