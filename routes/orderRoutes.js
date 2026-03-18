@@ -544,7 +544,7 @@ router.post(
     "/rider/:orderId/resend-otp",
     authMiddleware,
     checkActiveUser,
-    roleGuard(["rider"]),
+    roleGuard(["rider", "customer"]),
     resendDeliveryOtp,
 );
 /**
