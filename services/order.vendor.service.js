@@ -264,10 +264,12 @@ const getVendorOrders = async (vendorProfileId, query = {}) => {
 	const filter = { vendor: vendorProfileId };
 
 	if (status) {
-		if (status === "active") {
-			// Only surface orders updated within the last 24 hours so stale
-			// test/seed orders (confirming/pending/riding stuck for days) are
-			// invisible without requiring a manual DB cleanup every session.
+		if (status === "confirming") {
+			// Only unaccepted new orders — vendor hasn't acted yet (subStatus still "confirming")
+			filter.status = ORDER_STATUS.CONFIRMING;
+			filter.subStatus = ORDER_SUB_STATUS.CONFIRMING;
+		} else if (status === "active") {
+			// Orders in progress updated within the last 24 h (excludes stale test data)
 			const staleThreshold = new Date(Date.now() - 24 * 60 * 60 * 1000);
 			filter.updatedAt = { $gte: staleThreshold };
 			filter.status = {
@@ -278,6 +280,8 @@ const getVendorOrders = async (vendorProfileId, query = {}) => {
 					ORDER_STATUS.RIDING,
 				],
 			};
+			// Exclude unaccepted orders (status=confirming + subStatus=confirming = still in new tab)
+			filter.$nor = [{ status: ORDER_STATUS.CONFIRMING, subStatus: ORDER_SUB_STATUS.CONFIRMING }];
 		} else if (status === "completed") {
 			filter.status = ORDER_STATUS.DELIVERED;
 		} else if (status === "cancelled") {
