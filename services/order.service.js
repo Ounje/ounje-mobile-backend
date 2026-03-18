@@ -543,9 +543,19 @@ const verifyDeliveryOtp = async (order, otp, riderId) => {
 	return { success: true };
 };
 
-// CHANGED: acceptOrder now looks for PACKAGING/PACKAGED or PACKAGING/LOOKING_FOR_RIDER
-// instead of old PENDING or RIDING/LOOKING_FOR_RIDER
 const acceptOrder = async (orderId, riderId) => {
+	// Prevent a rider from accepting a new order while they have an active delivery
+	const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60 * 1000);
+	const activeRide = await Order.findOne({
+		rider: riderId,
+		status: ORDER_STATUS.RIDING,
+		subStatus: { $in: [ORDER_SUB_STATUS.RIDER_ASSIGNED, ORDER_SUB_STATUS.PICKED_UP, ORDER_SUB_STATUS.ON_THE_WAY] },
+		updatedAt: { $gte: twoHoursAgo },
+	});
+	if (activeRide) {
+		throw new Error("You already have an active delivery. Complete or decline it first.");
+	}
+
 	const order = await Order.findOneAndUpdate(
 		{
 			_id: orderId,
