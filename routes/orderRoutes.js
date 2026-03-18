@@ -30,6 +30,7 @@ const {
 	// Rider
 	acceptOrder,
 	pickUpOrder,
+	resendDeliveryOtp,
 	riderMarkOnTheWay,
 	completeDelivery,
 	getAvailableRiderRequests,
@@ -525,6 +526,11 @@ router.get(
  *     security:
  *       - bearerAuth: []
  */
+
+/* ======================
+   RIDER ACTION ROUTES
+====================== */
+
 router.get(
 	"/rider/:orderId",
 	authMiddleware,
@@ -534,10 +540,13 @@ router.get(
 	getRiderOrderById,
 );
 
-/* ======================
-   RIDER ACTION ROUTES
-====================== */
-
+router.post(
+    "/rider/:orderId/resend-otp",
+    authMiddleware,
+    checkActiveUser,
+    roleGuard(["rider"]),
+    resendDeliveryOtp,
+);
 /**
  * @swagger
  * /api/orders/rider/{orderId}/accept:

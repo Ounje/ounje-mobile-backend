@@ -478,7 +478,7 @@ const sendDeliveryOtp = async (order) => {
 		parseInt(process.env.DELIVERY_OTP_LENGTH || 6),
 	);
 	const otpHash = hashOtp(otp);
-	const duration = parseInt(process.env.DELIVERY_OTP_DURATION || 5);
+	const duration = parseInt(process.env.DELIVERY_OTP_DURATION || 1440); // 24 hours
 
 	order.deliveryOtpCode = otp;
 	logger.info(`Generated OTP for order ${order._id}: ${otp}`);
@@ -787,10 +787,29 @@ const vendorAcceptOrder = async (orderId, vendorId) => {
 	return order;
 };
 
+const resendDeliveryOtp = async (orderId, riderId) => {
+    const order = await Order.findById(orderId);
+    if (!order) throw new Error("Order not found");
+
+    if (order.rider.toString() !== riderId) {
+        throw new Error("You are not the assigned rider for this order");
+    }
+
+    if (order.status !== ORDER_STATUS.RIDING || order.subStatus !== ORDER_SUB_STATUS.PICKED_UP) {
+        throw new Error("Order must be picked up before resending OTP");
+    }
+
+    // Generate new OTP and send it
+    await sendDeliveryOtp(order);
+
+    return { success: true, message: "OTP resent to customer" };
+};
+
 module.exports = {
 	createOrder,
 	updateOrderStatus,
 	sendDeliveryOtp,
+	resendDeliveryOtp,
 	verifyDeliveryOtp,
 	acceptOrder,
 	pickUpOrder,
