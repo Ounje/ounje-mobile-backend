@@ -18,6 +18,15 @@ const logger = require("../utils/logger");
 const mongoose = require("mongoose");
 const AppError = require("../utils/AppError");
 
+// ── Rank thresholds ───────────────────────────────────────────────────────────
+const calculateRiderRank = (totalDeliveries) => {
+	if (totalDeliveries >= 200) return "Platinum Rider";
+	if (totalDeliveries >= 100) return "Gold Rider";
+	if (totalDeliveries >= 50) return "Silver Rider";
+	if (totalDeliveries >= 10) return "Bronze Rider";
+	return "New Rider";
+};
+
 // --- Helpers ---
 
 const _emitOrderUpdate = (customerId, payload) => {
@@ -530,9 +539,15 @@ const verifyDeliveryOtp = async (order, otp, riderId) => {
 
 	try {
 		if (order.rider) {
-			await RiderProfile.findByIdAndUpdate(order.rider, {
-				$inc: { totalDeliveries: 1 },
-			});
+			const updatedProfile = await RiderProfile.findByIdAndUpdate(
+				order.rider,
+				{ $inc: { totalDeliveries: 1 } },
+				{ new: true, select: "totalDeliveries" },
+			);
+			if (updatedProfile) {
+				const rank = calculateRiderRank(updatedProfile.totalDeliveries);
+				await RiderProfile.findByIdAndUpdate(order.rider, { rank });
+			}
 		}
 	} catch (err) {
 		logger.error(
@@ -624,6 +639,17 @@ const acceptOrder = async (orderId, riderId) => {
 		subStatus: order.subStatus,
 		message: "A rider has accepted your order and is on the way!",
 	});
+
+	// Hold delivery fee in escrow so it shows in the rider's wallet immediately
+	try {
+		if (order.deliveryFee > 0) {
+			await ledgerService.holdRiderFee(riderId, order.deliveryFee, order._id);
+		}
+	} catch (ledgerErr) {
+		logger.error(`Failed to hold rider fee for order ${orderId}: ${ledgerErr.message}`);
+		// Non-blocking — order accept still succeeds
+	}
+
 	logger.info(`Rider ${riderId} accepted Order ${orderId}`);
 
 	return order;
