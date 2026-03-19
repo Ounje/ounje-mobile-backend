@@ -18,7 +18,13 @@ const getBalance = async (req, res) => {
     }
 
     const balance = await ledgerService.getAccountBalance(userId, userType.toUpperCase());
-    res.json(balance);
+
+    // totalEarnings = withdrawable + in-progress (hold) + pending payout
+    const totalEarnings = (balance.availableBalance ?? 0)
+      + (balance.holdBalance ?? 0)
+      + (balance.pendingBalance ?? 0);
+
+    res.json({ ...balance, totalEarnings });
   } catch (error) {
     console.error("Balance fetch error:", error.message);
     res.status(500).json({ error: error.message });

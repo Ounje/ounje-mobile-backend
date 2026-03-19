@@ -562,6 +562,91 @@ const getDailyEarnings = async (userId, userType, date = new Date()) => {
 	return result.length > 0 ? result[0].total : 0;
 };
 
+/**
+ * Hold vendor's meal earnings until delivery is confirmed.
+ * Called by payment webhook instead of immediately crediting.
+ */
+const holdVendorAmount = async (vendorId, amount, orderId) => {
+	const session = await mongoose.startSession();
+	session.startTransaction();
+	try {
+		const account = await ensureAccount(vendorId, "VENDOR");
+
+		await LedgerEntry.create(
+			[{
+				accountId: account._id,
+				amount,
+				entryType: "CREDIT",
+				reason: "DELIVERY_FEE_HOLD",
+				orderId,
+				meta: { status: "awaiting_delivery", role: "vendor" },
+				balanceAfter: account.availableBalance, // available unchanged
+			}],
+			{ session },
+		);
+
+		account.holdBalance += amount;
+		await account.save({ session });
+		await session.commitTransaction();
+	} catch (error) {
+		await session.abortTransaction();
+		throw error;
+	} finally {
+		session.endSession();
+	}
+};
+
+/**
+ * Release vendor's held earnings to withdrawable (availableBalance).
+ * Called when delivery OTP is confirmed.
+ */
+const releaseVendorAmount = async (vendorId, orderId) => {
+	const session = await mongoose.startSession();
+	session.startTransaction();
+	try {
+		const account = await ensureAccount(vendorId, "VENDOR");
+
+		const holdEntry = await LedgerEntry.findOne({
+			orderId,
+			accountId: account._id,
+			reason: "DELIVERY_FEE_HOLD",
+		});
+
+		let amount;
+		if (holdEntry) {
+			amount = holdEntry.amount;
+			account.holdBalance = Math.max(0, account.holdBalance - amount);
+		} else {
+			// No hold exists (legacy order credited immediately via webhook) — nothing to release
+			await session.commitTransaction();
+			return;
+		}
+
+		account.availableBalance += amount;
+
+		await LedgerEntry.create(
+			[{
+				accountId: account._id,
+				amount,
+				entryType: "CREDIT",
+				reason: "ORDER_EARNING",
+				orderId,
+				meta: { action: "vendor_earning_released" },
+				balanceAfter: account.availableBalance,
+			}],
+			{ session },
+		);
+
+		await account.save({ session });
+		await session.commitTransaction();
+	} catch (error) {
+		await session.abortTransaction();
+		throw error;
+	} finally {
+		session.endSession();
+	}
+};
+
 module.exports = {
 	ensureAccount,
 	creditAccount,
@@ -576,5 +661,7 @@ module.exports = {
 	getAccountStatement,
 	holdRiderFee,
 	releaseRiderFee,
+	holdVendorAmount,
+	releaseVendorAmount,
 	getDailyEarnings,
 };
