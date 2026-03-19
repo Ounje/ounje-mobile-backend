@@ -473,19 +473,35 @@ const releaseRiderFee = async (userId, orderId) => {
 	const session = await mongoose.startSession();
 	session.startTransaction();
 	try {
-		const account = await LedgerAccount.findOne({ userId, type: "RIDER" });
+		const account = await ensureAccount(userId, "RIDER");
 
-		// Find the original hold entry to get the amount
+		// Check for a pre-existing hold entry (created at payment time if rider was
+		// already assigned). In the standard flow the rider is assigned AFTER payment,
+		// so holdEntry will be null — we fall back to crediting directly from the order.
 		const holdEntry = await LedgerEntry.findOne({
 			orderId,
 			accountId: account._id,
 			reason: "DELIVERY_FEE_HOLD",
 		});
-		if (!holdEntry) throw new Error("No held funds found for this order");
 
-		const amount = holdEntry.amount;
+		let amount;
+		if (holdEntry) {
+			// Release from hold
+			amount = holdEntry.amount;
+			account.holdBalance = Math.max(0, account.holdBalance - amount);
+		} else {
+			// No hold was created (rider assigned after payment) — look up delivery fee
+			// from the order and credit directly
+			const Order = require("../models/Order");
+			const order = await Order.findById(orderId).select("deliveryFee");
+			amount = order?.deliveryFee ?? 0;
+			if (amount <= 0) {
+				// Nothing to credit — commit empty transaction and exit
+				await session.commitTransaction();
+				return;
+			}
+		}
 
-		account.holdBalance -= amount;
 		account.availableBalance += amount;
 
 		await LedgerEntry.create(
