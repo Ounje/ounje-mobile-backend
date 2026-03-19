@@ -85,7 +85,25 @@ class VendorService {
 			.populate("owner", "phone email"); // Include phone/email from User
 
 		if (!vendor) throw new Error("Vendor not found");
-		return vendor;
+
+		// Compute order stats (non-blocking — return zeros on error)
+		let totalOrders = 0;
+		let ordersToday = 0;
+		try {
+			const Order = require("../models/Order");
+			const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0);
+			const todayEnd = new Date(); todayEnd.setHours(23, 59, 59, 999);
+			[totalOrders, ordersToday] = await Promise.all([
+				Order.countDocuments({ vendor: vendor._id, status: "delivered" }),
+				Order.countDocuments({
+					vendor: vendor._id,
+					createdAt: { $gte: todayStart, $lte: todayEnd },
+					status: { $in: ["delivered", "confirming", "packaging", "riding"] },
+				}),
+			]);
+		} catch { /* non-fatal */ }
+
+		return { ...vendor.toJSON(), totalOrders, ordersToday };
 	}
 
 	/**

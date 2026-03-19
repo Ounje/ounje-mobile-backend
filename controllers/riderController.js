@@ -9,13 +9,18 @@ const RiderProfile = require("../models/RiderProfile");
 const getRiderWallet = async (req, res) => {
 	try {
 		const riderId = req.user.id;
-		const balance = await ledgerService.getAccountBalance(riderId, "RIDER");
+		const [balance, todayEarnings] = await Promise.all([
+			ledgerService.getAccountBalance(riderId, "RIDER"),
+			ledgerService.getDailyEarnings(riderId, "RIDER"),
+		]);
 
 		res.status(200).json({
 			wallet: {
 				availableBalance: balance.availableBalance,
 				pendingBalance: balance.pendingBalance,
+				holdBalance: balance.holdBalance,
 				totalBalance: balance.totalBalance,
+				todayEarnings,
 				currency: "NGN",
 			},
 		});
