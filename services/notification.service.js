@@ -271,33 +271,42 @@ class NotificationService {
 		}
 	}
 
-	async pushToUser(userId, recipientModel, title, body) {
+	async pushToUser(profileId, recipientModel, title, body) {
 		try {
-			// Use the base User model since Vendor/Customer/Rider extend from it
 			const User = require("../models/User");
+			let user = null;
 
-			// Find user by ID - works for all discriminators (Vendor, Customer, Rider)
-			const user = await User.findById(userId).select("fcmToken");
+			// Profile IDs (VendorProfile._id / RiderProfile._id) are not User IDs.
+			// Resolve each profile to its linked User to get the fcmToken.
+			if (recipientModel === "vendor") {
+				const { VendorProfile } = require("../models");
+				const profile = await VendorProfile.findById(profileId).select("owner");
+				if (profile?.owner) user = await User.findById(profile.owner).select("fcmToken");
+			} else if (recipientModel === "rider") {
+				const { RiderProfile } = require("../models");
+				const profile = await RiderProfile.findById(profileId).select("user");
+				if (profile?.user) user = await User.findById(profile.user).select("fcmToken");
+			} else {
+				// Customer — recipient IS the customer profile ID; look up by user field
+				const { Customer } = require("../models");
+				const profile = await Customer.findById(profileId).select("user");
+				if (profile?.user) user = await User.findById(profile.user).select("fcmToken");
+			}
 
 			if (!user) {
-				logger.warn(`User ${userId} not found for push notification`);
+				logger.warn(`User not found for ${recipientModel} profile ${profileId}`);
 				return;
 			}
 
 			if (!user.fcmToken) {
-				logger.info(`No FCM token found for ${recipientModel} ${userId}`);
+				logger.info(`No push token for ${recipientModel} ${profileId}`);
 				return;
 			}
 
-			// Fix: sendPushNotification expects (token, title, body)
-			await sendPushNotification(user.fcmToken, title, body);
-			logger.info(
-				`Push notification sent to ${recipientModel} ${userId}: ${title}`,
-			);
+			await sendPushNotification(user.fcmToken, title, body, { channelId: "orders" });
+			logger.info(`Push notification sent to ${recipientModel} ${profileId}: ${title}`);
 		} catch (error) {
-			logger.error(
-				`Failed to send push notification to ${userId}: ${error.message}`,
-			);
+			logger.error(`Failed to send push notification to ${profileId}: ${error.message}`);
 		}
 	}
 }

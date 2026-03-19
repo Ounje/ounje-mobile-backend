@@ -1,27 +1,52 @@
-const firebaseAdmin = require("../utils/firebase");
+const axios = require("axios");
+
 /**
- * @param {string} token - The user's unique device token
- * @param {string} title - The heading (e.g., "Order Packaged!")
- * @param {string} body - The detail (e.g., "The vendor is done with your meal")
+ * Send push notification via Expo Push API.
+ * Accepts Expo push tokens (ExponentPushToken[xxx]) registered by the mobile app.
+ *
+ * @param {string} token     - Expo push token
+ * @param {string} title     - Notification title
+ * @param {string} body      - Notification body
+ * @param {object} [options] - Extra options: { channelId, data }
  */
-const sendPushNotification = async (token, title, body) => {
+const sendPushNotification = async (token, title, body, options = {}) => {
 	try {
-		if (!token) return; // Can't send if we don't have a device to send to
+		if (!token) return;
 
-		const message = {
-			notification: { title, body },
-			token: token, // This is the specific phone's ID
-		};
-
-		if (!firebaseAdmin.apps?.length) {
-			console.log("⚠️ Push skipped (Firebase not configured):", title);
+		// Only send to valid Expo push tokens
+		if (!token.startsWith("ExponentPushToken") && !token.startsWith("ExpoPushToken")) {
+			console.log("⚠️ Push skipped: not an Expo push token:", token.slice(0, 20));
 			return;
 		}
 
-		await firebaseAdmin.messaging().send(message);
-		console.log("✅ Push Notification sent!");
+		const response = await axios.post(
+			"https://exp.host/--/api/v2/push/send",
+			{
+				to: token,
+				title,
+				body,
+				sound: "default",
+				priority: "high",
+				// Route to the high-importance Android channel defined in the app
+				channelId: options.channelId ?? "orders",
+				...(options.data && { data: options.data }),
+			},
+			{
+				headers: {
+					"Content-Type": "application/json",
+					Accept: "application/json",
+				},
+			},
+		);
+
+		const result = response.data?.data;
+		if (result?.status === "error") {
+			console.error("❌ Expo push error:", result.message);
+		} else {
+			console.log("✅ Push notification sent via Expo:", title);
+		}
 	} catch (error) {
-		console.error("❌ Firebase error:", error);
+		console.error("❌ Expo push error:", error.message);
 	}
 };
 
