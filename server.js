@@ -74,6 +74,7 @@ app.use("/api/rating", ratingRouter);
 app.use("/api/search", searchRouter);
 app.use("/api/notifications", notificationRouter);
 app.use("/api/announcements", require("./routes/announcementRoutes"));
+app.use("/api/finance", require("./routes/financeRoutes"));
 // app.use("/api/test", require("./tests/test01"));
 
 logger.info(`Frontend URL: ${process.env.FRONTEND_URL}`);

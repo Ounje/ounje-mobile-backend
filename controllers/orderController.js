@@ -389,11 +389,15 @@ exports.getRiderOrderById = asyncHandler(async (req, res) => {
 });
 
 exports.resendDeliveryOtp = asyncHandler(async (req, res) => {
-    const { orderId } = req.params;
-    const riderId = req.rider._id;
+	const { orderId } = req.params;
 
-    const result = await orderService.resendDeliveryOtp(orderId, riderId.toString());
-    res.status(200).json(result);
+	// Works for both customer and rider
+	const result = await orderService.resendDeliveryOtp(
+		orderId,
+		req.user.id,
+		req.user.role,
+	);
+	res.status(200).json(result);
 });
 
 // Rider reports a delivery issue

@@ -815,22 +815,33 @@ const vendorAcceptOrder = async (orderId, vendorId) => {
 	return order;
 };
 
-const resendDeliveryOtp = async (orderId, riderId) => {
-    const order = await Order.findById(orderId);
-    if (!order) throw new Error("Order not found");
+const resendDeliveryOtp = async (orderId, userId, role) => {
+	const order = await Order.findById(orderId);
+	if (!order) throw new Error("Order not found");
 
-    if (order.rider.toString() !== riderId) {
-        throw new Error("You are not the assigned rider for this order");
-    }
+	// Allow both customer and rider to trigger resend
+	if (role === "rider") {
+		const { RiderProfile } = require("../models");
+		const rider = await RiderProfile.findOne({ user: userId });
+		if (!rider || order.rider.toString() !== rider._id.toString()) {
+			throw new Error("You are not the assigned rider for this order");
+		}
+	} else if (role === "customer") {
+		const { Customer } = require("../models");
+		const customer = await Customer.findOne({ user: userId });
+		if (!customer || order.customer.toString() !== customer._id.toString()) {
+			throw new Error("You are not the customer for this order");
+		}
+	} else {
+		throw new Error("Only customer or rider can resend OTP");
+	}
 
-    if (order.status !== ORDER_STATUS.RIDING || order.subStatus !== ORDER_SUB_STATUS.PICKED_UP) {
-        throw new Error("Order must be picked up before resending OTP");
-    }
+	if (order.subStatus !== ORDER_SUB_STATUS.PICKED_UP) {
+		throw new Error("Order must be picked up before resending OTP");
+	}
 
-    // Generate new OTP and send it
-    await sendDeliveryOtp(order);
-
-    return { success: true, message: "OTP resent to customer" };
+	await sendDeliveryOtp(order);
+	return { success: true, message: "OTP resent to customer" };
 };
 
 module.exports = {

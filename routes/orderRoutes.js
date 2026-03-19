@@ -560,7 +560,7 @@ router.put(
 	"/rider/:orderId/accept",
 	authMiddleware,
 	checkActiveUser,
-	roleGuard(["rider"]),
+	roleGuard(["rider", "customer"]),
 	requireRider,
 	acceptOrder,
 );
