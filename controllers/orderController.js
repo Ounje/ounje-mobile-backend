@@ -264,7 +264,10 @@ exports.riderMarkOnTheWay = asyncHandler(async (req, res) => {
 exports.completeDelivery = asyncHandler(async (req, res) => {
   const { orderId } = req.params;
   const { otp } = req.body;
-  const riderId = req.rider._id;
+  const { RiderProfile } = require("../models");
+  const riderProfile = await RiderProfile.findOne({ user: req.user.id });
+  if (!riderProfile) throw new AppError("Rider profile not found", 404);
+  const riderId = riderProfile._id;
 
   const order = await orderService.completeDelivery(
     orderId,
