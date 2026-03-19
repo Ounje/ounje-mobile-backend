@@ -535,6 +535,15 @@ const verifyDeliveryOtp = async (order, otp, riderId) => {
 	order.deliveryOtpSentAt = null;
 
 	await ledgerService.releaseRiderFee(order.rider, order._id);
+
+	// Release vendor's held meal earnings → availableBalance (withdrawable)
+	try {
+		await ledgerService.releaseVendorAmount(order.vendor, order._id);
+	} catch (vendorLedgerErr) {
+		logger.error(`Failed to release vendor amount for order ${order._id}: ${vendorLedgerErr.message}`);
+		// Non-blocking — delivery still completes
+	}
+
 	await order.save();
 
 	try {

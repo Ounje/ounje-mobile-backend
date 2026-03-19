@@ -136,17 +136,14 @@ const webhookHandler = async (req, res) => {
 			const deliveryFee = order.deliveryFee || 0;
 			const mealPrice = order.items.reduce((sum, item) => sum + item.price, 0);
 
-			// CHANNEL 1: Credit Vendor Wallet
-			await ledgerService.creditAccount(
-				order.vendor,
-				"VENDOR",
-				mealPrice,
-				"ORDER_EARNING",
-				order._id,
-				{ type: "MEAL_PRICE" }
-			);
+			// CHANNEL 1: Hold vendor's meal earnings until delivery is confirmed
+			if (mealPrice > 0) {
+				await ledgerService.holdVendorAmount(order.vendor, mealPrice, order._id);
+			}
 
-			// CHANNEL 2: Put Rider Fee on HOLD (Escrow)
+			// CHANNEL 2: Put Rider Fee on HOLD (Escrow) — only if rider already assigned
+			// In the standard flow rider is assigned AFTER payment, so this is a no-op.
+			// Rider hold is instead created in acceptOrder when rider accepts.
 			if (order.rider && deliveryFee > 0) {
 				await ledgerService.holdRiderFee(order.rider, deliveryFee, order._id);
 			}
