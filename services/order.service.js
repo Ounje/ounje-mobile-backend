@@ -381,8 +381,12 @@ const createOrder = async (userId, data) => {
 	const customer = await Customer.findOne({ user: userId });
 	if (!customer) throw new Error("Customer profile not found");
 
-	// 6. Calculate Service Fee (10% of food total)
+	// 6. Calculate Service Fee (10% of food total) and vendor net earning
 	const serviceFee = Math.round(itemsTotalPrice * 0.10);
+
+	const COMMISSION_RATES = { basic: 0.05, growth: 0.10, premium: 0.15 };
+	const commissionRate = COMMISSION_RATES[vendor.tier] ?? 0.10;
+	const vendorEarning = Math.round(itemsTotalPrice * (1 - commissionRate));
 
 	// 6b. Resolve delivery coordinates
 	let finalDeliveryLat = deliveryLatitude ?? null;
@@ -409,6 +413,8 @@ const createOrder = async (userId, data) => {
 		totalPrice: itemsTotalPrice + fee + serviceFee,
 		deliveryFee: fee,
 		serviceFee,
+		foodTotal: itemsTotalPrice,
+		vendorEarning,
 		deliveryAddress,
 		deliveryLatitude: finalDeliveryLat,
 		deliveryLongitude: finalDeliveryLng,
@@ -676,7 +682,24 @@ const pickUpOrder = async (orderId, riderId) => {
 	order.subStatus = ORDER_SUB_STATUS.PICKED_UP;
 	await order.save();
 
-	await sendDeliveryOtp(order);
+	// OTP was already generated at payment time — re-emit to remind the customer.
+	// Fall back to generating a new one only for legacy orders that predate this change.
+	if (order.deliveryOtpCode && order.deliveryOtpExpiresAt > new Date()) {
+		try {
+			if (global.io) {
+				global.io.to(order.customer.toString()).emit("delivery-otp", {
+					orderId: order._id,
+					customerId: order.customer,
+					otp: order.deliveryOtpCode,
+					expiresAt: order.deliveryOtpExpiresAt,
+				});
+			}
+		} catch (err) {
+			logger.error(`Failed to re-emit delivery OTP at pickup: ${err.message}`);
+		}
+	} else {
+		await sendDeliveryOtp(order);
+	}
 
 	try {
 		await notificationService.notifyCustomerOrderPickedUp(
@@ -871,8 +894,12 @@ const resendDeliveryOtp = async (orderId, userId, role) => {
 		throw new Error("Only customer or rider can resend OTP");
 	}
 
-	if (order.subStatus !== ORDER_SUB_STATUS.PICKED_UP) {
-		throw new Error("Order must be picked up before resending OTP");
+	if (order.paymentStatus !== "paid") {
+		throw new Error("Order must be paid before resending OTP");
+	}
+
+	if (order.status === ORDER_STATUS.DELIVERED || order.status === ORDER_STATUS.CANCELLED) {
+		throw new Error("Cannot resend OTP for a completed or cancelled order");
 	}
 
 	await sendDeliveryOtp(order);

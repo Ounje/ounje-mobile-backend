@@ -50,6 +50,11 @@ const vendorProfileSchema = new mongoose.Schema(
 		ratingCount: { type: Number, default: 0 },
 		averageRating: { type: Number, default: 0 },
 		isActive: { type: Boolean, default: true },
+		tier: {
+			type: String,
+			enum: ["basic", "growth", "premium"],
+			default: "basic",
+		},
 		balance: { type: Number, default: 0 },
 		earnings: {
 			today: { type: Number, default: 0 },

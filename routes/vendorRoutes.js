@@ -13,6 +13,7 @@ const {
 	updateVendorLocation,
 	updateVendorProfile,
 	toggleVendorOnlineStatus,
+	getVendorWallet,
 } = require("../controllers/vendorController");
 const {
 	authMiddleware,
@@ -238,6 +239,52 @@ router.patch(
 	checkActiveUser,
 	roleGuard(["vendor"]),
 	toggleVendorOnlineStatus,
+);
+
+/**
+ * @swagger
+ * /api/vendors/wallet:
+ *   get:
+ *     summary: Get vendor wallet balance and earnings
+ *     tags: [Vendors]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Wallet info
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 wallet:
+ *                   type: object
+ *                   properties:
+ *                     availableBalance:
+ *                       type: number
+ *                     pendingBalance:
+ *                       type: number
+ *                     holdBalance:
+ *                       type: number
+ *                     totalBalance:
+ *                       type: number
+ *                     todayEarnings:
+ *                       type: number
+ *                     currency:
+ *                       type: string
+ *                 transactions:
+ *                   type: array
+ *                   items:
+ *                     type: object
+ */
+router.get(
+	"/wallet",
+	authMiddleware,
+	checkActiveUser,
+	roleGuard(["vendor"]),
+	getVendorWallet,
 );
 
 module.exports = router;

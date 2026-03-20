@@ -5,16 +5,24 @@ const RiderProfile = require("../models/RiderProfile");
 
 /**
  * Get Rider Wallet/Dashboard
+ * GET /api/riders/wallet
  */
 const getRiderWallet = async (req, res) => {
 	try {
-		const riderId = req.user.id;
-		const [balance, todayEarnings] = await Promise.all([
+		const riderProfile = await RiderProfile.findOne({ user: req.user.id }).select("_id");
+		if (!riderProfile) {
+			return res.status(404).json({ success: false, message: "Rider profile not found" });
+		}
+		const riderId = riderProfile._id;
+
+		const [balance, todayEarnings, { transactions }] = await Promise.all([
 			ledgerService.getAccountBalance(riderId, "RIDER"),
 			ledgerService.getDailyEarnings(riderId, "RIDER"),
+			ledgerService.getTransactionHistory(riderId, "RIDER", 20, 0),
 		]);
 
 		res.status(200).json({
+			success: true,
 			wallet: {
 				availableBalance: balance.availableBalance,
 				pendingBalance: balance.pendingBalance,
@@ -23,12 +31,48 @@ const getRiderWallet = async (req, res) => {
 				todayEarnings,
 				currency: "NGN",
 			},
+			transactions,
 		});
 	} catch (err) {
 		logger.error(`Get Rider Wallet Error: ${err.message}`);
 		res.status(500).json({
 			success: false,
 			message: "Error fetching wallet info",
+			error: err.message,
+		});
+	}
+};
+
+/**
+ * Get Rider Transaction History (paginated)
+ * GET /api/riders/wallet/transactions?limit=20&offset=0
+ */
+const getRiderWalletTransactions = async (req, res) => {
+	try {
+		const riderProfile = await RiderProfile.findOne({ user: req.user.id }).select("_id");
+		if (!riderProfile) {
+			return res.status(404).json({ success: false, message: "Rider profile not found" });
+		}
+		const riderId = riderProfile._id;
+
+		const limit = Math.min(parseInt(req.query.limit) || 20, 100);
+		const offset = parseInt(req.query.offset) || 0;
+
+		const result = await ledgerService.getTransactionHistory(riderId, "RIDER", limit, offset);
+
+		res.status(200).json({
+			success: true,
+			transactions: result.transactions,
+			total: result.total,
+			hasMore: result.hasMore,
+			limit,
+			offset,
+		});
+	} catch (err) {
+		logger.error(`Get Rider Wallet Transactions Error: ${err.message}`);
+		res.status(500).json({
+			success: false,
+			message: "Error fetching transaction history",
 			error: err.message,
 		});
 	}
@@ -274,6 +318,7 @@ module.exports = {
 	riderLeaderBoard,
 	getRiderProfile,
 	getRiderWallet,
+	getRiderWalletTransactions,
 	updateOperatingArea,
 	getOperatingArea,
 	deactivateRiderAccount,

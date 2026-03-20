@@ -76,10 +76,12 @@ const orderSchema = new mongoose.Schema(
 			type: Number,
 			required: true,
 		},
-		serviceFee: { 
-			type: Number, 
-			default: 0 
+		serviceFee: {
+			type: Number,
+			default: 0
 		},
+		foodTotal: { type: Number, default: 0 },     // gross food subtotal (sum of items)
+		vendorEarning: { type: Number, default: 0 }, // net to vendor after platform commission
 		zone: {
 			type: String,
 		}, // e.g., "Ikeja"
@@ -118,6 +120,11 @@ const orderSchema = new mongoose.Schema(
 			type: String,
 			enum: ["unpaid", "paid", "refunded"],
 			default: "unpaid",
+		},
+
+		paymentMethod: {
+			type: String,
+			enum: ["paystack", "wallet"],
 		},
 
 		isPreorder:   { type: Boolean, default: false },

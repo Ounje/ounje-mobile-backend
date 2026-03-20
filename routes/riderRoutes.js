@@ -16,6 +16,7 @@ const {
 	completeRiderRegistration,
 	getRiderProfile,
 	getRiderWallet,
+	getRiderWalletTransactions,
 	getOperatingArea,
 	updateOperatingArea,
 	deactivateRiderAccount,
@@ -283,6 +284,36 @@ router.get(
  *                       type: string
  * */
 router.get("/wallet", authMiddleware, roleGuard(["rider"]), getRiderWallet);
+
+/**
+ * @swagger
+ * /api/riders/wallet/transactions:
+ *   get:
+ *     summary: Get paginated rider transaction history
+ *     tags: [Riders]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *           default: 20
+ *       - in: query
+ *         name: offset
+ *         schema:
+ *           type: integer
+ *           default: 0
+ *     responses:
+ *       200:
+ *         description: Transaction history
+ */
+router.get(
+	"/wallet/transactions",
+	authMiddleware,
+	roleGuard(["rider"]),
+	getRiderWalletTransactions,
+);
 
 // Save device push token for notifications
 router.post(

@@ -2,6 +2,7 @@ const axios = require("axios");
 const { Payment, Customer, Order } = require("../models");
 const crypto = require("crypto");
 const ledgerService = require("../services/ledger.service");
+const orderService = require("../services/order.service");
 
 const paystack = axios.create({
 	baseURL: "https://api.paystack.co",
@@ -132,13 +133,23 @@ const webhookHandler = async (req, res) => {
 			order.paymentStatus = "paid";
 			await order.save();
 
+			// Send delivery OTP to customer immediately at payment confirmation
+			try {
+				await orderService.sendDeliveryOtp(order);
+			} catch (err) {
+				console.error(`Failed to send delivery OTP after payment: ${err.message}`);
+			}
+
 			const totalPaid = amount / 100;
 			const deliveryFee = order.deliveryFee || 0;
-			const mealPrice = order.items.reduce((sum, item) => sum + item.price, 0);
+			// Use stored net earning (after commission); fall back to gross for legacy orders
+			const vendorAmount = order.vendorEarning > 0
+				? order.vendorEarning
+				: order.items.reduce((sum, item) => sum + item.price, 0);
 
-			// CHANNEL 1: Hold vendor's meal earnings until delivery is confirmed
-			if (mealPrice > 0) {
-				await ledgerService.holdVendorAmount(order.vendor, mealPrice, order._id);
+			// CHANNEL 1: Hold vendor's net earnings until delivery is confirmed
+			if (vendorAmount > 0) {
+				await ledgerService.holdVendorAmount(order.vendor, vendorAmount, order._id);
 			}
 
 			// CHANNEL 2: Put Rider Fee on HOLD (Escrow) — only if rider already assigned
@@ -160,8 +171,92 @@ const webhookHandler = async (req, res) => {
 	}
 };
 
+/**
+ * 4. Wallet Payment
+ * Customer pays for an order using their OunjeFood wallet balance
+ */
+const walletPayment = async (req, res) => {
+	try {
+		const { orderId } = req.body;
+		const userId = req.user.id;
+
+		if (!orderId) {
+			return res.status(400).json({ success: false, message: "orderId is required" });
+		}
+
+		const customer = await Customer.findOne({ user: userId });
+		if (!customer) {
+			return res.status(404).json({ success: false, message: "Customer not found" });
+		}
+
+		const order = await Order.findById(orderId).populate("items");
+		if (!order) {
+			return res.status(404).json({ success: false, message: "Order not found" });
+		}
+
+		if (order.paymentStatus === "paid") {
+			return res.status(400).json({ success: false, message: "Order is already paid" });
+		}
+
+		// Check wallet balance
+		const { availableBalance } = await ledgerService.getAccountBalance(customer._id, "CUSTOMER");
+		if (availableBalance < order.totalPrice) {
+			return res.status(400).json({ success: false, message: "Insufficient wallet balance" });
+		}
+
+		// Debit customer wallet
+		await ledgerService.debitAccount(
+			customer._id,
+			"CUSTOMER",
+			order.totalPrice,
+			"WALLET_PAYMENT",
+			{ orderId: order._id },
+		);
+
+		// Mark order paid via wallet
+		order.paymentStatus = "paid";
+		order.paymentMethod = "wallet";
+		await order.save();
+
+		// Send delivery OTP to customer immediately at payment confirmation
+		try {
+			await orderService.sendDeliveryOtp(order);
+		} catch (err) {
+			console.error(`Failed to send delivery OTP after wallet payment: ${err.message}`);
+		}
+
+		// Hold vendor net earnings until delivery is confirmed (mirrors webhook)
+		const vendorAmount = order.vendorEarning > 0
+			? order.vendorEarning
+			: order.items.reduce((sum, item) => sum + item.price, 0);
+		if (vendorAmount > 0) {
+			await ledgerService.holdVendorAmount(order.vendor, vendorAmount, order._id);
+		}
+
+		// Hold rider fee if rider already assigned
+		const deliveryFee = order.deliveryFee || 0;
+		if (order.rider && deliveryFee > 0) {
+			await ledgerService.holdRiderFee(order.rider, deliveryFee, order._id);
+		}
+
+		// Notify vendor of new order (mirrors order.service.js createOrder)
+		if (global.io) {
+			global.io.to(order.vendor.toString()).emit("newOrderAvailable", {
+				orderId: order._id,
+				message: "New order received!",
+			});
+		}
+
+		return res.status(200).json({ success: true, order });
+	} catch (error) {
+		console.error("Wallet Payment Error:", error.message);
+		return res.status(500).json({ success: false, message: error.message || "Wallet payment failed" });
+	}
+};
+
 module.exports = {
 	initialisePayment,
 	verifyPayment,
 	webhookHandler,
+	walletPayment,
 };

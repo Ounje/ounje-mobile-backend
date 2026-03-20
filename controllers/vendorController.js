@@ -3,6 +3,7 @@ const mongoose = require("mongoose"); // needed only for ObjectId validation in 
 const { VendorProfile } = require("../models");
 const { paginate } = require("../utils/paginate");
 const logger = require("../utils/logger");
+const ledgerService = require("../services/ledger.service");
 
 // Get popular vendors
 const getPopularVendors = async (req, res) => {
@@ -301,6 +302,46 @@ const toggleVendorOnlineStatus = async (req, res) => {
 	}
 };
 
+/**
+ * Get Vendor Wallet
+ * GET /api/vendors/wallet
+ */
+const getVendorWallet = async (req, res) => {
+	try {
+		const vendorProfile = await VendorProfile.findOne({ owner: req.user.id }).select("_id");
+		if (!vendorProfile) {
+			return res.status(404).json({ success: false, message: "Vendor profile not found" });
+		}
+		const vendorId = vendorProfile._id;
+
+		const [balance, todayEarnings, { transactions }] = await Promise.all([
+			ledgerService.getAccountBalance(vendorId, "VENDOR"),
+			ledgerService.getDailyEarnings(vendorId, "VENDOR"),
+			ledgerService.getTransactionHistory(vendorId, "VENDOR", 20, 0),
+		]);
+
+		return res.status(200).json({
+			success: true,
+			wallet: {
+				availableBalance: balance.availableBalance,
+				pendingBalance: balance.pendingBalance,
+				holdBalance: balance.holdBalance,
+				totalBalance: balance.totalBalance,
+				todayEarnings,
+				currency: "NGN",
+			},
+			transactions,
+		});
+	} catch (err) {
+		logger.error(`Get Vendor Wallet Error: ${err.message}`);
+		return res.status(500).json({
+			success: false,
+			message: "Error fetching wallet info",
+			error: err.message,
+		});
+	}
+};
+
 module.exports = {
 	completeVendorRegistration,
 	getPopularVendors,
@@ -315,4 +356,5 @@ module.exports = {
 	updateVendorLocation,
 	updateVendorProfile,
 	toggleVendorOnlineStatus,
+	getVendorWallet,
 };
