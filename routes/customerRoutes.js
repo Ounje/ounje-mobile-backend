@@ -3,8 +3,10 @@ const {
 	getCustomerProfile,
 	updateCustomerProfile,
 	deleteCustomerProfile,
+	updateCustomerProfileImage,
 } = require("../controllers/customerController");
-const { authMiddleware } = require("../middleware/auth");
+const { authMiddleware, roleGuard } = require("../middleware/auth");
+const { userUpload } = require("../config/cloudinary");
 const router = express.Router();
 
 /**
@@ -264,5 +266,55 @@ router.put("/profile", authMiddleware, updateCustomerProfile);
  *                   type: string
  */
 router.delete("/profile", authMiddleware, deleteCustomerProfile);
+
+/**
+ * @swagger
+ * /api/customers/profile/picture:
+ *   post:
+ *     summary: Upload customer profile picture
+ *     description: Upload a profile picture for the authenticated customer. Accepts multipart/form-data.
+ *     tags: [Customers]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         multipart/form-data:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - profilePicture
+ *             properties:
+ *               profilePicture:
+ *                 type: string
+ *                 format: binary
+ *     responses:
+ *       200:
+ *         description: Profile picture uploaded successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 profilePic:
+ *                   type: string
+ *                   example: https://res.cloudinary.com/...
+ *       400:
+ *         description: No file provided
+ *       401:
+ *         description: Unauthorized
+ *       500:
+ *         description: Internal server error
+ */
+router.post(
+	"/profile/picture",
+	authMiddleware,
+	roleGuard(["customer"]),
+	userUpload.single("profilePicture"),
+	updateCustomerProfileImage,
+);
 
 module.exports = router;

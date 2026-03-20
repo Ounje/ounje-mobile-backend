@@ -142,8 +142,34 @@ const deleteCustomerProfile = async (req, res) => {
 	}
 };
 
+const updateCustomerProfileImage = async (req, res) => {
+	try {
+		const userId = req.user.id;
+
+		if (!req.file) {
+			return res.status(400).json({
+				success: false,
+				message: "Profile image file is required",
+			});
+		}
+
+		const profilePic = req.file.path;
+
+		await User.findByIdAndUpdate(userId, { img: profilePic });
+
+		return res.status(200).json({ success: true, profilePic });
+	} catch (error) {
+		console.error(`Update Customer Profile Image Error: ${error.message}`);
+		return res.status(500).json({
+			success: false,
+			message: error.message || "Error updating profile image",
+		});
+	}
+};
+
 module.exports = {
 	getCustomerProfile,
 	updateCustomerProfile,
 	deleteCustomerProfile,
+	updateCustomerProfileImage,
 };
