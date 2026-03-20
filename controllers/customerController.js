@@ -167,9 +167,47 @@ const updateCustomerProfileImage = async (req, res) => {
 	}
 };
 
+/**
+ * GET /api/customers/wallet
+ * Returns the customer's O-Credit balance and transaction history.
+ * Customers currently earn credit only via refunds; the default is zero.
+ */
+const getCustomerWallet = async (req, res) => {
+	try {
+		const userId = req.user.id;
+		const customer = await Customer.findOne({ user: userId }).select("_id").lean();
+
+		if (!customer) {
+			return res.status(404).json({ error: "Customer not found" });
+		}
+
+		const ledgerService = require("../services/ledger.service");
+
+		// Customers may accumulate credit (e.g., refunds). If no account exists yet, return zeros.
+		const balanceInfo = await ledgerService.getAccountBalance(customer._id, "CUSTOMER");
+		const { transactions = [] } = await ledgerService.getTransactionHistory(
+			customer._id,
+			"CUSTOMER",
+			20,
+			0,
+		);
+
+		return res.json({
+			balance: balanceInfo.availableBalance ?? 0,
+			pendingBalance: balanceInfo.pendingBalance ?? 0,
+			accountNumber: null, // not applicable for customers
+			transactions,
+		});
+	} catch (err) {
+		console.error("getCustomerWallet error:", err);
+		res.status(500).json({ error: err.message });
+	}
+};
+
 module.exports = {
 	getCustomerProfile,
 	updateCustomerProfile,
 	deleteCustomerProfile,
 	updateCustomerProfileImage,
+	getCustomerWallet,
 };

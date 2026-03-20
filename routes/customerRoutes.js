@@ -4,6 +4,7 @@ const {
 	updateCustomerProfile,
 	deleteCustomerProfile,
 	updateCustomerProfileImage,
+	getCustomerWallet,
 } = require("../controllers/customerController");
 const { authMiddleware, roleGuard } = require("../middleware/auth");
 const { userUpload } = require("../config/cloudinary");
@@ -316,5 +317,7 @@ router.post(
 	userUpload.single("profilePicture"),
 	updateCustomerProfileImage,
 );
+
+router.get("/wallet", authMiddleware, roleGuard(["customer"]), getCustomerWallet);
 
 module.exports = router;
