@@ -261,7 +261,8 @@ const getDeclineStats = async (vendorId, filters = {}) => {
 const getVendorOrders = async (vendorProfileId, query = {}) => {
 	const { status } = query;
 
-	const filter = { vendor: vendorProfileId };
+	// Only show orders that have been paid — unpaid orders are invisible to vendor
+	const filter = { vendor: vendorProfileId, paymentStatus: "paid" };
 
 	if (status) {
 		if (status === "confirming") {
