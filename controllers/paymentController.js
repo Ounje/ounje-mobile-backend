@@ -74,7 +74,7 @@ const initialisePayment = async (req, res) => {
 		// Create Payment record as 'pending'
 		await Payment.create({
 			reference,
-			orderId: orderId || null,
+			...(orderId ? { orderId } : {}),
 			amount: amountInKobo / 100,
 			customer: customer._id,
 			status: "pending",
