@@ -83,5 +83,6 @@ const riderProfileSchema = new mongoose.Schema(
 );
 
 riderProfileSchema.plugin(toJSON);
+riderProfileSchema.index({ currentLocation: "2dsphere" });
 
 module.exports = mongoose.model("RiderProfile", riderProfileSchema);
