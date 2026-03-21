@@ -4,6 +4,7 @@ const payoutService = require("./payout.service");
 const ratingService = require("./rating.service");
 const ledgerService = require("./ledger.service");
 const logger = require("../utils/logger");
+const { AVAILABLE_ZONES } = require("../utils/constants");
 
 /**
  * Get Rider Dashboard Data
@@ -365,6 +366,49 @@ const getRiderLeaderboard = async () => {
 };
 
 /**
+ * Change Rider Zone (once every 7 days)
+ */
+const changeZone = async (userId, zones) => {
+	if (!Array.isArray(zones) || zones.length < 1 || zones.length > 2) {
+		throw new Error("You must select 1 or 2 delivery zones");
+	}
+
+	const invalid = zones.filter((z) => !AVAILABLE_ZONES.includes(z));
+	if (invalid.length > 0) {
+		throw new Error(`Invalid zone(s): ${invalid.join(", ")}`);
+	}
+
+	const riderProfile = await RiderProfile.findOne({ user: userId });
+	if (!riderProfile) throw new Error("Rider profile not found");
+
+	// TODO: re-enable 7-day restriction before going to production
+	// if (riderProfile.lastZoneChange) {
+	// 	const daysSince =
+	// 		(Date.now() - new Date(riderProfile.lastZoneChange).getTime()) /
+	// 		(1000 * 60 * 60 * 24);
+	// 	if (daysSince < 7) {
+	// 		const daysLeft = Math.ceil(7 - daysSince);
+	// 		throw new Error(
+	// 			`You can only change your zone once every 7 days. Try again in ${daysLeft} day(s).`,
+	// 		);
+	// 	}
+	// }
+
+	riderProfile.operatingArea = zones;
+	riderProfile.lastZoneChange = new Date();
+	await riderProfile.save();
+
+	return {
+		success: true,
+		message: "Zone updated successfully",
+		data: {
+			operatingArea: riderProfile.operatingArea,
+			lastZoneChange: riderProfile.lastZoneChange,
+		},
+	};
+};
+
+/**
  * Deactivate Account
  */
 const deactivateRiderAccount = async (userId) => {
@@ -390,6 +434,7 @@ module.exports = {
 	getRiderProfile,
 	updateOperatingArea,
 	getOperatingArea,
+	changeZone,
 	updateCurrentLocation,
 	updateRiderStatus,
 	updateBankDetails,

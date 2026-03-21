@@ -14,6 +14,7 @@ const riderProfileSchema = new mongoose.Schema(
 			default: "pending",
 		},
 		operatingArea: [],
+		lastZoneChange: { type: Date, default: null },
 		isActive: { type: Boolean, default: false },
 		setupComplete: { type: Boolean, default: false },
 		currentLocation: {

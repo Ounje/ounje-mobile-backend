@@ -1,6 +1,7 @@
 require('dotenv').config();
 const { Client } = require("@googlemaps/google-maps-services-js");
 const axios = require("axios");
+const { AVAILABLE_ZONES } = require("./constants");
 
 const googleClient = new Client({});
 
@@ -20,15 +21,10 @@ const MIN_DISTANCE_FEE = 200; // [cite: 27]
 // utilis/delivery.js
 
 const identifyZone = (address) => {
-    const zones = ["Ikeja", "Yaba", "Surulere", "Berger", "Lekki", "Victoria Island", "Ajah"];
-
-    // Convert address to lowercase to make searching easier
-    const lowercaseAddress = address.toLowerCase();
-
-    // Find which zone name exists inside the address string
-    const foundZone = zones.find(zone => lowercaseAddress.includes(zone.toLowerCase()));
-
-    return foundZone || "Other"; // Default to 'Other' if no match is found
+    if (!address) return "Other";
+    const lower = address.toLowerCase();
+    const found = AVAILABLE_ZONES.find(zone => lower.includes(zone.toLowerCase()));
+    return found || "Other";
 };
 
 async function calculateOunjeFee(vendorAddr, customerAddr, surge = 1.0) {

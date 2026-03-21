@@ -240,6 +240,23 @@ const deactivateRiderAccount = async (req, res) => {
 };
 
 /**
+ * Change Rider Zone (weekly restriction)
+ * PUT /api/riders/profile/zone
+ * Body: { zones: ["Ogba"] }
+ */
+const changeZone = async (req, res) => {
+	try {
+		const riderId = req.user.id;
+		const { zones } = req.body;
+		const result = await riderService.changeZone(riderId, zones);
+		res.status(200).json(result);
+	} catch (err) {
+		logger.error(`Change Zone Error: ${err.message}`);
+		res.status(400).json({ success: false, message: err.message });
+	}
+};
+
+/**
  * Update Notification Preferences
  * PUT /api/riders/notification-preferences
  * Body: { newRequests?: boolean, earnings?: boolean, promotions?: boolean }
@@ -321,6 +338,7 @@ module.exports = {
 	getRiderWalletTransactions,
 	updateOperatingArea,
 	getOperatingArea,
+	changeZone,
 	deactivateRiderAccount,
 	updatePushToken,
 	uploadProfilePicture,
