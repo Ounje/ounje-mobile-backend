@@ -20,7 +20,7 @@ const MIN_DISTANCE_FEE = 200; // [cite: 27]
 // utilis/delivery.js
 
 const identifyZone = (address) => {
-    const zones = ["Ikeja", "Yaba", "Surulere", "Lekki", "Victoria Island", "Ajah"];
+    const zones = ["Ikeja", "Yaba", "Surulere", "Berger", "Lekki", "Victoria Island", "Ajah"];
 
     // Convert address to lowercase to make searching easier
     const lowercaseAddress = address.toLowerCase();
