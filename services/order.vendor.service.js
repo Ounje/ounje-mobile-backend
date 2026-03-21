@@ -196,6 +196,10 @@ const vendorMarkReady = async (orderId, vendorId) => {
 		logger.error(`Failed to send ready notification: ${error.message}`);
 	}
 
+	logger.info(
+		`[vendorMarkReady] orderId=${orderId} | order.zone="${order.zone}" | vendorLocation=${JSON.stringify(order.vendor?.location?.coordinates)}`,
+	);
+
 	// Step 1: Always transition order to LOOKING_FOR_RIDER (guaranteed, no GPS dependency)
 	try {
 		await orderService.updateOrderStatus(
@@ -203,6 +207,7 @@ const vendorMarkReady = async (orderId, vendorId) => {
 			ORDER_STATUS.RIDING,
 			ORDER_SUB_STATUS.LOOKING_FOR_RIDER,
 		);
+		logger.info(`[vendorMarkReady] Status set to RIDING/LOOKING_FOR_RIDER for order ${orderId}`);
 		if (global.io) {
 			global.io.to(order.customer.toString()).emit("orderUpdate", {
 				orderId: order._id,
@@ -214,13 +219,14 @@ const vendorMarkReady = async (orderId, vendorId) => {
 		logger.error(`Failed to set LOOKING_FOR_RIDER status: ${statusError.message}`);
 	}
 
-	// Step 2: Push notifications to nearby/zone riders (best-effort, never blocks status)
+	// Step 2: Start sequential dispatch — one rider at a time, 60s per rider (non-blocking)
 	try {
 		const vendorLocation = order.vendor?.location;
-		const { findNearbyRiders } = require("./order.rider.service");
-		await findNearbyRiders(vendorLocation, order._id, order.zone);
+		const { startDispatch } = require("./order.rider.service");
+		logger.info(`[vendorMarkReady] Triggering startDispatch for order ${orderId} zone="${order.zone}"`);
+		await startDispatch(order._id, vendorLocation, order.zone);
 	} catch (error) {
-		logger.error(`Rider ping failed (non-blocking): ${error.message}`);
+		logger.error(`Dispatch start failed (non-blocking): ${error.message}`);
 	}
 
 	return order;

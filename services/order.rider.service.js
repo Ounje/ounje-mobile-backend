@@ -4,6 +4,252 @@ const notificationService = require("./notification.service");
 const { ORDER_STATUS, ORDER_SUB_STATUS } = require("../utils/constants");
 const logger = require("../utils/logger");
 
+// ── In-memory sequential dispatch queues ────────────────────────────────────
+// Map<orderId_string, { queue: RiderProfile[], timerId: NodeJS.Timeout | null }>
+const dispatchQueues = new Map();
+
+const DISPATCH_TIMEOUT_MS = 60_000; // 60 seconds per rider
+
+// Haversine distance in km between two [lng, lat] coordinate pairs
+function distanceKm(coords1, coords2) {
+	const [lng1, lat1] = coords1;
+	const [lng2, lat2] = coords2;
+	const R = 6371;
+	const dLat = ((lat2 - lat1) * Math.PI) / 180;
+	const dLng = ((lng2 - lng1) * Math.PI) / 180;
+	const a =
+		Math.sin(dLat / 2) ** 2 +
+		Math.cos((lat1 * Math.PI) / 180) *
+			Math.cos((lat2 * Math.PI) / 180) *
+			Math.sin(dLng / 2) ** 2;
+	return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+function hasValidGPS(coords) {
+	return (
+		Array.isArray(coords) &&
+		coords.length === 2 &&
+		!(coords[0] === 0 && coords[1] === 0)
+	);
+}
+
+// ── Build candidate list with fallback chain ─────────────────────────────────
+// 1. Zone-matched riders (fastest, most relevant)
+// 2. GPS-nearby riders within 5km (catches riders without zone set)
+// 3. All available riders, capped at 15 (last resort — no match would mean 0 drivers online)
+const _buildCandidateList = async (vendorLocation, orderZone) => {
+	// Tier 1: zone
+	if (orderZone && orderZone !== "Other") {
+		const zone = await RiderProfile.find({
+			status: "available",
+			isActive: true,
+			operatingArea: orderZone,
+		}).select("user currentLocation");
+		if (zone.length > 0) {
+			logger.info(`[Dispatch] Zone "${orderZone}" tier: ${zone.length} rider(s) found`);
+			return zone;
+		}
+		logger.warn(`[Dispatch] Zone "${orderZone}" tier: 0 riders — falling back to GPS`);
+	} else {
+		logger.warn(`[Dispatch] order.zone="${orderZone}" (unresolved) — skipping zone tier, trying GPS`);
+	}
+
+	// Tier 2: GPS within 5km
+	const vendorCoords = vendorLocation?.coordinates;
+	if (vendorCoords && hasValidGPS(vendorCoords)) {
+		try {
+			const gps = await RiderProfile.find({
+				status: "available",
+				isActive: true,
+				currentLocation: {
+					$near: {
+						$geometry: vendorLocation,
+						$maxDistance: 5000,
+					},
+				},
+			}).select("user currentLocation");
+			if (gps.length > 0) {
+				logger.info(`[Dispatch] GPS tier: ${gps.length} rider(s) within 5km`);
+				return gps;
+			}
+			logger.warn(`[Dispatch] GPS tier: 0 riders within 5km — falling back to all-available`);
+		} catch (gpsErr) {
+			logger.warn(`[Dispatch] GPS tier failed (no 2dsphere index?): ${gpsErr.message}`);
+		}
+	} else {
+		logger.warn(`[Dispatch] Vendor has no valid GPS coords — skipping GPS tier`);
+	}
+
+	// Tier 3: All available riders (capped at 15)
+	const all = await RiderProfile.find({
+		status: "available",
+		isActive: true,
+	}).select("user currentLocation").limit(15);
+	logger.warn(`[Dispatch] All-available tier: ${all.length} rider(s) online`);
+	return all;
+};
+
+// ── Start sequential dispatch for an order ───────────────────────────────────
+const startDispatch = async (orderId, vendorLocation, orderZone) => {
+	const orderIdStr = orderId.toString();
+
+	if (dispatchQueues.has(orderIdStr)) {
+		logger.warn(`[Dispatch] Queue already running for order ${orderIdStr} — skipping duplicate start`);
+		return;
+	}
+
+	logger.info(
+		`[Dispatch] Starting for order ${orderIdStr} | zone="${orderZone}" | vendorCoords=${JSON.stringify(vendorLocation?.coordinates)}`,
+	);
+
+	try {
+		const candidates = await _buildCandidateList(vendorLocation, orderZone);
+
+		if (!candidates.length) {
+			logger.warn(`[Dispatch] No available riders found across all tiers for order ${orderIdStr}`);
+			await _notifyNoRiders(orderIdStr);
+			return;
+		}
+
+		// Sort by distance to vendor (GPS-equipped riders first; riders at [0,0] go last)
+		const vendorCoords = vendorLocation?.coordinates;
+		const sorted = candidates.slice().sort((a, b) => {
+			const aC = a.currentLocation?.coordinates;
+			const bC = b.currentLocation?.coordinates;
+			const aValid = hasValidGPS(aC);
+			const bValid = hasValidGPS(bC);
+			if (!aValid && !bValid) return 0;
+			if (!aValid) return 1;
+			if (!bValid) return -1;
+			if (!hasValidGPS(vendorCoords)) return 0;
+			return distanceKm(vendorCoords, aC) - distanceKm(vendorCoords, bC);
+		});
+
+		dispatchQueues.set(orderIdStr, { queue: sorted, timerId: null });
+		logger.info(
+			`[Dispatch] Queue ready for order ${orderIdStr}: ${sorted.length} candidate(s) | first rider userId=${sorted[0]?.user}`,
+		);
+
+		await _sendNextDispatch(orderIdStr);
+	} catch (err) {
+		logger.error(`[Dispatch] startDispatch crashed for order ${orderIdStr}: ${err.message}`);
+	}
+};
+
+// ── Send dispatch to the next rider in queue ─────────────────────────────────
+const _sendNextDispatch = async (orderIdStr) => {
+	const entry = dispatchQueues.get(orderIdStr);
+	if (!entry) return; // already cancelled (rider accepted or order gone)
+
+	// Clear any existing timer
+	if (entry.timerId) {
+		clearTimeout(entry.timerId);
+		entry.timerId = null;
+	}
+
+	const rider = entry.queue.shift();
+	if (!rider) {
+		// All riders exhausted
+		dispatchQueues.delete(orderIdStr);
+		logger.info(
+			`All riders exhausted for order ${orderIdStr} — no rider accepted`,
+		);
+		await _notifyNoRiders(orderIdStr);
+		return;
+	}
+
+	// Fetch order details for the dispatch payload
+	let orderDetails = null;
+	try {
+		orderDetails = await Order.findById(orderIdStr)
+			.populate("vendor", "name location")
+			.lean();
+	} catch (err) {
+		logger.error(
+			`Failed to fetch order ${orderIdStr} for dispatch payload: ${err.message}`,
+		);
+	}
+
+	const riderUserId = rider.user.toString();
+	logger.info(`[Dispatch] Sending riderDispatch to userId=${riderUserId} for order ${orderIdStr} | global.io=${!!global.io}`);
+	if (global.io) {
+		global.io.to(riderUserId).emit("riderDispatch", {
+			orderId: orderIdStr,
+			message: "New delivery request — accept within 60 seconds",
+			timeoutSeconds: 60,
+			order: orderDetails
+				? {
+						id: orderDetails._id,
+						vendorName: orderDetails.vendor?.name ?? "Vendor",
+						vendorAddress:
+							orderDetails.vendor?.location?.address ?? null,
+						deliveryAddress: orderDetails.deliveryAddress ?? null,
+						deliveryFee: orderDetails.deliveryFee ?? 0,
+						totalPrice: orderDetails.totalPrice ?? 0,
+						zone: orderDetails.zone ?? null,
+					}
+				: null,
+		});
+		logger.info(
+			`riderDispatch emitted to rider ${riderUserId} for order ${orderIdStr}`,
+		);
+	}
+
+	// Set 60s timeout — advance to next rider if no response
+	const timerId = setTimeout(async () => {
+		logger.info(
+			`60s timeout for rider ${riderUserId} on order ${orderIdStr} — advancing queue`,
+		);
+		if (global.io) {
+			global.io
+				.to(riderUserId)
+				.emit("riderDispatchExpired", { orderId: orderIdStr });
+		}
+		await _sendNextDispatch(orderIdStr);
+	}, DISPATCH_TIMEOUT_MS);
+
+	entry.timerId = timerId;
+};
+
+// ── Cancel dispatch (rider accepted the order) ───────────────────────────────
+const cancelDispatch = (orderId) => {
+	const orderIdStr = orderId.toString();
+	const entry = dispatchQueues.get(orderIdStr);
+	if (entry) {
+		if (entry.timerId) clearTimeout(entry.timerId);
+		dispatchQueues.delete(orderIdStr);
+		logger.info(`Dispatch cancelled for order ${orderIdStr} (rider accepted)`);
+	}
+};
+
+// ── Reject dispatch (rider explicitly rejects before timeout) ────────────────
+const rejectDispatch = async (orderId, riderUserId) => {
+	const orderIdStr = orderId.toString();
+	logger.info(
+		`Rider ${riderUserId} rejected dispatch for order ${orderIdStr} — advancing queue`,
+	);
+	await _sendNextDispatch(orderIdStr);
+};
+
+// ── Notify vendor that no riders are available ───────────────────────────────
+const _notifyNoRiders = async (orderIdStr) => {
+	try {
+		const order = await Order.findById(orderIdStr)
+			.populate("vendor", "owner")
+			.lean();
+		if (!order) return;
+		const vendorUserId = order.vendor?.owner?.toString() ?? null;
+		if (global.io && vendorUserId) {
+			global.io.to(vendorUserId).emit("noRidersAvailable", {
+				orderId: orderIdStr,
+				message: "No riders are currently available for this order.",
+			});
+		}
+	} catch (err) {
+		logger.error(`_notifyNoRiders error: ${err.message}`);
+	}
+};
+
 const getRiderDeclineReasonText = (reason) => {
 	const reasonTexts = {
 		rider_cannot_reach_vendor: "Cannot reach vendor",
@@ -14,68 +260,8 @@ const getRiderDeclineReasonText = (reason) => {
 	return reasonTexts[reason] || reason;
 };
 
-const findNearbyRiders = async (vendorLocation, orderId, orderZone) => {
-	const pingedUserIds = new Set();
-
-	// 1. GPS-based push (best effort — requires 2dsphere index + riders with valid GPS)
-	try {
-		const nearbyRiders = await RiderProfile.find({
-			status: "available",
-			isActive: true,
-			currentLocation: {
-				$near: {
-					$geometry: vendorLocation,
-					$maxDistance: 3000,
-				},
-			},
-		});
-
-		if (global.io && nearbyRiders.length > 0) {
-			nearbyRiders.forEach((rider) => {
-				global.io.to(rider.user.toString()).emit("newOrderAvailable", {
-					orderId,
-					message: "New delivery request nearby!",
-				});
-				pingedUserIds.add(rider.user.toString());
-			});
-			logger.info(`GPS ping: ${nearbyRiders.length} riders within 3km of vendor.`);
-		}
-	} catch (gpsError) {
-		logger.warn(`GPS rider search failed, zone fallback active: ${gpsError.message}`);
-	}
-
-	// 2. Zone-based fallback — notify riders in the order's zone not already pinged
-	if (orderZone) {
-		try {
-			const zoneRiders = await RiderProfile.find({
-				status: "available",
-				isActive: true,
-				operatingArea: orderZone,
-			});
-
-			if (global.io && zoneRiders.length > 0) {
-				let zonePings = 0;
-				zoneRiders.forEach((rider) => {
-					if (!pingedUserIds.has(rider.user.toString())) {
-						global.io.to(rider.user.toString()).emit("newOrderAvailable", {
-							orderId,
-							message: "New delivery request in your zone!",
-						});
-						zonePings++;
-					}
-				});
-				if (zonePings > 0) {
-					logger.info(`Zone ping: ${zonePings} riders in zone "${orderZone}".`);
-				}
-			}
-		} catch (zoneError) {
-			logger.error(`Zone rider search failed: ${zoneError.message}`);
-		}
-	}
-};
-
 const riderDeclineOrder = async (orderId, riderId, declineData = {}) => {
-	const order = await Order.findById(orderId);
+	const order = await Order.findById(orderId).populate("vendor", "name location");
 	if (!order) throw new Error("Order not found");
 
 	if (order.rider && order.rider.toString() !== riderId) {
@@ -125,13 +311,12 @@ const riderDeclineOrder = async (orderId, riderId, declineData = {}) => {
 		logger.error(`Failed to send rider decline notification: ${error.message}`);
 	}
 
+	// Restart sequential dispatch so a new rider can be found
 	try {
-		const vendor = await VendorProfile.findById(order.vendor);
-		if (vendor && vendor.location) {
-			await findNearbyRiders(vendor.location, order._id);
-		}
+		const vendorLocation = order.vendor?.location;
+		await startDispatch(order._id, vendorLocation, order.zone);
 	} catch (error) {
-		logger.error(`Failed to notify riders after decline: ${error.message}`);
+		logger.error(`Failed to restart dispatch after decline: ${error.message}`);
 	}
 
 	if (global.io) {
@@ -279,7 +464,9 @@ const riderMarkOnTheWay = async (orderId, riderId) => {
 };
 
 module.exports = {
-	findNearbyRiders,
+	startDispatch,
+	cancelDispatch,
+	rejectDispatch,
 	riderDeclineOrder,
 	getAvailableRiderRequests,
 	getCurrentRiderOrder,

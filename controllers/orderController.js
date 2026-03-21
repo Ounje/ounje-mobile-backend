@@ -409,6 +409,14 @@ exports.resendDeliveryOtp = asyncHandler(async (req, res) => {
 	res.status(200).json(result);
 });
 
+// Rider rejects a dispatch request (before accepting — advances queue to next rider)
+exports.rejectDispatch = asyncHandler(async (req, res) => {
+  const { orderId } = req.params;
+  const riderUserId = req.user.id;
+  await orderRiderService.rejectDispatch(orderId, riderUserId);
+  res.status(200).json({ success: true, message: "Dispatch rejected" });
+});
+
 // Rider reports a delivery issue
 exports.reportDelivery = asyncHandler(async (req, res) => {
   const { orderId } = req.params;
