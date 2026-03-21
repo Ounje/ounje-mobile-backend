@@ -468,11 +468,12 @@ const deleteFoodItem = async (req, res) => {
 const getAllFoodItems = async (req, res) => {
 	try {
 		const filter = { isAvailable: true };
+		if (req.query.category) filter.category = req.query.category;
 
 		// Define what we want to "join" from the Vendor model
 		const populate = {
 			path: "vendor",
-			select: "storeDetails img description averageRating totalOrders",
+			select: "storeDetails name img profileImage bannerUrl logoUrl description averageRating totalOrders",
 		};
 
 		const result = await paginate(FoodItem, req.query, populate, filter);
