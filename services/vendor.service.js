@@ -104,7 +104,8 @@ class VendorService {
 			]);
 		} catch { /* non-fatal */ }
 
-		return { ...vendor.toJSON(), totalOrders, ordersToday };
+		const data = vendor.toJSON();
+		return { ...data, img: data.profileImage ?? null, totalOrders, ordersToday };
 	}
 
 	/**
@@ -509,6 +510,7 @@ class VendorService {
 			success: true,
 			message: "Profile image updated successfully",
 			imageUrl: file.path,
+			img: file.path,
 		};
 	}
 
