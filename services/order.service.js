@@ -502,14 +502,8 @@ const updateOrderStatus = async (orderId, status, subStatus) => {
 		await sendPushNotification(fcmToken, title, body);
 	}
 
-	// CHANGED: was ORDER_STATUS.RIDING, now ORDER_STATUS.PACKAGING to match new flow
-	if (
-		status === ORDER_STATUS.PACKAGING &&
-		subStatus === ORDER_SUB_STATUS.LOOKING_FOR_RIDER
-	) {
-		const vendor = await VendorProfile.findById(order.vendor);
-		await findNearbyRiders(vendor.location, order._id);
-	}
+	// Dispatch is handled in order.vendor.service.js vendorMarkReady → startDispatch
+	// No automatic rider search triggered here.
 
 	return order;
 };
@@ -685,6 +679,15 @@ const acceptOrder = async (orderId, riderId) => {
 		message: "A rider has accepted your order and is on the way!",
 	});
 
+	// Cancel sequential dispatch queue — rider accepted, no need to advance to next rider
+	try {
+		const { cancelDispatch } = require("./order.rider.service");
+		cancelDispatch(orderId);
+	} catch (dispatchErr) {
+		// Non-fatal — dispatch timer will expire harmlessly if already gone
+		logger.warn(`cancelDispatch non-fatal error: ${dispatchErr.message}`);
+	}
+
 	// Hold delivery fee in escrow so it shows in the rider's wallet immediately
 	try {
 		if (order.deliveryFee > 0) {
@@ -844,15 +847,8 @@ const vendorMarkReady = async (orderId, vendorId) => {
 	order.subStatus = ORDER_SUB_STATUS.PACKAGED;
 	await order.save();
 
-	// Notify nearby riders that food is ready
-	try {
-		const vendor = await VendorProfile.findById(order.vendor);
-		if (vendor && vendor.location) {
-			await findNearbyRiders(vendor.location, order._id);
-		}
-	} catch (error) {
-		logger.error(`Failed to notify riders: ${error.message}`);
-	}
+	// NOTE: Rider dispatch is handled by order.vendor.service.js vendorMarkReady → startDispatch
+	// This function in order.service.js is legacy and not called by any controller.
 
 	// Notify customer food is packaged
 	_emitOrderUpdate(order.customer, {

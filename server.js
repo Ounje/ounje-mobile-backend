@@ -96,14 +96,24 @@ io.on("connection", async (socket) => {
 			socket.join(userId);
 			logger.info(`Socket auto-joined userId room: ${userId}`);
 
-			// Also join the VendorProfile room so backend can emit to vendorProfileId
-			const { VendorProfile } = require("./models");
-			const vendor = await VendorProfile.findOne({ owner: userId })
-				.select("_id")
-				.lean();
+			// Join VendorProfile and RiderProfile rooms so backend can emit to profile IDs
+			const { VendorProfile, RiderProfile } = require("./models");
+
+			const [vendor, rider] = await Promise.all([
+				VendorProfile.findOne({ owner: userId }).select("_id").lean(),
+				RiderProfile.findOne({ user: userId }).select("_id status isActive operatingArea").lean(),
+			]);
+
 			if (vendor) {
 				socket.join(vendor._id.toString());
 				logger.info(`Socket auto-joined vendorProfile room: ${vendor._id}`);
+			}
+
+			if (rider) {
+				socket.join(rider._id.toString());
+				logger.info(
+					`Socket auto-joined riderProfile room: ${rider._id} | status=${rider.status} isActive=${rider.isActive} zones=${JSON.stringify(rider.operatingArea)}`,
+				);
 			}
 		}
 	} catch {

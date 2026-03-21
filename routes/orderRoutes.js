@@ -40,6 +40,7 @@ const {
 	getRiderOrders,
 	getRiderOrderById,
 	reportDelivery,
+	rejectDispatch,
 	updateOrderStatus,
 } = require("../controllers/orderController");
 
@@ -574,6 +575,15 @@ router.put(
 	roleGuard(["rider", "customer"]),
 	requireRider,
 	acceptOrder,
+);
+
+router.put(
+	"/rider/:orderId/reject-dispatch",
+	authMiddleware,
+	checkActiveUser,
+	roleGuard(["rider"]),
+	requireRider,
+	rejectDispatch,
 );
 
 /**
