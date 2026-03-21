@@ -7,68 +7,64 @@ class VendorService {
 	 * Get nearby vendors based on location
 	 */
 	async getNearbyVendors({ lat, lng, userId }) {
-		try {
-			if ((!lat || !lng) && userId) {
-				const customer = await Customer.findOne({ user: userId });
-				if (customer?.savedAddresses?.[0]?.coordinates) {
-					lng = customer.savedAddresses[0].coordinates[0];
-					lat = customer.savedAddresses[0].coordinates[1];
-				}
+		if ((!lat || !lng) && userId) {
+			const customer = await Customer.findOne({ user: userId });
+			if (customer?.savedAddresses?.[0]?.coordinates) {
+				lng = customer.savedAddresses[0].coordinates[0];
+				lat = customer.savedAddresses[0].coordinates[1];
 			}
+		}
 
-			if (lat && lng) {
-				const coordinates = [parseFloat(lng), parseFloat(lat)];
-				const onlineFilter = { isActive: true, storeDetails: { $exists: true, $not: { $size: 0 } }, "storeDetails.0.status": "active" };
+		if (lat && lng) {
+			const coordinates = [parseFloat(lng), parseFloat(lat)];
+			const onlineFilter = { isActive: true, storeDetails: { $exists: true, $not: { $size: 0 } }, "storeDetails.0.status": "active" };
 
-				// Fetch vendors within 10km sorted by distance (closest first)
-				const nearbyVendors = await VendorProfile.aggregate([
-					{
-						$geoNear: {
-							near: { type: "Point", coordinates },
-							distanceField: "distanceMeters",
-							maxDistance: 10000,
-							query: onlineFilter,
-							spherical: true,
-						},
+			// Fetch vendors within 10km sorted by distance (closest first)
+			const nearbyVendors = await VendorProfile.aggregate([
+				{
+					$geoNear: {
+						near: { type: "Point", coordinates },
+						distanceField: "distanceMeters",
+						maxDistance: 10000,
+						query: onlineFilter,
+						spherical: true,
 					},
-				]);
+				},
+			]);
 
-				// Fetch vendors beyond 10km sorted by distance
-				const furtherVendors = await VendorProfile.aggregate([
-					{
-						$geoNear: {
-							near: { type: "Point", coordinates },
-							distanceField: "distanceMeters",
-							minDistance: 10001,
-							query: onlineFilter,
-							spherical: true,
-						},
+			// Fetch vendors beyond 10km sorted by distance
+			const furtherVendors = await VendorProfile.aggregate([
+				{
+					$geoNear: {
+						near: { type: "Point", coordinates },
+						distanceField: "distanceMeters",
+						minDistance: 10001,
+						query: onlineFilter,
+						spherical: true,
 					},
-				]);
+				},
+			]);
 
-				const data = [...nearbyVendors, ...furtherVendors];
-
-				return {
-					status: "success",
-					source: "location-based",
-					results: data.length,
-					nearby: nearbyVendors.length,
-					further: furtherVendors.length,
-					data,
-				};
-			}
-
-			const allVendors = await VendorProfile.find({ isActive: true, storeDetails: { $exists: true, $not: { $size: 0 } }, "storeDetails.0.status": "active" }).limit(20);
+			const data = [...nearbyVendors, ...furtherVendors];
 
 			return {
 				status: "success",
-				source: "default-fallback",
-				results: allVendors.length,
-				data: allVendors,
+				source: "location-based",
+				results: data.length,
+				nearby: nearbyVendors.length,
+				further: furtherVendors.length,
+				data,
 			};
-		} catch (error) {
-			throw error;
 		}
+
+		const allVendors = await VendorProfile.find({ isActive: true, storeDetails: { $exists: true, $not: { $size: 0 } }, "storeDetails.0.status": "active" }).limit(20);
+
+		return {
+			status: "success",
+			source: "default-fallback",
+			results: allVendors.length,
+			data: allVendors,
+		};
 	}
 
 	async getPopularVendors(zone) {
@@ -76,7 +72,7 @@ class VendorService {
 		if (zone) {
 			filter["location.address"] = { $regex: zone, $options: "i" };
 		}
-		return await VendorProfile.find(filter).sort({ averageRating: -1 }).limit(20);
+		return VendorProfile.find(filter).sort({ averageRating: -1 }).limit(20);
 	}
 
 	/**
@@ -118,9 +114,7 @@ class VendorService {
 	async getVendorWithProducts(vendorId, customerLocation) {
 		const { getEstimatedDeliveryTime } = require("../utils/delivery");
 
-		const vendor = await VendorProfile.findById(vendorId).select(
-			"-balance -earnings -bankDetails"
-		);
+		const vendor = await VendorProfile.findById(vendorId);
 		if (!vendor) throw new Error("Vendor not found");
 
 		const FoodItem = require("../models").FoodItem;
@@ -147,6 +141,9 @@ class VendorService {
 		const isOnline = vendor.storeDetails?.[0]?.status === "active";
 		const vendorJson = vendor.toJSON();
 		delete vendorJson.storeDetails;
+		delete vendorJson.balance;
+		delete vendorJson.earnings;
+		delete vendorJson.bankDetails;
 
 		return {
 			...vendorJson,
