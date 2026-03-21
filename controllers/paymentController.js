@@ -1,5 +1,5 @@
 const axios = require("axios");
-const { Payment, Customer, Order } = require("../models");
+const { Payment, Customer, Order, PendingCheckout } = require("../models");
 const crypto = require("crypto");
 const ledgerService = require("../services/ledger.service");
 const orderService = require("../services/order.service");
@@ -14,58 +14,92 @@ const paystack = axios.create({
 
 /**
  * 1. Initialize Payment
- * Frontend calls this to get the "authorization_url" to show the Paystack checkout
+ *
+ * New flow: accepts `cartData` (no orderId). The order is NOT created here.
+ * - Calculates the correct total price from cart items + delivery fee + service fee
+ * - Stores cartData in PendingCheckout keyed by the Paystack reference
+ * - Order is created only after payment is verified (in verifyPayment / webhookHandler)
+ *
+ * Legacy flow (orderId provided) is still supported for backward compatibility.
  */
 const initialisePayment = async (req, res) => {
 	try {
-		const { orderId } = req.body;
+		const { orderId, cartData } = req.body;
 		const userId = req.user.id;
-		const order = await Order.findById(orderId);
-		if (!order) return res.status(400).json({ error: "Order not found" });
 
 		const customer = await Customer.findOne({ user: userId }).populate("user");
-		if (!customer) {
-			return res.status(400).json({ error: "Customer not found" });
+		if (!customer) return res.status(400).json({ error: "Customer not found" });
+
+		const email = customer.user?.email;
+		if (!email) return res.status(400).json({ error: "Customer email is required" });
+
+		let amountInKobo;
+		let orderMetadata = { customerId: customer._id.toString() };
+		let priceBreakdown = null;
+
+		if (cartData) {
+			// ── New flow: cart-based (no order yet) ──────────────────────────────
+			const estimate = await orderService.estimateOrderPrice(cartData);
+			priceBreakdown = estimate;
+			amountInKobo = Math.round(estimate.totalPrice * 100);
+			orderMetadata.cartMode = true;
+		} else if (orderId) {
+			// ── Legacy flow: order already exists ────────────────────────────────
+			const order = await Order.findById(orderId);
+			if (!order) return res.status(400).json({ error: "Order not found" });
+			amountInKobo = Math.round(order.totalPrice * 100);
+			orderMetadata.orderId = order._id.toString();
+		} else {
+			return res.status(400).json({ error: "cartData or orderId is required" });
 		}
-
-		const email = customer.user ? customer.user.email : null;
-
-		if (!email) {
-			return res.status(400).json({ error: "Customer email is required" });
-		}
-
-		// Paystack expects amount in KOBO (multiply by 100)
-		const amountInKobo = Math.round(order.totalPrice * 100);
 
 		const response = await paystack.post("/transaction/initialize", {
-			email: email,
+			email,
 			amount: amountInKobo,
-			metadata: {
-				orderId: order._id.toString(),
-				customerId: customer._id.toString(),
-			},
-			callback_url: `${process.env.FRONTEND_URL}/payment/verify`, // Where user goes after paying
+			metadata: orderMetadata,
+			callback_url: `${process.env.FRONTEND_URL}/payment/verify`,
 		});
 
-		// Create a Payment record in your DB as 'pending'
+		const reference = response.data.data.reference;
+
+		if (cartData) {
+			// Store cart data for order creation after payment verification
+			await PendingCheckout.create({
+				reference,
+				customerId: customer._id,
+				cartData,
+			});
+		}
+
+		// Create Payment record as 'pending'
 		await Payment.create({
-			reference: response.data.data.reference,
-			orderId: order._id,
-			amount: order.totalPrice,
+			reference,
+			orderId: orderId || null,
+			amount: amountInKobo / 100,
 			customer: customer._id,
 			status: "pending",
 		});
 
-		return res.status(200).json(response.data);
+		return res.status(200).json({
+			...response.data,
+			// Return price breakdown so frontend can display the correct total
+			totalPrice: priceBreakdown?.totalPrice ?? null,
+			deliveryFee: priceBreakdown?.deliveryFee ?? null,
+			serviceFee: priceBreakdown?.serviceFee ?? null,
+			foodTotal: priceBreakdown?.foodTotal ?? null,
+		});
 	} catch (err) {
 		console.error("Paystack Init Error:", err.response?.data || err.message);
-		res.status(500).json({ error: "Could not initialize payment" });
+		res.status(500).json({ error: err.message || "Could not initialize payment" });
 	}
 };
 
 /**
  * 2. Verify Payment
- * Frontend calls this after the user is redirected back to the site
+ *
+ * Called by the frontend after user returns from the Paystack browser.
+ * If a PendingCheckout exists for this reference, creates the order now.
+ * Emits newOrderAvailable to vendor only after payment is confirmed.
  */
 const verifyPayment = async (req, res) => {
 	const { reference } = req.query;
@@ -76,28 +110,60 @@ const verifyPayment = async (req, res) => {
 		const data = response.data.data;
 
 		const payment = await Payment.findOne({ reference });
-		if (!payment)
-			return res.status(404).json({ error: "Payment record not found" });
+		if (!payment) return res.status(404).json({ error: "Payment record not found" });
 
-		// Update our database with whatever Paystack says
-        payment.status = data.status; 
-        
-        if (data.status === "success") {
-            payment.paidAt = data.paid_at;
-            await Order.findByIdAndUpdate(payment.orderId, { paymentStatus: "paid" });
-        }
-        await payment.save();
+		payment.status = data.status;
 
-        // THE MAGIC FIX: Always return 200 (Success) so the frontend can read the status
-        return res.status(200).json({
-            success: true, 
-            message: `Current payment status is ${data.status}`,
-            data: {
-                status: data.status,           // Exact strings: 'success', 'ongoing', or 'failed'
-                reason: data.gateway_response, // Exact reason: 'Insufficient Funds', etc.
-                reference: data.reference
-            }
-        });
+		let createdOrder = null;
+
+		if (data.status === "success") {
+			payment.paidAt = data.paid_at;
+
+			// ── New flow: create order from PendingCheckout ───────────────────────
+			const pendingCheckout = await PendingCheckout.findOne({ reference });
+			if (pendingCheckout) {
+				const { cartData, customerId } = pendingCheckout;
+				const customerDoc = await Customer.findById(customerId).populate("user");
+				if (customerDoc?.user) {
+					createdOrder = await orderService.createOrder(customerDoc.user._id, cartData);
+					createdOrder.paymentStatus = "paid";
+					await createdOrder.save();
+					payment.orderId = createdOrder._id;
+					await PendingCheckout.deleteOne({ reference });
+
+					// Notify vendor — only now, after payment is confirmed
+					if (global.io) {
+						global.io.to(createdOrder.vendor.toString()).emit("newOrderAvailable", {
+							orderId: createdOrder._id,
+							message: "New order received!",
+						});
+					}
+
+					// Send delivery OTP
+					try {
+						await orderService.sendDeliveryOtp(createdOrder);
+					} catch (err) {
+						console.error(`Failed to send delivery OTP after Paystack verify: ${err.message}`);
+					}
+				}
+			} else if (payment.orderId) {
+				// ── Legacy flow: order already existed ─────────────────────────────
+				await Order.findByIdAndUpdate(payment.orderId, { paymentStatus: "paid" });
+			}
+		}
+
+		await payment.save();
+
+		return res.status(200).json({
+			success: true,
+			message: `Current payment status is ${data.status}`,
+			data: {
+				status: data.status,
+				reason: data.gateway_response,
+				reference: data.reference,
+				order: createdOrder ? createdOrder.toObject() : null,
+			},
+		});
 	} catch (err) {
 		console.error("Verification Error:", err.response?.data || err.message);
 		res.status(500).json({ error: "Payment verification failed" });
@@ -106,7 +172,8 @@ const verifyPayment = async (req, res) => {
 
 /**
  * 3. Webhook Handler
- * Paystack calls this directly (Server-to-Server) to finalize the Ledger balances
+ * Paystack calls this server-to-server after a successful charge.
+ * Handles PendingCheckout-based order creation (same as verifyPayment).
  */
 const webhookHandler = async (req, res) => {
 	const secret = process.env.PAYSTACK_TEST_SECRET_KEY;
@@ -123,17 +190,65 @@ const webhookHandler = async (req, res) => {
 		const event = req.body;
 
 		if (event.event === "charge.success") {
-			const { amount, metadata } = event.data;
-			const order = await Order.findById(metadata.orderId).populate("items");
+			const { amount, metadata, reference } = event.data;
 
+			// ── New flow: PendingCheckout exists ─────────────────────────────────
+			const pendingCheckout = await PendingCheckout.findOne({ reference });
+			if (pendingCheckout) {
+				const { cartData, customerId } = pendingCheckout;
+				const customerDoc = await Customer.findById(customerId).populate("user");
+
+				if (customerDoc?.user) {
+					// Guard against duplicate webhook delivery
+					const existingPayment = await Payment.findOne({ reference });
+					if (existingPayment?.orderId) {
+						return res.status(200).send("Already processed");
+					}
+
+					const order = await orderService.createOrder(customerDoc.user._id, cartData);
+					order.paymentStatus = "paid";
+					await order.save();
+
+					await Payment.findOneAndUpdate({ reference }, { orderId: order._id, status: "success" });
+					await PendingCheckout.deleteOne({ reference });
+
+					// Send delivery OTP
+					try {
+						await orderService.sendDeliveryOtp(order);
+					} catch (err) {
+						console.error(`Failed to send delivery OTP in webhook: ${err.message}`);
+					}
+
+					// Hold vendor net earnings
+					const vendorAmount = order.vendorEarning > 0
+						? order.vendorEarning
+						: order.items.reduce((sum, item) => sum + item.price, 0);
+					if (vendorAmount > 0) {
+						await ledgerService.holdVendorAmount(order.vendor, vendorAmount, order._id);
+					}
+
+					// Notify vendor — after payment confirmed
+					if (global.io) {
+						global.io.to(order.vendor.toString()).emit("newOrderAvailable", {
+							orderId: order._id,
+							message: "New order received!",
+						});
+					}
+
+					console.log(`✓ Webhook (cart mode): Order ${order._id} created and distributed.`);
+				}
+
+				return res.status(200).send("Webhook processed");
+			}
+
+			// ── Legacy flow: order already existed ───────────────────────────────
+			const order = await Order.findById(metadata?.orderId).populate("items");
 			if (!order) return res.status(404).send("Order not found");
-			if (order.paymentStatus === "paid")
-				return res.status(200).send("Already processed");
+			if (order.paymentStatus === "paid") return res.status(200).send("Already processed");
 
 			order.paymentStatus = "paid";
 			await order.save();
 
-			// Send delivery OTP to customer immediately at payment confirmation
 			try {
 				await orderService.sendDeliveryOtp(order);
 			} catch (err) {
@@ -142,26 +257,27 @@ const webhookHandler = async (req, res) => {
 
 			const totalPaid = amount / 100;
 			const deliveryFee = order.deliveryFee || 0;
-			// Use stored net earning (after commission); fall back to gross for legacy orders
 			const vendorAmount = order.vendorEarning > 0
 				? order.vendorEarning
 				: order.items.reduce((sum, item) => sum + item.price, 0);
 
-			// CHANNEL 1: Hold vendor's net earnings until delivery is confirmed
 			if (vendorAmount > 0) {
 				await ledgerService.holdVendorAmount(order.vendor, vendorAmount, order._id);
 			}
 
-			// CHANNEL 2: Put Rider Fee on HOLD (Escrow) — only if rider already assigned
-			// In the standard flow rider is assigned AFTER payment, so this is a no-op.
-			// Rider hold is instead created in acceptOrder when rider accepts.
 			if (order.rider && deliveryFee > 0) {
 				await ledgerService.holdRiderFee(order.rider, deliveryFee, order._id);
 			}
 
-			console.log(
-				`✓ Webhook Success: Order ${order._id} distributed to wallets.`
-			);
+			// Notify vendor
+			if (global.io) {
+				global.io.to(order.vendor.toString()).emit("newOrderAvailable", {
+					orderId: order._id,
+					message: "New order received!",
+				});
+			}
+
+			console.log(`✓ Webhook (legacy): Order ${order._id} distributed to wallets.`);
 		}
 
 		return res.status(200).send("Webhook processed");
@@ -173,62 +289,92 @@ const webhookHandler = async (req, res) => {
 
 /**
  * 4. Wallet Payment
- * Customer pays for an order using their OunjeFood wallet balance
+ *
+ * New flow: accepts `cartData` (no orderId). Creates order + charges wallet atomically.
+ * Legacy flow: accepts `orderId` — still supported.
  */
 const walletPayment = async (req, res) => {
 	try {
-		const { orderId } = req.body;
+		const { orderId, cartData } = req.body;
 		const userId = req.user.id;
 
-		if (!orderId) {
-			return res.status(400).json({ success: false, message: "orderId is required" });
+		if (!orderId && !cartData) {
+			return res.status(400).json({ success: false, message: "orderId or cartData is required" });
 		}
 
 		const customer = await Customer.findOne({ user: userId });
-		if (!customer) {
-			return res.status(404).json({ success: false, message: "Customer not found" });
+		if (!customer) return res.status(404).json({ success: false, message: "Customer not found" });
+
+		let order;
+
+		if (cartData) {
+			// ── New flow: create order now (after wallet balance confirmed) ───────
+
+			// First estimate price to check wallet balance before creating order
+			const estimate = await orderService.estimateOrderPrice(cartData);
+			const totalPrice = estimate.totalPrice;
+
+			const { availableBalance } = await ledgerService.getAccountBalance(customer._id, "CUSTOMER");
+			if (availableBalance < totalPrice) {
+				return res.status(400).json({
+					success: false,
+					message: "Insufficient wallet balance",
+				});
+			}
+
+			// Create order — payment is guaranteed (balance checked above)
+			order = await orderService.createOrder(userId, cartData);
+
+			// Debit customer wallet
+			await ledgerService.debitAccount(
+				customer._id,
+				"CUSTOMER",
+				order.totalPrice,
+				"WALLET_PAYMENT",
+				{ orderId: order._id },
+			);
+
+			order.paymentStatus = "paid";
+			order.paymentMethod = "wallet";
+			await order.save();
+
+		} else {
+			// ── Legacy flow: order already exists ─────────────────────────────────
+			order = await Order.findById(orderId).populate("items");
+			if (!order) return res.status(404).json({ success: false, message: "Order not found" });
+			if (order.paymentStatus === "paid") {
+				return res.status(400).json({ success: false, message: "Order is already paid" });
+			}
+
+			const { availableBalance } = await ledgerService.getAccountBalance(customer._id, "CUSTOMER");
+			if (availableBalance < order.totalPrice) {
+				return res.status(400).json({ success: false, message: "Insufficient wallet balance" });
+			}
+
+			await ledgerService.debitAccount(
+				customer._id,
+				"CUSTOMER",
+				order.totalPrice,
+				"WALLET_PAYMENT",
+				{ orderId: order._id },
+			);
+
+			order.paymentStatus = "paid";
+			order.paymentMethod = "wallet";
+			await order.save();
 		}
 
-		const order = await Order.findById(orderId).populate("items");
-		if (!order) {
-			return res.status(404).json({ success: false, message: "Order not found" });
-		}
-
-		if (order.paymentStatus === "paid") {
-			return res.status(400).json({ success: false, message: "Order is already paid" });
-		}
-
-		// Check wallet balance
-		const { availableBalance } = await ledgerService.getAccountBalance(customer._id, "CUSTOMER");
-		if (availableBalance < order.totalPrice) {
-			return res.status(400).json({ success: false, message: "Insufficient wallet balance" });
-		}
-
-		// Debit customer wallet
-		await ledgerService.debitAccount(
-			customer._id,
-			"CUSTOMER",
-			order.totalPrice,
-			"WALLET_PAYMENT",
-			{ orderId: order._id },
-		);
-
-		// Mark order paid via wallet
-		order.paymentStatus = "paid";
-		order.paymentMethod = "wallet";
-		await order.save();
-
-		// Send delivery OTP to customer immediately at payment confirmation
+		// Send delivery OTP
 		try {
 			await orderService.sendDeliveryOtp(order);
 		} catch (err) {
 			console.error(`Failed to send delivery OTP after wallet payment: ${err.message}`);
 		}
 
-		// Hold vendor net earnings until delivery is confirmed (mirrors webhook)
+		// Hold vendor net earnings
 		const vendorAmount = order.vendorEarning > 0
 			? order.vendorEarning
-			: order.items.reduce((sum, item) => sum + item.price, 0);
+			: (order.items || []).reduce((sum, item) => sum + item.price, 0);
 		if (vendorAmount > 0) {
 			await ledgerService.holdVendorAmount(order.vendor, vendorAmount, order._id);
 		}
@@ -239,7 +385,7 @@ const walletPayment = async (req, res) => {
 			await ledgerService.holdRiderFee(order.rider, deliveryFee, order._id);
 		}
 
-		// Notify vendor of new order (mirrors order.service.js createOrder)
+		// Notify vendor — only NOW, after payment confirmed
 		if (global.io) {
 			global.io.to(order.vendor.toString()).emit("newOrderAvailable", {
 				orderId: order._id,

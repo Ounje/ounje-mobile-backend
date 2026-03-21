@@ -433,19 +433,49 @@ const createOrder = async (userId, data) => {
 		logger.error(`Failed to send new order notification: ${error.message}`);
 	}
 
-	// 9. Real-time socket ping to vendor
-	try {
-		if (global.io) {
-			global.io.to(vendorId.toString()).emit("newOrderAvailable", {
-				orderId: order._id,
-				message: "New order received!",
-			});
-		}
-	} catch (error) {
-		logger.error(`Failed to emit newOrderAvailable to vendor: ${error.message}`);
-	}
+	// 9. Real-time socket ping to vendor — emitted by payment handlers AFTER payment
+	// is confirmed, so we intentionally do NOT emit here. Unpaid orders must not
+	// appear in the vendor dashboard.
 
 	return order;
+};
+
+/**
+ * Calculate totalPrice, deliveryFee, serviceFee for a cart WITHOUT creating an order.
+ * Used by the payment initiation endpoint so the frontend can display the correct
+ * amount before the user pays.
+ */
+const estimateOrderPrice = async (cartData) => {
+	const { items, vendorId, deliveryAddress } = cartData;
+
+	if (!mongoose.isValidObjectId(vendorId)) throw new Error(`Invalid Vendor ID: ${vendorId}`);
+	if (!items || items.length === 0) throw new Error("No items in the cart.");
+
+	const vendor = await VendorProfile.findById(vendorId);
+	if (!vendor) throw new Error("Vendor not found");
+	if (!vendor.location?.address) throw new Error("Vendor address is missing");
+
+	const fee = await calculateOunjeFee(vendor.location.address, deliveryAddress);
+	const models = { FoodItem, Combo, Plate };
+
+	let itemsTotalPrice = 0;
+	for (const item of items) {
+		const { itemPrice } = await _calculateAndValidateItemPrice(item, models);
+		itemsTotalPrice += itemPrice * (item.quantity ?? 1);
+	}
+
+	const serviceFee = Math.round(itemsTotalPrice * 0.10);
+	const COMMISSION_RATES = { basic: 0.05, growth: 0.10, premium: 0.15 };
+	const commissionRate = COMMISSION_RATES[vendor.tier] ?? 0.10;
+	const vendorEarning = Math.round(itemsTotalPrice * (1 - commissionRate));
+
+	return {
+		foodTotal: itemsTotalPrice,
+		deliveryFee: fee,
+		serviceFee,
+		totalPrice: itemsTotalPrice + fee + serviceFee,
+		vendorEarning,
+	};
 };
 
 const updateOrderStatus = async (orderId, status, subStatus) => {
@@ -908,6 +938,7 @@ const resendDeliveryOtp = async (orderId, userId, role) => {
 
 module.exports = {
 	createOrder,
+	estimateOrderPrice,
 	updateOrderStatus,
 	sendDeliveryOtp,
 	resendDeliveryOtp,

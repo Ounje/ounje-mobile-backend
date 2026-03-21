@@ -13,6 +13,7 @@ const {
 
 const {
 	// Customer
+	estimateOrder,
 	createOrder,
 	getMyOrders,
 	getOrderById,
@@ -128,6 +129,16 @@ const router = express.Router();
  *       404:
  *         description: Vendor or items not found
  */
+// Price estimate — no order created, used by PaymentScreen to show correct total
+router.post(
+	"/estimate",
+	authMiddleware,
+	checkActiveUser,
+	roleGuard(["customer"]),
+	requireCustomer,
+	estimateOrder,
+);
+
 router.post(
 	"/",
 	authMiddleware,

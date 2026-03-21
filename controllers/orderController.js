@@ -46,6 +46,12 @@ const formatRiderOrder = (order) => {
   };
 };
 
+// Estimate Order Price (no order created — used by PaymentScreen before checkout)
+exports.estimateOrder = asyncHandler(async (req, res) => {
+  const estimate = await orderService.estimateOrderPrice(req.body);
+  res.status(200).json({ success: true, ...estimate });
+});
+
 // Create Order
 exports.createOrder = asyncHandler(async (req, res) => {
   const userId = req.user.id;
