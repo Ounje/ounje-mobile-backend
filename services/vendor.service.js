@@ -18,6 +18,7 @@ class VendorService {
 
 			if (lat && lng) {
 				const coordinates = [parseFloat(lng), parseFloat(lat)];
+				const onlineFilter = { isActive: true, "storeDetails.0.status": "active" };
 
 				// Fetch vendors within 10km sorted by distance (closest first)
 				const nearbyVendors = await VendorProfile.aggregate([
@@ -26,7 +27,7 @@ class VendorService {
 							near: { type: "Point", coordinates },
 							distanceField: "distanceMeters",
 							maxDistance: 10000,
-							query: { isActive: true },
+							query: onlineFilter,
 							spherical: true,
 						},
 					},
@@ -39,7 +40,7 @@ class VendorService {
 							near: { type: "Point", coordinates },
 							distanceField: "distanceMeters",
 							minDistance: 10001,
-							query: { isActive: true },
+							query: onlineFilter,
 							spherical: true,
 						},
 					},
@@ -57,7 +58,7 @@ class VendorService {
 				};
 			}
 
-			const allVendors = await VendorProfile.find({ isActive: true }).limit(20);
+			const allVendors = await VendorProfile.find({ isActive: true, "storeDetails.0.status": "active" }).limit(20);
 
 			return {
 				status: "success",
@@ -70,8 +71,12 @@ class VendorService {
 		}
 	}
 
-	async getPopularVendors() {
-		return await VendorProfile.find({ isActive: true }).sort({ averageRating: -1 }).limit(20);
+	async getPopularVendors(zone) {
+		const filter = { isActive: true, "storeDetails.0.status": "active" };
+		if (zone) {
+			filter["location.address"] = { $regex: zone, $options: "i" };
+		}
+		return await VendorProfile.find(filter).sort({ averageRating: -1 }).limit(20);
 	}
 
 	/**
@@ -114,7 +119,7 @@ class VendorService {
 		const { getEstimatedDeliveryTime } = require("../utils/delivery");
 
 		const vendor = await VendorProfile.findById(vendorId).select(
-			"-balance -earnings -storeDetails"
+			"-balance -earnings -bankDetails"
 		);
 		if (!vendor) throw new Error("Vendor not found");
 
@@ -139,8 +144,13 @@ class VendorService {
 			);
 		}
 
+		const isOnline = vendor.storeDetails?.[0]?.status === "active";
+		const vendorJson = vendor.toJSON();
+		delete vendorJson.storeDetails;
+
 		return {
-			...vendor.toJSON(),
+			...vendorJson,
+			isOnline,
 			foodItems,
 			combos,
 			estimatedDeliveryTime, // in minutes, null if not calculable

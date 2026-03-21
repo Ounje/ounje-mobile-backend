@@ -8,7 +8,8 @@ const ledgerService = require("../services/ledger.service");
 // Get popular vendors
 const getPopularVendors = async (req, res) => {
 	try {
-		const vendors = await vendorService.getPopularVendors();
+		const { zone } = req.query;
+		const vendors = await vendorService.getPopularVendors(zone);
 		res.json(vendors);
 	} catch (err) {
 		res.status(500).json({ message: err.message });
