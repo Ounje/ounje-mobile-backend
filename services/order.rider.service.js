@@ -14,35 +14,63 @@ const getRiderDeclineReasonText = (reason) => {
 	return reasonTexts[reason] || reason;
 };
 
-const findNearbyRiders = async (vendorLocation, orderId) => {
+const findNearbyRiders = async (vendorLocation, orderId, orderZone) => {
+	const pingedUserIds = new Set();
+
+	// 1. GPS-based push (best effort — requires 2dsphere index + riders with valid GPS)
 	try {
-		// 1. Find all available riders within 3km (3000 meters)
 		const nearbyRiders = await RiderProfile.find({
 			status: "available",
 			isActive: true,
 			currentLocation: {
 				$near: {
-					$geometry: vendorLocation, // The Vendor's [lng, lat]
+					$geometry: vendorLocation,
 					$maxDistance: 3000,
 				},
 			},
 		});
 
-		// 2. Broadcast to these specific riders via Socket.io
 		if (global.io && nearbyRiders.length > 0) {
 			nearbyRiders.forEach((rider) => {
-				// Emit to the rider's User ID (owner of the profile)
 				global.io.to(rider.user.toString()).emit("newOrderAvailable", {
-					orderId: orderId,
+					orderId,
 					message: "New delivery request nearby!",
 				});
+				pingedUserIds.add(rider.user.toString());
 			});
-			logger.info(`Pings sent to ${nearbyRiders.length} riders.`);
+			logger.info(`GPS ping: ${nearbyRiders.length} riders within 3km of vendor.`);
 		}
+	} catch (gpsError) {
+		logger.warn(`GPS rider search failed, zone fallback active: ${gpsError.message}`);
+	}
 
-		return nearbyRiders;
-	} catch (error) {
-		logger.error(`Error finding riders: ${error.message}`);
+	// 2. Zone-based fallback — notify riders in the order's zone not already pinged
+	if (orderZone) {
+		try {
+			const zoneRiders = await RiderProfile.find({
+				status: "available",
+				isActive: true,
+				operatingArea: orderZone,
+			});
+
+			if (global.io && zoneRiders.length > 0) {
+				let zonePings = 0;
+				zoneRiders.forEach((rider) => {
+					if (!pingedUserIds.has(rider.user.toString())) {
+						global.io.to(rider.user.toString()).emit("newOrderAvailable", {
+							orderId,
+							message: "New delivery request in your zone!",
+						});
+						zonePings++;
+					}
+				});
+				if (zonePings > 0) {
+					logger.info(`Zone ping: ${zonePings} riders in zone "${orderZone}".`);
+				}
+			}
+		} catch (zoneError) {
+			logger.error(`Zone rider search failed: ${zoneError.message}`);
+		}
 	}
 };
 

@@ -196,13 +196,8 @@ const vendorMarkReady = async (orderId, vendorId) => {
 		logger.error(`Failed to send ready notification: ${error.message}`);
 	}
 
-	// NOW trigger rider search — order is physically ready for pickup
+	// Step 1: Always transition order to LOOKING_FOR_RIDER (guaranteed, no GPS dependency)
 	try {
-		const vendorLocation = order.vendor?.location;
-		if (vendorLocation) {
-			const { findNearbyRiders } = require("./order.rider.service");
-			await findNearbyRiders(vendorLocation, order._id);
-		}
 		await orderService.updateOrderStatus(
 			orderId,
 			ORDER_STATUS.RIDING,
@@ -215,8 +210,17 @@ const vendorMarkReady = async (orderId, vendorId) => {
 				subStatus: ORDER_SUB_STATUS.LOOKING_FOR_RIDER,
 			});
 		}
+	} catch (statusError) {
+		logger.error(`Failed to set LOOKING_FOR_RIDER status: ${statusError.message}`);
+	}
+
+	// Step 2: Push notifications to nearby/zone riders (best-effort, never blocks status)
+	try {
+		const vendorLocation = order.vendor?.location;
+		const { findNearbyRiders } = require("./order.rider.service");
+		await findNearbyRiders(vendorLocation, order._id, order.zone);
 	} catch (error) {
-		logger.error(`Failed to find riders after mark ready: ${error.message}`);
+		logger.error(`Rider ping failed (non-blocking): ${error.message}`);
 	}
 
 	return order;
