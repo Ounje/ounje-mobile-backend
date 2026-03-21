@@ -18,7 +18,7 @@ class VendorService {
 
 			if (lat && lng) {
 				const coordinates = [parseFloat(lng), parseFloat(lat)];
-				const onlineFilter = { isActive: true, "storeDetails.0.status": "active" };
+				const onlineFilter = { isActive: true, storeDetails: { $exists: true, $not: { $size: 0 } }, "storeDetails.0.status": "active" };
 
 				// Fetch vendors within 10km sorted by distance (closest first)
 				const nearbyVendors = await VendorProfile.aggregate([
@@ -58,7 +58,7 @@ class VendorService {
 				};
 			}
 
-			const allVendors = await VendorProfile.find({ isActive: true, "storeDetails.0.status": "active" }).limit(20);
+			const allVendors = await VendorProfile.find({ isActive: true, storeDetails: { $exists: true, $not: { $size: 0 } }, "storeDetails.0.status": "active" }).limit(20);
 
 			return {
 				status: "success",
@@ -72,7 +72,7 @@ class VendorService {
 	}
 
 	async getPopularVendors(zone) {
-		const filter = { isActive: true, "storeDetails.0.status": "active" };
+		const filter = { isActive: true, storeDetails: { $exists: true, $not: { $size: 0 } }, "storeDetails.0.status": "active" };
 		if (zone) {
 			filter["location.address"] = { $regex: zone, $options: "i" };
 		}

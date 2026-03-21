@@ -22,7 +22,11 @@ const searchVendors = async (query, limit, includeUnavailable) => {
 		const matchStage = {
 			$or: [{ _id: { $in: vendorIdsFromFood } }, { $text: { $search: query } }],
 		};
-		if (!includeUnavailable) matchStage.isActive = true;
+		if (!includeUnavailable) {
+			matchStage.isActive = true;
+			matchStage.storeDetails = { $exists: true, $not: { $size: 0 } };
+			matchStage["storeDetails.0.status"] = "active";
+		}
 
 		const vendors = await VendorProfile.aggregate([
 			{ $match: matchStage },
@@ -86,6 +90,7 @@ const searchFoodItems = async (query, limit, includeUnavailable) => {
 					vendor: {
 						id: "$vendorInfo._id",
 						name: "$vendorInfo.name",
+						image: { $ifNull: ["$vendorInfo.bannerUrl", "$vendorInfo.profileImage", "$vendorInfo.logoUrl", null] },
 					},
 					_id: 0,
 				},
