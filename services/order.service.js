@@ -311,21 +311,21 @@ const createOrder = async (userId, data) => {
 		throw new Error("No items in the order.");
 	}
 
-	// 1. Identify Zone
-	const orderZone = identifyZone(deliveryAddress);
-
-	// 2. Fetch Vendor
+	// 1. Fetch Vendor (needed before zone identification)
 	const vendor = await VendorProfile.findById(vendorId);
 	if (!vendor) throw new Error("Vendor not found");
 	if (!vendor.location || !vendor.location.coordinates) {
 		throw new Error("Vendor has no location set");
 	}
-
-	// 3. Calculate Delivery Fee
-	const vendorAddress = vendor.location ? vendor.location.address : null;
+	const vendorAddress = vendor.location.address;
 	if (!vendorAddress) {
 		throw new Error("Vendor address is missing");
 	}
+
+	// 2. Identify Zone from vendor address (where rider picks up — not customer delivery address)
+	const orderZone = identifyZone(vendorAddress);
+
+	// 3. Calculate Delivery Fee
 	const fee = await calculateOunjeFee(vendorAddress, deliveryAddress);
 
 	// 4. Build Order Items

@@ -19,6 +19,7 @@ const {
 	getRiderWalletTransactions,
 	getOperatingArea,
 	updateOperatingArea,
+	changeZone,
 	deactivateRiderAccount,
 	updatePushToken,
 	uploadProfilePicture,
@@ -192,6 +193,14 @@ router.put(
 	authMiddleware,
 	roleGuard(["rider"]),
 	updateOperatingArea,
+);
+
+// Change zone (once every 7 days)
+router.put(
+	"/profile/zone",
+	authMiddleware,
+	roleGuard(["rider"]),
+	changeZone,
 );
 
 router.delete(

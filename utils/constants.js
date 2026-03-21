@@ -98,6 +98,22 @@ const CANCELLATION_REASON_LABELS = {
 	system_other: "System issue",
 };
 
+const AVAILABLE_ZONES = [
+	"Ikeja",
+	"Lekki",
+	"Victoria Island",
+	"Surulere",
+	"Yaba",
+	"Ojota",
+	"Maryland",
+	"Gbagada",
+	"Ikorodu",
+	"Ajah",
+	"Sangotedo",
+	"Ogba",
+	"Agege",
+];
+
 const getAllDeclineReasons = () => Object.values(DECLINE_REASONS);
 const getAllCancellationReasons = () => Object.values(CANCELLATION_REASONS);
 
@@ -116,6 +132,7 @@ module.exports = {
 	CANCELLATION_REASONS,
 	CANCELLATION_CATEGORIES,
 	CANCELLATION_REASON_LABELS,
+	AVAILABLE_ZONES,
 	getAllDeclineReasons,
 	getAllCancellationReasons,
 	getCancellationReasonsByCategory,
