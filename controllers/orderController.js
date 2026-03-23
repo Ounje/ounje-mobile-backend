@@ -37,6 +37,7 @@ const formatRiderOrder = (order) => {
       ? {
           id: orderObj.vendor._id || orderObj.vendor,
           name: orderObj.vendor.name || "Unknown Vendor",
+          phone: orderObj.vendor.phone || null,
           address:
             orderObj.vendor.address ||
             orderObj.vendor.location?.address ||
@@ -44,6 +45,14 @@ const formatRiderOrder = (order) => {
           location: orderObj.vendor.location || null,
         }
       : null,
+    customer: orderObj.customer
+      ? {
+          id: orderObj.customer._id || orderObj.customer,
+          name: orderObj.customer.name || null,
+          phone: orderObj.customer.phone || null,
+          address: orderObj.customer.address || null,
+        }
+      : orderObj.customer,
   };
 };
 
