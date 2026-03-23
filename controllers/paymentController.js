@@ -129,7 +129,10 @@ const verifyPayment = async (req, res) => {
 					createdOrder.paymentStatus = "paid";
 					await createdOrder.save();
 					payment.orderId = createdOrder._id;
-					await PendingCheckout.deleteOne({ reference });
+					// Non-blocking cleanup — don't delay the response
+					PendingCheckout.deleteOne({ reference }).catch((err) =>
+						console.error(`Failed to delete PendingCheckout: ${err.message}`)
+					);
 
 					// Notify vendor — only now, after payment is confirmed
 					if (global.io) {
@@ -139,12 +142,10 @@ const verifyPayment = async (req, res) => {
 						});
 					}
 
-					// Send delivery OTP
-					try {
-						await orderService.sendDeliveryOtp(createdOrder);
-					} catch (err) {
-						console.error(`Failed to send delivery OTP after Paystack verify: ${err.message}`);
-					}
+					// Fire-and-forget — don't block the response for OTP delivery
+					orderService.sendDeliveryOtp(createdOrder).catch((err) =>
+						console.error(`Failed to send delivery OTP after Paystack verify: ${err.message}`)
+					);
 				}
 			} else if (payment.orderId) {
 				// ── Legacy flow: order already existed ─────────────────────────────
