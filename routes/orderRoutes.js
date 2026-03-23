@@ -14,6 +14,7 @@ const {
 const {
 	// Customer
 	estimateOrder,
+	getDeliveryEstimate,
 	createOrder,
 	getMyOrders,
 	getOrderById,
@@ -138,6 +139,16 @@ router.post(
 	roleGuard(["customer"]),
 	requireCustomer,
 	estimateOrder,
+);
+
+// Delivery fee estimate — fast haversine estimate for vendor preview (no Google Maps call)
+router.get(
+	"/delivery-estimate",
+	authMiddleware,
+	checkActiveUser,
+	roleGuard(["customer"]),
+	requireCustomer,
+	getDeliveryEstimate,
 );
 
 router.post(

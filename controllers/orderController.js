@@ -1,11 +1,12 @@
 const orderService = require("../services/order.service");
 const orderVendorService = require("../services/order.vendor.service");
 const orderRiderService = require("../services/order.rider.service");
-const { Order, Customer } = require("../models");
+const { Order, Customer, VendorProfile } = require("../models");
 const logger = require("../utils/logger");
 const { paginate } = require("../utils/paginate");
 const asyncHandler = require("../utils/asyncHandler");
 const AppError = require("../utils/AppError");
+const { calculateOunjeFeeFromCoords, buildFeeBreakdown } = require("../utils/delivery");
 
 const cleanOrderItems = (items) => {
   if (items && Array.isArray(items)) {
@@ -50,6 +51,35 @@ const formatRiderOrder = (order) => {
 exports.estimateOrder = asyncHandler(async (req, res) => {
   const estimate = await orderService.estimateOrderPrice(req.body);
   res.status(200).json({ success: true, ...estimate });
+});
+
+// Delivery fee estimate — GET /api/orders/delivery-estimate?vendorId=xxx
+// Uses haversine (no Google Maps call) so it's fast and cheap for previewing fees
+exports.getDeliveryEstimate = asyncHandler(async (req, res) => {
+  const { vendorId } = req.query;
+  if (!vendorId) throw new AppError("vendorId is required", 400);
+
+  const vendor = await VendorProfile.findById(vendorId).select("location");
+  if (!vendor?.location?.coordinates?.length) {
+    throw new AppError("Vendor location not available", 404);
+  }
+
+  const [vLng, vLat] = vendor.location.coordinates;
+
+  // Use customer's first saved address coordinates if available
+  const customer = await Customer.findOne({ user: req.user.id }).select("savedAddresses");
+  const savedCoords = customer?.savedAddresses?.[0]?.coordinates;
+
+  if (!savedCoords?.length) {
+    // No customer location — return minimum base fee as a lower-bound estimate
+    return res.status(200).json({ success: true, deliveryFee: 500, distanceKm: null, estimated: true });
+  }
+
+  const [cLng, cLat] = savedCoords;
+  const { fee, distanceKm } = calculateOunjeFeeFromCoords(vLng, vLat, cLng, cLat);
+  const breakdown = buildFeeBreakdown(distanceKm);
+
+  res.status(200).json({ success: true, deliveryFee: fee, distanceKm, breakdown });
 });
 
 // Create Order
