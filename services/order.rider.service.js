@@ -3,6 +3,7 @@ const { Order, RiderProfile, VendorProfile } = require("../models");
 const notificationService = require("./notification.service");
 const { ORDER_STATUS, ORDER_SUB_STATUS } = require("../utils/constants");
 const logger = require("../utils/logger");
+const { reverseRiderFeeHold } = require("./ledger.service");
 
 // ── In-memory sequential dispatch queues ────────────────────────────────────
 // Map<orderId_string, { queue: RiderProfile[], timerId: NodeJS.Timeout | null }>
@@ -298,6 +299,13 @@ const riderDeclineOrder = async (orderId, riderId, declineData = {}) => {
 
 	await order.save();
 
+	// Reverse the delivery fee hold so the rider's wallet is restored
+	try {
+		await reverseRiderFeeHold(riderId, orderId);
+	} catch (error) {
+		logger.error(`Failed to reverse rider fee hold on decline: ${error.message}`);
+	}
+
 	try {
 		await notificationService.notifyCustomerRiderDeclined(
 			order.customer,
@@ -373,9 +381,6 @@ const getAvailableRiderRequests = async (riderZones = []) => {
 };
 
 const getCurrentRiderOrder = async (riderId) => {
-	// Only treat orders updated within the last 2 hours as "active".
-	// Orders stuck in RIDING beyond 2 h are treated as stale/abandoned.
-	const staleThreshold = new Date(Date.now() - 2 * 60 * 60 * 1000);
 	return await Order.findOne({
 		rider: riderId,
 		status: ORDER_STATUS.RIDING,
@@ -386,7 +391,6 @@ const getCurrentRiderOrder = async (riderId) => {
 				ORDER_SUB_STATUS.ON_THE_WAY,
 			],
 		},
-		updatedAt: { $gte: staleThreshold },
 	})
 		.populate("vendor", "name address phone location")
 		.populate("customer", "name address phone location")
@@ -418,9 +422,9 @@ const getRiderOrders = async (riderId, statusFilter) => {
 		filter.status = ORDER_STATUS.RIDING;
 		filter.subStatus = ORDER_SUB_STATUS.RIDER_ASSIGNED;
 	} else if (statusFilter === "active") {
-		// Orders currently being delivered (picked up but not delivered)
+		// Orders currently being delivered (assigned, in transit, or picked up)
 		filter.status = ORDER_STATUS.RIDING;
-		filter.subStatus = ORDER_SUB_STATUS.PICKED_UP;
+		filter.subStatus = { $in: [ORDER_SUB_STATUS.RIDER_ASSIGNED, ORDER_SUB_STATUS.PICKED_UP, ORDER_SUB_STATUS.ON_THE_WAY] };
 	} else if (statusFilter === "completed") {
 		// Delivered orders
 		filter.status = ORDER_STATUS.DELIVERED;

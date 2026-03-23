@@ -647,6 +647,54 @@ const releaseVendorAmount = async (vendorId, orderId) => {
 	}
 };
 
+/**
+ * Reverse a delivery fee hold — called when a rider declines after accepting.
+ * Removes the hold entry amount from holdBalance (no credit to availableBalance).
+ */
+const reverseRiderFeeHold = async (riderId, orderId) => {
+	const session = await mongoose.startSession();
+	session.startTransaction();
+	try {
+		const account = await ensureAccount(riderId, "RIDER");
+
+		const holdEntry = await LedgerEntry.findOne({
+			orderId,
+			accountId: account._id,
+			reason: "DELIVERY_FEE_HOLD",
+		});
+
+		if (!holdEntry) {
+			// No hold was ever created for this order — nothing to reverse
+			await session.commitTransaction();
+			return;
+		}
+
+		const amount = holdEntry.amount;
+		account.holdBalance = Math.max(0, account.holdBalance - amount);
+
+		await LedgerEntry.create(
+			[{
+				accountId: account._id,
+				amount,
+				entryType: "DEBIT",
+				reason: "REVERSAL",
+				orderId,
+				meta: { action: "delivery_fee_hold_reversed", reason: "rider_declined" },
+				balanceAfter: account.availableBalance,
+			}],
+			{ session },
+		);
+
+		await account.save({ session });
+		await session.commitTransaction();
+	} catch (error) {
+		await session.abortTransaction();
+		throw error;
+	} finally {
+		session.endSession();
+	}
+};
+
 module.exports = {
 	ensureAccount,
 	creditAccount,
@@ -661,6 +709,7 @@ module.exports = {
 	getAccountStatement,
 	holdRiderFee,
 	releaseRiderFee,
+	reverseRiderFeeHold,
 	holdVendorAmount,
 	releaseVendorAmount,
 	getDailyEarnings,
