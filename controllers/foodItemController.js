@@ -5,6 +5,84 @@ const {
 } = require("../utils/foodEnums");
 const { paginate } = require("../utils/paginate");
 
+// GET /api/food-items/by-category?category=rice&page=1&limit=20
+// Returns flat list of individual food items for a category, with vendor info.
+const getFoodByCategory = async (req, res) => {
+	try {
+		const { category, page = 1, limit = 20 } = req.query;
+		if (!category)
+			return res.status(400).json({ success: false, message: "category is required" });
+
+		const pageNum = parseInt(page);
+		const limitNum = parseInt(limit);
+		const skip = (pageNum - 1) * limitNum;
+
+		const pipeline = [
+			{ $match: { category: category.toLowerCase(), isAvailable: true } },
+			{ $unwind: "$subCategory" },
+			{ $unwind: "$subCategory.items" },
+			{ $match: { "subCategory.items.isAvailable": { $ne: false } } },
+			{
+				$lookup: {
+					from: "vendorprofiles",
+					localField: "vendor",
+					foreignField: "_id",
+					as: "vendorInfo",
+				},
+			},
+			{ $unwind: "$vendorInfo" },
+			{ $match: { "vendorInfo.isActive": true } },
+			{
+				$project: {
+					_id: 0,
+					foodItemId: "$_id",
+					itemId: "$subCategory.items._id",
+					name: "$subCategory.items.name",
+					price: "$subCategory.items.price",
+					img: "$subCategory.items.img",
+					description: "$subCategory.items.description",
+					category: 1,
+					vendor: {
+						_id: "$vendorInfo._id",
+						name: "$vendorInfo.name",
+						img: {
+							$ifNull: [
+								"$vendorInfo.logoUrl",
+								"$vendorInfo.profileImage",
+								"$vendorInfo.bannerUrl",
+								null,
+							],
+						},
+						location: "$vendorInfo.location",
+						isOnline: {
+							$eq: [
+								{ $arrayElemAt: ["$vendorInfo.storeDetails.status", 0] },
+								"active",
+							],
+						},
+					},
+				},
+			},
+			{ $skip: skip },
+			{ $limit: limitNum },
+		];
+
+		const data = await FoodItem.aggregate(pipeline).allowDiskUse(true);
+
+		res.json({
+			success: true,
+			data,
+			pagination: {
+				page: pageNum,
+				limit: limitNum,
+				hasNextPage: data.length === limitNum,
+			},
+		});
+	} catch (err) {
+		res.status(500).json({ success: false, message: err.message });
+	}
+};
+
 const createFoodItem = async (req, res) => {
 	try {
 		let { category, isCompulsory, subCategories } = req.body;
@@ -877,6 +955,7 @@ module.exports = {
 	getAllFoodItems,
 	getFoodItemById,
 	getMyFoodItems,
+	getFoodByCategory,
 	createCombo,
 	updateCombo,
 	deleteCombo,

@@ -5,6 +5,22 @@ const { paginate } = require("../utils/paginate");
 const logger = require("../utils/logger");
 const ledgerService = require("../services/ledger.service");
 
+// GET /api/vendors/all — all active vendors for "See All" listing
+const getAllVendors = async (req, res) => {
+	try {
+		const vendors = await VendorProfile.find({ isActive: true })
+			.select(
+				"name bannerUrl logoUrl profileImage location storeDetails averageRating ratingCount fulfillmentSettings operatingHours",
+			)
+			.sort({ averageRating: -1 })
+			.limit(200)
+			.lean();
+		res.json({ success: true, data: vendors });
+	} catch (err) {
+		res.status(500).json({ message: err.message });
+	}
+};
+
 // Get popular vendors
 const getPopularVendors = async (req, res) => {
 	try {
@@ -346,6 +362,7 @@ const getVendorWallet = async (req, res) => {
 module.exports = {
 	completeVendorRegistration,
 	getPopularVendors,
+	getAllVendors,
 	getVendor,
 	userGetVendor,
 	updateBankDetails,

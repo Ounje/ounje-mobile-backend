@@ -12,6 +12,7 @@ const {
 	getAllFoodItems,
 	getFoodItemById,
 	getMyFoodItems,
+	getFoodByCategory,
 	addSubCategories,
 	deleteSubCategory,
 	toggleFoodItemAvailability,
@@ -320,6 +321,9 @@ router.post(
  *       404:
  *         description: Food item not found
  */
+// Public: get individual food items for a category (e.g. ?category=rice)
+router.get("/by-category", getFoodByCategory);
+
 router.get("/:foodItemId", getFoodItemById);
 
 /**
