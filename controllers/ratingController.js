@@ -30,7 +30,7 @@ const getProfileId = async (targetType, userId) => {
 // Main handler for rating & likes
 const rateEntity = async ({ req, res, targetType }) => {
 	try {
-		const { rating, comment, like } = req.body;
+		const { rating, comment, like, orderId } = req.body;
 		let result = {};
 
 		// Convert User ID to Profile ID if needed
@@ -53,7 +53,7 @@ const rateEntity = async ({ req, res, targetType }) => {
 				req.user.id,
 				targetType,
 				profileId,
-				{ rating, comment },
+				{ rating, comment, orderId },
 			);
 			result = { ...result, ...ratingResult };
 		}
@@ -85,6 +85,18 @@ const rateEntity = async ({ req, res, targetType }) => {
 			success: false,
 			message: err.message || "Error processing feedback",
 		});
+	}
+};
+
+// Check if the current customer has already rated an order
+const checkOrderRating = async (req, res) => {
+	try {
+		const { orderId } = req.params;
+		const result = await ratingService.checkOrderRating(req.user.id, orderId);
+		return res.status(200).json({ success: true, data: result });
+	} catch (err) {
+		logger.error(`Check Order Rating Error: ${err.message}`);
+		return res.status(500).json({ success: false, message: err.message });
 	}
 };
 
@@ -148,4 +160,5 @@ module.exports = {
 	ratePlate: (req, res) => rateEntity({ req, res, targetType: "Plate" }),
 	getReviews,
 	deleteReview,
+	checkOrderRating,
 };
