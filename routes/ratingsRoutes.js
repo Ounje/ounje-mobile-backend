@@ -10,6 +10,7 @@ const {
 	ratePlate,
 	getReviews,
 	deleteReview,
+	checkOrderRating,
 } = require("../controllers/ratingController");
 
 // Rate entities (customer only)
@@ -186,6 +187,9 @@ router.post("/rider/:id", authMiddleware, roleGuard(["customer"]), rateRider);
  *         description: Rated successfully
  */
 router.post("/plate/:id", authMiddleware, roleGuard(["customer"]), ratePlate);
+
+// Check if customer has rated a specific order
+router.get("/check/:orderId", authMiddleware, roleGuard(["customer"]), checkOrderRating);
 
 // Get reviews (public)
 /**
