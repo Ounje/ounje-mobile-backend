@@ -878,6 +878,15 @@ const vendorAcceptOrder = async (orderId, vendorId) => {
 	order.subStatus = ORDER_SUB_STATUS.CONFIRMED;
 	await order.save();
 
+	// Move vendor earning from holdBalance → pendingBalance so it shows in wallet immediately
+	try {
+		await ledgerService.pendVendorEarning(order.vendor, order._id);
+		logger.info(`[WALLET] Vendor earning moved to pending: orderId=${orderId} vendorId=${order.vendor} amount=${order.vendorEarning}`);
+	} catch (ledgerErr) {
+		// Non-blocking — order acceptance still succeeds
+		logger.error(`[WALLET] Failed to pend vendor earning on accept: orderId=${orderId} err=${ledgerErr.message}`);
+	}
+
 	try {
 		await notificationService.notifyCustomerOrderAccepted(
 			order.customer,

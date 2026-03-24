@@ -36,9 +36,15 @@ const searchVendors = async (query, limit, includeUnavailable) => {
 					id: "$_id",
 					name: 1,
 					image: { $ifNull: ["$logoUrl", "$profileImage", "$bannerUrl"] },
-					isOpen: { $eq: ["$storeDetails.0.status", "active"] },
+					isOpen: {
+						$eq: [
+							{ $arrayElemAt: ["$storeDetails.status", 0] },
+							"active",
+						],
+					},
 					averageRating: { $ifNull: ["$averageRating", 0] },
 					totalRating: { $ifNull: ["$ratingCount", 0] },
+					deliveryFee: { $ifNull: ["$fulfillmentSettings.deliveryPrice", 0] },
 					location: 1,
 					_id: 0,
 				},

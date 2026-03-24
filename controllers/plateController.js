@@ -74,16 +74,121 @@ const buildPlate = async (req, res) => {
 
 const getAllPlates = async (req, res) => {
     try {
+        const { sortBy } = req.query;
+
+        // Trending sort requires an aggregation pipeline to compute a composite score
+        if (sortBy === "trending") {
+            const page = parseInt(req.query.page) || 1;
+            const limit = Math.min(parseInt(req.query.limit) || 10, 30);
+            const skip = (page - 1) * limit;
+
+            const results = await Plate.aggregate([
+                {
+                    $addFields: {
+                        trendingScore: {
+                            $add: [
+                                { $ifNull: ["$likes", 0] },
+                                { $multiply: [{ $ifNull: ["$ordersCount", 0] }, 2] },
+                                { $ifNull: ["$commentsCount", 0] },
+                            ],
+                        },
+                    },
+                },
+                { $sort: { trendingScore: -1, createdAt: -1 } },
+                { $skip: skip },
+                { $limit: limit },
+                {
+                    $lookup: {
+                        from: "vendorprofiles",
+                        localField: "vendor",
+                        foreignField: "_id",
+                        as: "vendorInfo",
+                    },
+                },
+                { $unwind: { path: "$vendorInfo", preserveNullAndEmpty: true } },
+                {
+                    $project: {
+                        name: 1, description: 1, price: 1, img: 1, likes: 1,
+                        ordersCount: 1, commentsCount: 1, trendingScore: 1,
+                        timeToMake: 1, rating: 1, averageRating: 1, createdAt: 1,
+                        vendor: {
+                            _id: "$vendorInfo._id",
+                            name: "$vendorInfo.name",
+                            image: { $ifNull: ["$vendorInfo.logoUrl", "$vendorInfo.profileImage", "$vendorInfo.bannerUrl", null] },
+                        },
+                    },
+                },
+            ]);
+
+            const total = await Plate.countDocuments();
+            return res.status(200).json({
+                success: true,
+                data: results,
+                pagination: { total, page, limit, hasNextPage: skip + results.length < total },
+            });
+        }
+
+        // For all other sort fields (likes, ordersCount, commentsCount, createdAt),
+        // the paginate utility handles it via sortBy/sortOrder query params
         const populateOptions = [
-            { path: "items", select: "-vendor -averageRating -ratingCount -likes" },
-            { path: "combos", select: "-vendor -averageRating -ratingCount -likes" },
-            { path: "vendor", select: "storeDetails img description" },
-            { path: "customer", select: "firstName lastName img" }
+            { path: "items", select: "name price img -vendor" },
+            { path: "combos", select: "comboName basePrice img -vendor" },
+            { path: "vendor", select: "name logoUrl profileImage bannerUrl storeDetails" },
+            { path: "customer", select: "firstName lastName img" },
         ];
 
         const result = await paginate(Plate, req.query, populateOptions);
-
         res.status(200).json(result);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+};
+
+/**
+ * GET /api/plates/popular
+ * Returns top plates ranked by popularity score: likes + (ordersCount × 2)
+ */
+const getPopularPlates = async (req, res) => {
+    try {
+        const limit = Math.min(parseInt(req.query.limit) || 10, 20);
+
+        const plates = await Plate.aggregate([
+            {
+                $addFields: {
+                    popularityScore: {
+                        $add: [
+                            { $ifNull: ["$likes", 0] },
+                            { $multiply: [{ $ifNull: ["$ordersCount", 0] }, 2] },
+                        ],
+                    },
+                },
+            },
+            { $sort: { popularityScore: -1, createdAt: -1 } },
+            { $limit: limit },
+            {
+                $lookup: {
+                    from: "vendorprofiles",
+                    localField: "vendor",
+                    foreignField: "_id",
+                    as: "vendorInfo",
+                },
+            },
+            { $unwind: { path: "$vendorInfo", preserveNullAndEmpty: true } },
+            {
+                $project: {
+                    name: 1, description: 1, price: 1, img: 1,
+                    likes: 1, ordersCount: 1, commentsCount: 1, popularityScore: 1,
+                    timeToMake: 1, rating: 1, averageRating: 1, createdAt: 1,
+                    vendor: {
+                        _id: "$vendorInfo._id",
+                        name: "$vendorInfo.name",
+                        image: { $ifNull: ["$vendorInfo.logoUrl", "$vendorInfo.profileImage", "$vendorInfo.bannerUrl", null] },
+                    },
+                },
+            },
+        ]);
+
+        res.status(200).json({ success: true, data: plates });
     } catch (error) {
         res.status(500).json({ error: error.message });
     }
@@ -157,5 +262,5 @@ const fixAllPlates = async (req, res) => {
 };
 
 module.exports = {
-    buildPlate, getAllPlates, getSpecificPlate, deletePlate, fixAllPlates
+    buildPlate, getAllPlates, getPopularPlates, getSpecificPlate, deletePlate, fixAllPlates
 };
