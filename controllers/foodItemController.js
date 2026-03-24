@@ -785,7 +785,7 @@ const deleteCombo = async (req, res) => {
 const getAllCombos = async (req, res) => {
 	try {
 		const populateOptions = [
-			{ path: "vendor", select: "img description averageRating totalOrders" },
+			{ path: "vendor", select: "name img description averageRating totalOrders" },
 			{
 				path: "selections.items.item",
 				select: "name img description price",
@@ -829,7 +829,7 @@ const getMyCombos = async (req, res) => {
 const getComboById = async (req, res) => {
 	try {
 		const combo = await Combo.findById(req.params.comboId)
-			.populate("vendor", " img description averageRating totalOrders location")
+			.populate("vendor", "name img description averageRating totalOrders location")
 			.populate({
 				path: "selections.items.item",
 				select: "name img description price",
@@ -848,7 +848,7 @@ const getVendorCombos = async (req, res) => {
 	try {
 		const filter = { vendor: req.params.vendorId };
 		const populateOptions = [
-			{ path: "vendor", select: "img description averageRating totalOrders" },
+			{ path: "vendor", select: "name img description averageRating totalOrders" },
 			{
 				path: "selections.items.item",
 				select: "name img description price",
@@ -946,6 +946,65 @@ const toggleFoodItemAvailability = async (req, res) => {
 	}
 };
 
+// GET /api/food-items/vendors-by-category?category=rice&page=1&limit=20
+// Returns vendors that have food items in the given category.
+const getVendorsByCategory = async (req, res) => {
+	try {
+		const { category, page = 1, limit = 20 } = req.query;
+		if (!category)
+			return res.status(400).json({ success: false, message: "category is required" });
+
+		const pageNum = parseInt(page);
+		const limitNum = parseInt(limit);
+		const skip = (pageNum - 1) * limitNum;
+
+		const pipeline = [
+			{ $match: { category: category.toLowerCase(), isAvailable: true } },
+			{ $group: { _id: "$vendor" } },
+			{
+				$lookup: {
+					from: "vendorprofiles",
+					localField: "_id",
+					foreignField: "_id",
+					as: "vendor",
+				},
+			},
+			{ $unwind: "$vendor" },
+			{ $match: { "vendor.isActive": true } },
+			{
+				$project: {
+					_id: 0,
+					type: { $literal: "vendor" },
+					id: "$vendor._id",
+					name: "$vendor.name",
+					image: { $ifNull: ["$vendor.logoUrl", "$vendor.profileImage", "$vendor.bannerUrl", null] },
+					isOpen: {
+						$eq: [
+							{ $arrayElemAt: ["$vendor.storeDetails.status", 0] },
+							"active",
+						],
+					},
+					averageRating: { $ifNull: ["$vendor.averageRating", 0] },
+					totalRating: { $ifNull: ["$vendor.ratingCount", 0] },
+					deliveryFee: { $ifNull: ["$vendor.fulfillmentSettings.deliveryPrice", 0] },
+					location: "$vendor.location",
+				},
+			},
+			{ $skip: skip },
+			{ $limit: limitNum },
+		];
+
+		const data = await FoodItem.aggregate(pipeline).allowDiskUse(true);
+		res.json({
+			success: true,
+			data,
+			pagination: { page: pageNum, limit: limitNum, hasNextPage: data.length === limitNum },
+		});
+	} catch (err) {
+		res.status(500).json({ success: false, message: err.message });
+	}
+};
+
 module.exports = {
 	createFoodItem,
 	updateFoodItem,
@@ -956,6 +1015,7 @@ module.exports = {
 	getFoodItemById,
 	getMyFoodItems,
 	getFoodByCategory,
+	getVendorsByCategory,
 	createCombo,
 	updateCombo,
 	deleteCombo,

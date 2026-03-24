@@ -17,7 +17,19 @@ const getBalance = async (req, res) => {
       return res.status(403).json({ error: "Only riders and vendors can view balances" });
     }
 
-    const balance = await ledgerService.getAccountBalance(userId, userType.toUpperCase());
+    // LedgerAccount.userId stores profile _id, not User._id — resolve the right id first
+    let accountUserId = userId;
+    if (userType === "vendor") {
+      const vp = await VendorProfile.findOne({ owner: userId }).select("_id");
+      if (!vp) return res.status(404).json({ error: "Vendor profile not found" });
+      accountUserId = vp._id;
+    } else if (userType === "rider") {
+      const rp = await RiderProfile.findOne({ user: userId }).select("_id");
+      if (!rp) return res.status(404).json({ error: "Rider profile not found" });
+      accountUserId = rp._id;
+    }
+
+    const balance = await ledgerService.getAccountBalance(accountUserId, userType.toUpperCase());
 
     // totalEarnings = withdrawable + in-progress (hold) + pending payout
     const totalEarnings = (balance.availableBalance ?? 0)
@@ -45,11 +57,24 @@ const getTransactionHistory = async (req, res) => {
       return res.status(403).json({ error: "Only riders and vendors can view history" });
     }
 
+    // LedgerAccount.userId stores the profile _id (VendorProfile._id / RiderProfile._id),
+    // NOT the User._id. Look up the correct profile _id before querying.
+    let accountUserId = userId;
+    if (userType === "vendor") {
+      const vp = await VendorProfile.findOne({ owner: userId }).select("_id");
+      if (!vp) return res.status(404).json({ error: "Vendor profile not found" });
+      accountUserId = vp._id;
+    } else if (userType === "rider") {
+      const rp = await RiderProfile.findOne({ user: userId }).select("_id");
+      if (!rp) return res.status(404).json({ error: "Rider profile not found" });
+      accountUserId = rp._id;
+    }
+
     const history = await ledgerService.getTransactionHistory(
-      userId,
+      accountUserId,
       userType.toUpperCase(),
       parseInt(limit),
-      parseInt(skip)
+      parseInt(skip),
     );
 
     res.json(history);

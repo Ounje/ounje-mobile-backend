@@ -23,6 +23,7 @@ const plateSchema = new mongoose.Schema(
 		ratingCount: { type: Number, default: 0 },
 		timeToMake: { type: String, required: true },
 		likes: { type: Number, default: 0 },
+		commentsCount: { type: Number, default: 0 },
 		comments: String,
 		items: [{ type: mongoose.Schema.Types.ObjectId, ref: "FoodItem" }],
 		combos: [{ type: mongoose.Schema.Types.ObjectId, ref: "Combo" }],

@@ -13,6 +13,7 @@ const {
 	getFoodItemById,
 	getMyFoodItems,
 	getFoodByCategory,
+	getVendorsByCategory,
 	addSubCategories,
 	deleteSubCategory,
 	toggleFoodItemAvailability,
@@ -323,6 +324,8 @@ router.post(
  */
 // Public: get individual food items for a category (e.g. ?category=rice)
 router.get("/by-category", getFoodByCategory);
+// Public: get vendors that have food items in a category
+router.get("/vendors-by-category", getVendorsByCategory);
 
 router.get("/:foodItemId", getFoodItemById);
 

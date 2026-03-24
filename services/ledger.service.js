@@ -563,6 +563,69 @@ const getDailyEarnings = async (userId, userType, date = new Date()) => {
 };
 
 /**
+ * Move vendor's held earnings (holdBalance) to pendingBalance when vendor accepts the order.
+ * This makes the earnings visible as "pending" in the vendor wallet immediately on acceptance.
+ * Called by vendorAcceptOrder in order.service.js.
+ */
+const pendVendorEarning = async (vendorId, orderId) => {
+	const session = await mongoose.startSession();
+	session.startTransaction();
+	try {
+		const account = await ensureAccount(vendorId, "VENDOR");
+
+		const holdEntry = await LedgerEntry.findOne({
+			orderId,
+			accountId: account._id,
+			reason: "DELIVERY_FEE_HOLD",
+		});
+
+		let amount;
+		if (holdEntry) {
+			// Normal flow: move from holdBalance to pendingBalance
+			amount = holdEntry.amount;
+			account.holdBalance = Math.max(0, account.holdBalance - amount);
+		} else {
+			// Webhook didn't fire or order was placed before hold logic — look up vendorEarning from order
+			const Order = require("../models/Order");
+			const order = await Order.findById(orderId).select("vendorEarning foodTotal items");
+			amount = order?.vendorEarning
+				?? (order?.items?.reduce((s, i) => s + (i.price ?? 0), 0) ?? 0);
+			if (amount <= 0) {
+				// Nothing to credit — exit cleanly
+				await session.commitTransaction();
+				return;
+			}
+		}
+
+		account.pendingBalance += amount;
+
+		await LedgerEntry.create(
+			[{
+				accountId: account._id,
+				amount,
+				entryType: "CREDIT",
+				reason: "VENDOR_ORDER_PENDING",
+				orderId,
+				meta: { action: "vendor_earning_pending", from: holdEntry ? "hold" : "direct" },
+				balanceAfter: account.availableBalance, // availableBalance unchanged at this stage
+			}],
+			{ session },
+		);
+
+		await account.save({ session });
+		await session.commitTransaction();
+
+		logger.info(`[WALLET] pendVendorEarning: orderId=${orderId} vendorId=${vendorId} amount=${amount}`);
+	} catch (error) {
+		await session.abortTransaction();
+		logger.error(`[WALLET] pendVendorEarning failed: orderId=${orderId} err=${error.message}`);
+		throw error;
+	} finally {
+		session.endSession();
+	}
+};
+
+/**
  * Hold vendor's meal earnings until delivery is confirmed.
  * Called by payment webhook instead of immediately crediting.
  */
@@ -597,8 +660,12 @@ const holdVendorAmount = async (vendorId, amount, orderId) => {
 };
 
 /**
- * Release vendor's held earnings to withdrawable (availableBalance).
+ * Release vendor's earnings to withdrawableBalance (availableBalance) on delivery completion.
  * Called when delivery OTP is confirmed.
+ *
+ * Two paths:
+ * 1. Normal flow (vendor accepted): VENDOR_ORDER_PENDING entry exists → pendingBalance → availableBalance
+ * 2. Legacy/fallback (no accept step): DELIVERY_FEE_HOLD entry exists → holdBalance → availableBalance
  */
 const releaseVendorAmount = async (vendorId, orderId) => {
 	const session = await mongoose.startSession();
@@ -606,20 +673,37 @@ const releaseVendorAmount = async (vendorId, orderId) => {
 	try {
 		const account = await ensureAccount(vendorId, "VENDOR");
 
-		const holdEntry = await LedgerEntry.findOne({
+		// Check for pending entry first (set by pendVendorEarning on order accept)
+		const pendingEntry = await LedgerEntry.findOne({
 			orderId,
 			accountId: account._id,
-			reason: "DELIVERY_FEE_HOLD",
+			reason: "VENDOR_ORDER_PENDING",
 		});
 
 		let amount;
-		if (holdEntry) {
+		if (pendingEntry) {
+			// Standard flow: move pendingBalance → availableBalance
+			amount = pendingEntry.amount;
+			account.pendingBalance = Math.max(0, account.pendingBalance - amount);
+			logger.info(`[WALLET] releaseVendorAmount (pending→available): orderId=${orderId} vendorId=${vendorId} amount=${amount}`);
+		} else {
+			// Fallback: check for hold entry (webhook-only flow, vendor didn't accept via API)
+			const holdEntry = await LedgerEntry.findOne({
+				orderId,
+				accountId: account._id,
+				reason: "DELIVERY_FEE_HOLD",
+			});
+
+			if (!holdEntry) {
+				// No pending and no hold — nothing to release (e.g. webhook never fired)
+				logger.warn(`[WALLET] releaseVendorAmount: no pending or hold entry found for orderId=${orderId} vendorId=${vendorId}`);
+				await session.commitTransaction();
+				return;
+			}
+
 			amount = holdEntry.amount;
 			account.holdBalance = Math.max(0, account.holdBalance - amount);
-		} else {
-			// No hold exists (legacy order credited immediately via webhook) — nothing to release
-			await session.commitTransaction();
-			return;
+			logger.info(`[WALLET] releaseVendorAmount (hold→available fallback): orderId=${orderId} vendorId=${vendorId} amount=${amount}`);
 		}
 
 		account.availableBalance += amount;
@@ -631,7 +715,7 @@ const releaseVendorAmount = async (vendorId, orderId) => {
 				entryType: "CREDIT",
 				reason: "ORDER_EARNING",
 				orderId,
-				meta: { action: "vendor_earning_released" },
+				meta: { action: "vendor_earning_released", source: pendingEntry ? "pending" : "hold" },
 				balanceAfter: account.availableBalance,
 			}],
 			{ session },
@@ -641,6 +725,7 @@ const releaseVendorAmount = async (vendorId, orderId) => {
 		await session.commitTransaction();
 	} catch (error) {
 		await session.abortTransaction();
+		logger.error(`[WALLET] releaseVendorAmount failed: orderId=${orderId} vendorId=${vendorId} err=${error.message}`);
 		throw error;
 	} finally {
 		session.endSession();
@@ -711,6 +796,7 @@ module.exports = {
 	releaseRiderFee,
 	reverseRiderFeeHold,
 	holdVendorAmount,
+	pendVendorEarning,
 	releaseVendorAmount,
 	getDailyEarnings,
 };
