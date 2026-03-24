@@ -39,6 +39,7 @@ const searchVendors = async (query, limit, includeUnavailable) => {
 					isOpen: { $eq: ["$storeDetails.0.status", "active"] },
 					averageRating: { $ifNull: ["$averageRating", 0] },
 					totalRating: { $ifNull: ["$ratingCount", 0] },
+					location: 1,
 					_id: 0,
 				},
 			},

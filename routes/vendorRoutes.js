@@ -2,6 +2,7 @@ const express = require("express");
 const { NINStorage, vendorImageUpload } = require("../config/cloudinary");
 const {
 	getPopularVendors,
+	getAllVendors,
 	getVendor,
 	userGetVendor,
 	updateBankDetails,
@@ -41,6 +42,7 @@ const router = express.Router();
  *         description: List of popular vendors
  */
 router.get("/popular", getPopularVendors);
+router.get("/all", getAllVendors);
 
 /**
  * @swagger
