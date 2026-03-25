@@ -1,4 +1,4 @@
-const { Plate, FoodItem, Combo, Customer } = require("../models");
+const { Plate, FoodItem, Combo, Customer, VendorProfile } = require("../models");
 const { deleteImage } = require("../config/cloudinary");
 const { paginate } = require("../utils/paginate");
 
@@ -95,8 +95,6 @@ const getAllPlates = async (req, res) => {
                     },
                 },
                 { $sort: { trendingScore: -1, createdAt: -1 } },
-                { $skip: skip },
-                { $limit: limit },
                 {
                     $lookup: {
                         from: "vendorprofiles",
@@ -106,6 +104,15 @@ const getAllPlates = async (req, res) => {
                     },
                 },
                 { $unwind: { path: "$vendorInfo", preserveNullAndEmpty: true } },
+                // Only show plates from vendors that are currently online
+                {
+                    $match: {
+                        "vendorInfo.isActive": true,
+                        "vendorInfo.storeDetails.0.status": "active",
+                    },
+                },
+                { $skip: skip },
+                { $limit: limit },
                 {
                     $project: {
                         name: 1, description: 1, price: 1, img: 1, likes: 1,
@@ -114,6 +121,7 @@ const getAllPlates = async (req, res) => {
                         vendor: {
                             _id: "$vendorInfo._id",
                             name: "$vendorInfo.name",
+                            isOnline: { $eq: [{ $arrayElemAt: ["$vendorInfo.storeDetails.status", 0] }, "active"] },
                             image: { $ifNull: ["$vendorInfo.logoUrl", "$vendorInfo.profileImage", "$vendorInfo.bannerUrl", null] },
                         },
                     },
@@ -130,14 +138,20 @@ const getAllPlates = async (req, res) => {
 
         // For all other sort fields (likes, ordersCount, commentsCount, createdAt),
         // the paginate utility handles it via sortBy/sortOrder query params
+        const onlineVendors = await VendorProfile.find({
+            isActive: true,
+            "storeDetails.0.status": "active",
+        }).select("_id");
+        const onlineVendorIds = onlineVendors.map((v) => v._id);
+
         const populateOptions = [
             { path: "items", select: "name price img -vendor" },
             { path: "combos", select: "comboName basePrice img -vendor" },
-            { path: "vendor", select: "name logoUrl profileImage bannerUrl storeDetails" },
+            { path: "vendor", select: "name logoUrl profileImage bannerUrl storeDetails isActive" },
             { path: "customer", select: "firstName lastName img" },
         ];
 
-        const result = await paginate(Plate, req.query, populateOptions);
+        const result = await paginate(Plate, req.query, populateOptions, { vendor: { $in: onlineVendorIds } });
         res.status(200).json(result);
     } catch (error) {
         res.status(500).json({ error: error.message });
@@ -164,7 +178,7 @@ const getPopularPlates = async (req, res) => {
                 },
             },
             { $sort: { popularityScore: -1, createdAt: -1 } },
-            { $limit: limit },
+            { $limit: limit * 3 }, // fetch extra to account for offline vendor filtering
             {
                 $lookup: {
                     from: "vendorprofiles",
@@ -174,6 +188,14 @@ const getPopularPlates = async (req, res) => {
                 },
             },
             { $unwind: { path: "$vendorInfo", preserveNullAndEmpty: true } },
+            // Only show plates from vendors that are currently online
+            {
+                $match: {
+                    "vendorInfo.isActive": true,
+                    "vendorInfo.storeDetails.0.status": "active",
+                },
+            },
+            { $limit: limit },
             {
                 $project: {
                     name: 1, description: 1, price: 1, img: 1,
@@ -182,6 +204,7 @@ const getPopularPlates = async (req, res) => {
                     vendor: {
                         _id: "$vendorInfo._id",
                         name: "$vendorInfo.name",
+                        isOnline: { $eq: [{ $arrayElemAt: ["$vendorInfo.storeDetails.status", 0] }, "active"] },
                         image: { $ifNull: ["$vendorInfo.logoUrl", "$vendorInfo.profileImage", "$vendorInfo.bannerUrl", null] },
                     },
                 },
