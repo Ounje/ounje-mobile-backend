@@ -15,9 +15,12 @@ class VendorService {
 			}
 		}
 
+		// Show all active vendor accounts — online AND offline.
+		// The frontend displays an Open/Closed badge based on storeDetails[0].status.
+		const baseFilter = { isActive: true, storeDetails: { $exists: true, $not: { $size: 0 } } };
+
 		if (lat && lng) {
 			const coordinates = [parseFloat(lng), parseFloat(lat)];
-			const onlineFilter = { isActive: true, storeDetails: { $exists: true, $not: { $size: 0 } }, "storeDetails.0.status": "active" };
 
 			// Fetch vendors within 10km sorted by distance (closest first)
 			const nearbyVendors = await VendorProfile.aggregate([
@@ -26,7 +29,7 @@ class VendorService {
 						near: { type: "Point", coordinates },
 						distanceField: "distanceMeters",
 						maxDistance: 10000,
-						query: onlineFilter,
+						query: baseFilter,
 						spherical: true,
 					},
 				},
@@ -39,7 +42,7 @@ class VendorService {
 						near: { type: "Point", coordinates },
 						distanceField: "distanceMeters",
 						minDistance: 10001,
-						query: onlineFilter,
+						query: baseFilter,
 						spherical: true,
 					},
 				},
@@ -57,7 +60,7 @@ class VendorService {
 			};
 		}
 
-		const allVendors = await VendorProfile.find({ isActive: true, storeDetails: { $exists: true, $not: { $size: 0 } }, "storeDetails.0.status": "active" }).limit(20);
+		const allVendors = await VendorProfile.find(baseFilter).limit(20);
 
 		return {
 			status: "success",
@@ -68,11 +71,16 @@ class VendorService {
 	}
 
 	async getPopularVendors(zone) {
-		const filter = { isActive: true, storeDetails: { $exists: true, $not: { $size: 0 } }, "storeDetails.0.status": "active" };
+		// Show all active vendor accounts — online AND offline.
+		// The frontend displays an Open/Closed badge based on storeDetails[0].status.
+		const filter = { isActive: true, storeDetails: { $exists: true, $not: { $size: 0 } } };
 		if (zone) {
 			filter["location.address"] = { $regex: zone, $options: "i" };
 		}
-		return VendorProfile.find(filter).sort({ averageRating: -1 }).limit(20);
+		// Sort: online vendors first, then by rating
+		return VendorProfile.find(filter)
+			.sort({ "storeDetails.0.status": -1, averageRating: -1 })
+			.limit(20);
 	}
 
 	/**
