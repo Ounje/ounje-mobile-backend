@@ -35,7 +35,7 @@ const getCustomerProfile = async (req, res) => {
 	const userId = req.user.id; // This is the User ID from JWT
 	try {
 		// Find Customer by user reference, not by ID
-		const customer = await Customer.findOne({ user: userId }).populate("user");
+		const customer = await Customer.findOne({ user: userId }).populate("user").populate("orderCount");
 
 		if (!customer) {
 			return res.status(404).json({ error: "Customer not found" });
