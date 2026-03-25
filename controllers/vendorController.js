@@ -6,9 +6,37 @@ const logger = require("../utils/logger");
 const ledgerService = require("../services/ledger.service");
 
 // GET /api/vendors/all — all active vendors for "See All" listing
+// Optional query params: lat, lng — when provided, returns vendors with distanceMeters
 const getAllVendors = async (req, res) => {
 	try {
-		const vendors = await VendorProfile.find({ isActive: true })
+		const { lat, lng } = req.query;
+		const baseFilter = { isActive: true, storeDetails: { $exists: true, $not: { $size: 0 } } };
+
+		if (lat && lng) {
+			const coordinates = [parseFloat(lng), parseFloat(lat)];
+			const vendors = await VendorProfile.aggregate([
+				{
+					$geoNear: {
+						near: { type: "Point", coordinates },
+						distanceField: "distanceMeters",
+						query: baseFilter,
+						spherical: true,
+					},
+				},
+				{
+					$project: {
+						name: 1, bannerUrl: 1, logoUrl: 1, profileImage: 1,
+						location: 1, storeDetails: 1, averageRating: 1,
+						ratingCount: 1, fulfillmentSettings: 1, operatingHours: 1,
+						distanceMeters: 1,
+					},
+				},
+				{ $limit: 200 },
+			]);
+			return res.json({ success: true, data: vendors });
+		}
+
+		const vendors = await VendorProfile.find(baseFilter)
 			.select(
 				"name bannerUrl logoUrl profileImage location storeDetails averageRating ratingCount fulfillmentSettings operatingHours",
 			)
