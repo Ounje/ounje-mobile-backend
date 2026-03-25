@@ -784,16 +784,24 @@ const deleteCombo = async (req, res) => {
 
 const getAllCombos = async (req, res) => {
 	try {
+		// Only return combos from vendors that are currently online
+		const onlineVendors = await VendorProfile.find({
+			isActive: true,
+			"storeDetails.0.status": "active",
+		}).select("_id");
+		const onlineVendorIds = onlineVendors.map((v) => v._id);
+
 		const populateOptions = [
-			{ path: "vendor", select: "name img description averageRating totalOrders" },
+			{ path: "vendor", select: "name img description averageRating totalOrders storeDetails" },
 			{
 				path: "selections.items.item",
 				select: "name img description price",
 			},
-			{ path: "comboGroup", select: "name description" }, // Populate comboGroup
+			{ path: "comboGroup", select: "name description" },
 		];
 
-		const result = await paginate(Combo, req.query, populateOptions);
+		const filter = { vendor: { $in: onlineVendorIds } };
+		const result = await paginate(Combo, req.query, populateOptions, filter);
 		res.status(200).json(result);
 	} catch (error) {
 		res.status(500).json({ success: false, message: error.message });
@@ -829,7 +837,7 @@ const getMyCombos = async (req, res) => {
 const getComboById = async (req, res) => {
 	try {
 		const combo = await Combo.findById(req.params.comboId)
-			.populate("vendor", "name img description averageRating totalOrders location")
+			.populate("vendor", "name img description averageRating totalOrders location storeDetails isActive")
 			.populate({
 				path: "selections.items.item",
 				select: "name img description price",
