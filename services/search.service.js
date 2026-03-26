@@ -85,15 +85,11 @@ const searchFoodItems = async (query, limit, includeUnavailable) => {
 			{
 				$project: {
 					type: { $literal: "fooditems" },
-					id: "$_id",
-					//category: 1,
-					//subCategoryName: "$subCategory.name",
+					id: "$subCategory.items._id",
 					name: "$subCategory.items.name",
 					image: "$subCategory.items.img",
 					price: "$subCategory.items.price",
 					description: "$subCategory.items.description",
-					//preparationTime: "$subCategory.items.preparationTime",
-					//isCompulsory: 1,
 					vendor: {
 						id: "$vendorInfo._id",
 						name: "$vendorInfo.name",
