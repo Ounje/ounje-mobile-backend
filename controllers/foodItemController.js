@@ -650,6 +650,7 @@ const processSelections = async (selections, vendorId) => {
 					populatedItems.push({
 						item: foundItem._id,
 						name: foundItem.name,
+						img: foundItem.img || "",
 						price: foundItem.price,
 						isAvailable: foundItem.isAvailable,
 					});
