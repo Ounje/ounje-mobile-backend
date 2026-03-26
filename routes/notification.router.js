@@ -7,14 +7,22 @@ const notificationController = require("../controllers/notificationController");
  * @route   GET /api/notifications
  * @desc    Get all notifications for the authenticated user (paginated)
  * @access  Private (Vendor, Customer, Rider)
- * @query   page (default: 1)
- * @query   limit (default: 20)
- * @query   unreadOnly (default: false)
  */
 router.get(
 	"/",
 	authMiddleware,
 	notificationController.getNotifications.bind(notificationController),
+);
+
+/**
+ * @route   POST /api/notifications
+ * @desc    Create and broadcast a notification
+ * @access  Private
+ */
+router.post(
+	"/",
+	authMiddleware,
+	notificationController.createNotification.bind(notificationController),
 );
 
 /**
@@ -29,17 +37,6 @@ router.get(
 );
 
 /**
- * @route   PATCH /api/notifications/:notificationId/read
- * @desc    Mark a specific notification as read
- * @access  Private (Vendor, Customer, Rider)
- */
-router.patch(
-	"/:notificationId/read",
-	authMiddleware,
-	notificationController.markAsRead.bind(notificationController),
-);
-
-/**
  * @route   PATCH /api/notifications/read-all
  * @desc    Mark all notifications as read
  * @access  Private (Vendor, Customer, Rider)
@@ -48,6 +45,45 @@ router.patch(
 	"/read-all",
 	authMiddleware,
 	notificationController.markAllAsRead.bind(notificationController),
+);
+
+/**
+ * @route   DELETE /api/notifications/delete-all
+ * @desc    Delete all notifications for the authenticated user
+ * @access  Private (Vendor, Customer, Rider)
+ */
+router.delete(
+	"/delete-all",
+	authMiddleware,
+	notificationController.deleteAllNotifications.bind(notificationController),
+);
+
+/**
+ * @route   GET /api/notifications/:notificationId
+ * @desc    Get a specific notification by ID
+ * @access  Private (Vendor, Customer, Rider)
+ */
+router.get(
+	"/:notificationId",
+	authMiddleware,
+	notificationController.getNotificationById.bind(notificationController),
+);
+
+/**
+ * @route   PATCH /api/notifications/:notificationId/read
+ * @route   PUT   /api/notifications/:notificationId/read
+ * @desc    Mark a specific notification as read
+ * @access  Private (Vendor, Customer, Rider)
+ */
+router.patch(
+	"/:notificationId/read",
+	authMiddleware,
+	notificationController.markAsRead.bind(notificationController),
+);
+router.put(
+	"/:notificationId/read",
+	authMiddleware,
+	notificationController.markAsRead.bind(notificationController),
 );
 
 /**
