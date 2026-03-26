@@ -7,6 +7,13 @@ const TYPES = [
 	"payout_failed",
 	"newsflash",
 	"account_suspended",
+	"vendor_accepted_order",
+	"order_preparing",
+	"ready_for_pickup",
+	"order_delivered",
+	"rider_assigned",
+	"order_picked_up",
+	"promo_applied",
 ];
 
 const notificationSchema = new mongoose.Schema(
