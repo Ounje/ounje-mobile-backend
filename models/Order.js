@@ -53,6 +53,9 @@ const orderSchema = new mongoose.Schema(
 						],
 						default: undefined,
 					},
+					name: {
+						type: String, // snapshot of item display name at time of order
+					},
 					quantity: {
 						type: Number,
 						default: 1,

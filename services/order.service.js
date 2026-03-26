@@ -85,6 +85,7 @@ const _calculateAndValidateItemPrice = async (item, models) => {
 	const { itemId, itemType, subCategoryItemId, comboSelections } = item;
 	const ProductModel = models[itemType];
 	let itemPrice;
+	let resolvedName = "";
 	let validatedComboSelections = undefined;
 	let finalSubCatId = subCategoryItemId;
 	let actualItemId = itemId;
@@ -151,6 +152,7 @@ const _calculateAndValidateItemPrice = async (item, models) => {
 		if (isFlatItem) {
 			itemPrice = product.price;
 			finalSubCatId = null;
+			resolvedName = product.name;
 		} else {
 			if (!mongoose.isValidObjectId(finalSubCatId))
 				throw new AppError(`Invalid subCategoryItemId: ${finalSubCatId}`, 400);
@@ -176,16 +178,18 @@ const _calculateAndValidateItemPrice = async (item, models) => {
 				throw new AppError(`Item "${foundItem.name}" is not available`, 400);
 
 			itemPrice = foundItem.price;
+			resolvedName = foundItem.name;
 		}
 	} else if (itemType === "Combo") {
 		const product = await ProductModel.findById(actualItemId)
-			.select("basePrice name selections")
+			.select("basePrice comboName selections")
 			.lean();
 
 		if (!product)
 			throw new AppError(`Combo with ID ${actualItemId} not found`, 404);
 
 		itemPrice = product.basePrice;
+		resolvedName = product.comboName;
 
 		if (product.selections && product.selections.length > 0) {
 			const userSelections = comboSelections || [];
@@ -283,6 +287,7 @@ const _calculateAndValidateItemPrice = async (item, models) => {
 			throw new AppError(`Plate with ID ${actualItemId} not found`, 404);
 
 		itemPrice = product.price;
+		resolvedName = product.name;
 	}
 
 	if (itemPrice === undefined || isNaN(itemPrice)) {
@@ -294,6 +299,7 @@ const _calculateAndValidateItemPrice = async (item, models) => {
 
 	return {
 		itemPrice,
+		resolvedName,
 		validatedComboSelections,
 		actualItemId,
 		finalSubCatId,
@@ -351,7 +357,7 @@ const createOrder = async (userId, data) => {
 			throw new AppError(`Invalid itemType: ${itemType}`, 400);
 		}
 
-		const { itemPrice, validatedComboSelections, actualItemId, finalSubCatId } =
+		const { itemPrice, resolvedName, validatedComboSelections, actualItemId, finalSubCatId } =
 			await _calculateAndValidateItemPrice(item, models);
 
 		itemsTotalPrice += itemPrice * quantity;
@@ -359,6 +365,7 @@ const createOrder = async (userId, data) => {
 		const orderItemData = {
 			itemType,
 			item: actualItemId,
+			name: resolvedName,
 			quantity,
 			price: itemPrice,
 			notes,
