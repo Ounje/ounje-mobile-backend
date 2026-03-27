@@ -418,10 +418,26 @@ const requestPhoneOtp = asyncHandler(async (req, res) => {
 		}
 
 		if (!hasProfile) {
-			throw new AppError(
-				`No ${role} account found with this phone number`,
-				404,
-			);
+			// Check if the number belongs to the other role
+			let actualRole = null;
+			if (role === "rider") {
+				const vendorProfile = await VendorProfile.findOne({ owner: user._id });
+				if (vendorProfile) actualRole = "vendor";
+			} else if (role === "vendor") {
+				const riderProfile = await RiderProfile.findOne({ user: user._id });
+				if (riderProfile) actualRole = "rider";
+			}
+
+			if (actualRole) {
+				const err = new AppError(
+					`This number is registered as a ${actualRole} account. Do you want to login as a ${actualRole}?`,
+					400,
+				);
+				err.error = { code: actualRole === "vendor" ? "WRONG_ROLE_VENDOR" : "WRONG_ROLE_RIDER" };
+				throw err;
+			}
+
+			throw new AppError(`No ${role} account found with this phone number`, 404);
 		}
 	}
 
@@ -598,6 +614,38 @@ const updateFcmToken = asyncHandler(async (req, res) => {
 	res.status(200).json({ success: true, message: "Device token saved!" });
 });
 
+const checkPhone = asyncHandler(async (req, res) => {
+	let { phone, role } = req.body;
+	if (!phone || !role) throw new AppError("Phone and role required", 400);
+
+	phone = normalizePhone(phone);
+	const user = await User.findOne({ phone });
+
+	if (!user) return res.json({ exists: false });
+
+	const [vendorProfile, riderProfile] = await Promise.all([
+		VendorProfile.findOne({ owner: user._id }),
+		RiderProfile.findOne({ user: user._id }),
+	]);
+
+	if (vendorProfile && role !== "vendor") {
+		return res.json({
+			exists: true,
+			role: "vendor",
+			message: "This number is already registered as a Vendor. Do you want to login as a Vendor?",
+		});
+	}
+	if (riderProfile && role !== "rider") {
+		return res.json({
+			exists: true,
+			role: "rider",
+			message: "This number is already registered as a Rider. Do you want to login as a Rider?",
+		});
+	}
+
+	return res.json({ exists: false });
+});
+
 module.exports = {
 	register,
 	login,
@@ -609,4 +657,5 @@ module.exports = {
 	refresh,
 	checkUserExist,
 	updateFcmToken,
+	checkPhone,
 };

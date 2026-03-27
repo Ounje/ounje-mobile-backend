@@ -12,6 +12,7 @@ const {
 	refresh,
 	checkUserExist,
 	updateFcmToken,
+	checkPhone,
 } = require("../controllers/authController");
 
 const { authMiddleware } = require("../middleware/auth");
@@ -294,6 +295,7 @@ router.post("/refresh", refresh);
  *         description: Existence check result
  */
 router.post("/check-user", checkUserExist);
+router.post("/check-phone", checkPhone);
 
 /**
  * @swagger
