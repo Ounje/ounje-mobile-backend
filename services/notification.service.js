@@ -235,6 +235,18 @@ class NotificationService {
 			priority: "high",
 		});
 	}
+	async notifyCustomerRiderDeclined(customerId,order){
+		return this.createNotification({
+			recipient: customerId,
+			recipientModel: "customer",
+			type: "rider_declined_order",
+			title: "🚴 Rider Declined Order",
+			message: "Your order has been declined by the assigned rider",
+			data: { orderId: order._id },
+			priority: "high",
+		});
+
+	}
 
 	// ============ RIDER NOTIFICATIONS ============
 
