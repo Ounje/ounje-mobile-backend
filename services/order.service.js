@@ -79,10 +79,9 @@ const findNearbyRiders = async (vendorLocation, orderId) => {
 	}
 };
 
-// --- Core Service Methods ---
 
 const _calculateAndValidateItemPrice = async (item, models) => {
-	const { itemId, itemType, subCategoryItemId, comboSelections } = item;
+	const { itemId, itemType, quantity = 1, subCategoryItemId, comboSelections } = item;
 	const ProductModel = models[itemType];
 	let itemPrice;
 	let resolvedName = "";
@@ -158,12 +157,15 @@ const _calculateAndValidateItemPrice = async (item, models) => {
 				throw new AppError(`Invalid subCategoryItemId: ${finalSubCatId}`, 400);
 
 			let foundItem = null;
+			let foundInSubCat = null;
+
 			for (const subCat of product.subCategory) {
 				const match = subCat.items.find(
 					(i) => i._id.toString() === finalSubCatId.toString(),
 				);
 				if (match) {
 					foundItem = match;
+					foundInSubCat = subCat;
 					break;
 				}
 			}
@@ -179,7 +181,46 @@ const _calculateAndValidateItemPrice = async (item, models) => {
 
 			itemPrice = foundItem.price;
 			resolvedName = foundItem.name;
+			if (
+				foundItem.minQuantity !== undefined &&
+				foundItem.minQuantity !== null &&
+				quantity < foundItem.minQuantity
+			) {
+				throw new AppError(
+					`Minimum quantity for "${resolvedName}" is ${foundItem.minQuantity}`,
+					400,
+				);
+			}
+
+			if (
+				foundItem.maxQuantity !== undefined &&
+				foundItem.maxQuantity !== null &&
+				quantity > foundItem.maxQuantity
+			) {
+				throw new AppError(
+					`Maximum quantity for "${resolvedName}" is ${foundItem.maxQuantity}`,
+					400,
+				);
+			}
 		}
+		if (product.subCategory) {
+			for (const subCat of product.subCategory) {
+				if (!subCat.required) continue;
+
+				if (subCat.items && subCat.items.length > 0) {
+					const isThisSubCatSelected = subCat.items.some(
+						(i) => i._id.toString() === (finalSubCatId || "").toString(),
+					);
+					if (!isThisSubCatSelected && !isFlatItem) {
+						throw new AppError(
+							`A selection from "${subCat.name}" is required for "${product.name}"`,
+							400,
+						);
+					}
+				}
+			}
+		}
+
 	} else if (itemType === "Combo") {
 		const product = await ProductModel.findById(actualItemId)
 			.select("basePrice comboName selections")
@@ -191,9 +232,19 @@ const _calculateAndValidateItemPrice = async (item, models) => {
 		itemPrice = product.basePrice;
 		resolvedName = product.comboName;
 
+		validatedComboSelections = [];
+
 		if (product.selections && product.selections.length > 0) {
-			const userSelections = comboSelections || [];
-			validatedComboSelections = [];
+			const userSelections = (comboSelections || []).map((s) => {
+				if (typeof s === "string" || s instanceof mongoose.Types.ObjectId) {
+					return { itemId: s.toString(), quantity: 1 };
+				}
+				return {
+					itemId: (s.itemId || s.item || "").toString(),
+					quantity: Number(s.quantity) || 1,
+				};
+			});
+
 			const unmatchedUserSelections = [...userSelections];
 
 			for (const group of product.selections) {
@@ -201,11 +252,9 @@ const _calculateAndValidateItemPrice = async (item, models) => {
 				let totalGroupQuantity = 0;
 
 				for (let i = unmatchedUserSelections.length - 1; i >= 0; i--) {
-					const uItemId = unmatchedUserSelections[i];
-					const uIdStr = uItemId?.itemId
-						? uItemId.itemId.toString()
-						: uItemId?.toString() || "";
-					const uQuantity = Number(uItemId?.quantity) || 1;
+					const uItem = unmatchedUserSelections[i];
+					const uIdStr = uItem.itemId;
+					const uQuantity = uItem.quantity;
 
 					const foundItem = group.items.find(
 						(item) => item.item.toString() === uIdStr,
@@ -235,10 +284,9 @@ const _calculateAndValidateItemPrice = async (item, models) => {
 						unmatchedUserSelections.splice(i, 1);
 					}
 				}
-
 				if (group.required && totalGroupQuantity === 0) {
 					throw new AppError(
-						`Selection from "${group.label}" is required for combo "${product.name}"`,
+						`Selection from "${group.label}" is required for combo "${resolvedName}"`,
 						400,
 					);
 				}
@@ -246,6 +294,17 @@ const _calculateAndValidateItemPrice = async (item, models) => {
 				if (totalGroupQuantity > group.maxSelection) {
 					throw new AppError(
 						`You can only select up to ${group.maxSelection} items from "${group.label}"`,
+						400,
+					);
+				}
+				if (
+					group.minSelection !== undefined &&
+					group.minSelection !== null &&
+					totalGroupQuantity > 0 &&
+					totalGroupQuantity < group.minSelection
+				) {
+					throw new AppError(
+						`You must select at least ${group.minSelection} item(s) from "${group.label}"`,
 						400,
 					);
 				}
@@ -273,7 +332,7 @@ const _calculateAndValidateItemPrice = async (item, models) => {
 
 			if (unmatchedUserSelections.length > 0) {
 				throw new AppError(
-					`Some selected items are not valid options for the combo "${product.name}"`,
+					`Some selected items are not valid options for the combo "${resolvedName}"`,
 					400,
 				);
 			}
@@ -378,10 +437,56 @@ const createOrder = async (userId, data) => {
 		}
 
 		if (itemType === "Combo") {
+			// FIX 1: validatedComboSelections is now always [] or populated — never undefined
 			orderItemData.comboSelections = validatedComboSelections;
 		}
 
 		orderItems.push(orderItemData);
+	}
+
+	const orderedFoodItemParentIds = [
+		...new Set(
+			orderItems
+				.filter((oi) => oi.itemType === "FoodItem")
+				.map((oi) => oi.item.toString()),
+		),
+	];
+
+	if (orderedFoodItemParentIds.length > 0) {
+		const compulsoryParents = await FoodItem.find({
+			_id: { $in: orderedFoodItemParentIds },
+			isCompulsory: true,
+		})
+			.select("_id name subCategory")
+			.lean();
+
+		for (const parent of compulsoryParents) {
+			// All subCategoryItemIds in this order that belong to this parent
+			const orderedSubCatIds = new Set(
+				orderItems
+					.filter(
+						(oi) =>
+							oi.itemType === "FoodItem" &&
+							oi.item.toString() === parent._id.toString() &&
+							oi.subCategoryItemId,
+					)
+					.map((oi) => oi.subCategoryItemId.toString()),
+			);
+
+			// Every sub-category group must have at least one item ordered
+			for (const subCat of parent.subCategory || []) {
+				if (!subCat.items || subCat.items.length === 0) continue;
+				const groupCovered = subCat.items.some((i) =>
+					orderedSubCatIds.has(i._id.toString()),
+				);
+				if (!groupCovered) {
+					throw new AppError(
+						`"${parent.name}" requires a selection from "${subCat.name}" — please add it to your order.`,
+						400,
+					);
+				}
+			}
+		}
 	}
 
 	// 5. Lookup Customer
@@ -844,8 +949,8 @@ const vendorMarkReady = async (orderId, vendorId) => {
 	}
 
 	if (
-    order.status !== ORDER_STATUS.CONFIRMING &&
-    order.status !== ORDER_STATUS.PACKAGING
+		order.status !== ORDER_STATUS.CONFIRMING &&
+		order.status !== ORDER_STATUS.PACKAGING
 	) {
 		throw new Error("Order cannot be marked as ready at this stage");
 	}
