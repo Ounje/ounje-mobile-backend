@@ -13,6 +13,7 @@ const FOOD_ENUMS = {
 	},
 
 	SUB_CATEGORIES: {
+		SAUCES:"sauces",
 		MEAT: "meat",
 		FISH: "fish",
 		CHICKEN: "chicken",
