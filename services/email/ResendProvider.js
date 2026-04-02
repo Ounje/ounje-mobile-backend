@@ -15,7 +15,7 @@ class ResendProvider extends EmailProvider {
 		}
 
 		// Default sender email
-		this.fromEmail = process.env.EMAIL_FROM || "OunjeFood <noreply@ounjefood.com>";
+		this.fromEmail = process.env.EMAIL_FROM || "OunjeFood <hello@ounjefood.com>";
 	}
 
 	async sendEmail(to, subject, html) {
