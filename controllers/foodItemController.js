@@ -1014,6 +1014,32 @@ const getVendorsByCategory = async (req, res) => {
 	}
 };
 
+const toggleComboAvailability = async (req, res) => {
+	try {
+		const { comboId } = req.params;
+		const vendorId = req.user.id;
+
+		const vendor = await VendorProfile.findOne({ owner: vendorId }).lean();
+		if (!vendor)
+			return res.status(404).json({ success: false, message: "Vendor not found" });
+
+		const combo = await Combo.findOne({ _id: comboId, vendor: vendor._id });
+		if (!combo)
+			return res.status(404).json({ success: false, message: "Combo not found" });
+
+		combo.isAvailable = !combo.isAvailable;
+		await combo.save();
+
+		return res.json({
+			success: true,
+			isAvailable: combo.isAvailable,
+			message: `Combo is now ${combo.isAvailable ? "available" : "unavailable"}`,
+		});
+	} catch (error) {
+		return res.status(500).json({ success: false, message: error.message });
+	}
+};
+
 module.exports = {
 	createFoodItem,
 	updateFoodItem,
@@ -1034,4 +1060,5 @@ module.exports = {
 	getVendorCombos,
 	getVendorCombosGrouped,
 	toggleFoodItemAvailability,
+	toggleComboAvailability,
 };

@@ -21,6 +21,7 @@ const {
 const {
 	getCategoryValues,
 	getSubCategoryValues,
+	getCategorySubCategoryMap,
 } = require("../utils/foodEnums");
 
 const { foodItemUpload } = require("../config/cloudinary");
@@ -214,12 +215,7 @@ router.get("/enums/categories", (req, res) => {
  */
 router.get("/enums/sub-categories", (req, res) => {
 	try {
-		const subCategories = getSubCategoryValues().map((value) => ({
-			label: value.charAt(0).toUpperCase() + value.slice(1),
-			value,
-		}));
-
-		res.json({ subCategories });
+		res.json(getCategorySubCategoryMap());
 	} catch (error) {
 		res.status(500).json({ message: "Internal server error" });
 	}
@@ -530,6 +526,14 @@ router.delete(
 	roleGuard(["vendor"]),
 	checkActiveUser,
 	deleteFoodItem,
+);
+
+router.patch(
+	"/:foodItemId/availability",
+	authMiddleware,
+	roleGuard(["vendor"]),
+	checkActiveUser,
+	toggleFoodItemAvailability,
 );
 
 module.exports = router;

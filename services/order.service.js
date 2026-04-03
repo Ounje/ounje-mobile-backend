@@ -93,20 +93,37 @@ const _calculateAndValidateItemPrice = async (item, models) => {
 	let actualItemId = itemId;
 
 	if (itemType === "FoodItem") {
-		let product = await ProductModel.findById(actualItemId)
+		// Read isAvailable fresh from DB at order-creation time (no caching).
+		// If the vendor toggled the item off between checkout and order creation,
+		// this query returns null and we reject immediately.
+		let product = await ProductModel.findOne({
+			_id: actualItemId,
+			isAvailable: true,
+		})
 			.select("subCategory isAvailable name price")
 			.lean();
 
 		if (!product) {
-			product = await ProductModel.findOne({
+			// Distinguish "unavailable" from "not found" for a clear error message.
+			const exists = await ProductModel.findById(actualItemId)
+				.select("_id isAvailable")
+				.lean();
+			if (exists) {
+				throw new AppError(`FoodItem package is not available`, 400);
+			}
+			// May be a subcategory item ID — look up via parent
+			const bySubCat = await ProductModel.findOne({
 				"subCategory.items._id": actualItemId,
 			})
 				.select("subCategory isAvailable name price")
 				.lean();
 
-			if (product) {
+			if (bySubCat) {
+				if (bySubCat.isAvailable === false)
+					throw new AppError(`FoodItem package is not available`, 400);
 				finalSubCatId = actualItemId;
-				actualItemId = product._id;
+				actualItemId = bySubCat._id;
+				product = bySubCat;
 			}
 		}
 
@@ -115,9 +132,6 @@ const _calculateAndValidateItemPrice = async (item, models) => {
 				`FoodItem or specific option with ID ${itemId} not found`,
 				404,
 			);
-
-		if (!product.isAvailable)
-			throw new AppError(`FoodItem package is not available`, 400);
 
 		let isFlatItem = false;
 
@@ -226,11 +240,14 @@ const _calculateAndValidateItemPrice = async (item, models) => {
 
 	} else if (itemType === "Combo") {
 		const product = await ProductModel.findById(actualItemId)
-			.select("basePrice comboName selections")
+			.select("basePrice comboName selections isAvailable")
 			.lean();
 
 		if (!product)
 			throw new AppError(`Combo with ID ${actualItemId} not found`, 404);
+
+		if (product.isAvailable === false)
+			throw new AppError(`Combo "${product.comboName}" is currently unavailable`, 400);
 
 		itemPrice = product.basePrice;
 		resolvedName = product.comboName;
@@ -260,7 +277,9 @@ const _calculateAndValidateItemPrice = async (item, models) => {
 					const uQuantity = uItem.quantity;
 
 					const foundItem = group.items.find(
-						(item) => item.item.toString() === uIdStr,
+						(item) =>
+							item.item.toString() === uIdStr ||
+							item._id.toString() === uIdStr,
 					);
 
 					if (foundItem) {
@@ -450,6 +469,15 @@ const createOrder = async (userId, data) => {
 		}
 
 		orderItems.push(orderItemData);
+	}
+
+	// 4a. Enforce minimum order amount
+	const minOrderAmount = vendor.fulfillmentSettings?.minOrderAmount ?? 0;
+	if (minOrderAmount > 0 && itemsTotalPrice < minOrderAmount) {
+		throw new AppError(
+			`This vendor requires a minimum order of ₦${minOrderAmount.toLocaleString()}. Your cart total is ₦${itemsTotalPrice.toLocaleString()}.`,
+			400,
+		);
 	}
 
 	const orderedFoodItemParentIds = [
