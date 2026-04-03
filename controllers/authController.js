@@ -565,18 +565,31 @@ const refresh = asyncHandler(async (req, res) => {
 	const { refreshToken } = req.body;
 	if (!refreshToken) throw new AppError("Refresh token required", 401);
 
-	const tokenExists = await RefreshToken.findOne({ token: refreshToken });
-	if (!tokenExists) throw new AppError("Invalid refresh token", 403);
+	const tokenRecord = await RefreshToken.findOne({ token: refreshToken });
+	if (!tokenRecord) throw new AppError("Invalid refresh token", 403);
 
-	const decoded = jwt.verify(refreshToken, process.env.REFRESH_SECRET);
+	let decoded;
+	try {
+		decoded = jwt.verify(refreshToken, process.env.REFRESH_SECRET);
+	} catch (err) {
+		await RefreshToken.deleteOne({ token: refreshToken });
+		throw new AppError("Refresh token expired or invalid", 403);
+	}
+
 	const user = await User.findById(decoded.id);
 	if (!user) throw new AppError("User not found", 401);
 
-	const accessToken = generateAccessToken({
-		id: user._id,
-		role: user.role,
+	// Rotate: delete old token, issue new refresh token
+	await RefreshToken.deleteOne({ token: refreshToken });
+	const newRefreshToken = generateRefreshToken({ id: user._id, role: user.role });
+	await RefreshToken.create({
+		token: newRefreshToken,
+		user: user._id,
+		ip: req.ip,
 	});
-	res.json({ accessToken });
+
+	const accessToken = generateAccessToken({ id: user._id, role: user.role });
+	res.json({ accessToken, refreshToken: newRefreshToken });
 });
 
 const checkUserExist = asyncHandler(async (req, res) => {
