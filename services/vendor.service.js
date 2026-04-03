@@ -2,16 +2,8 @@ const { VendorProfile, Customer } = require("../models");
 const { deleteImage } = require("../config/cloudinary");
 const payoutService = require("./payout.service");
 const { parseTime: _parseTime } = require("../utils/time");
+const {DAYS_OF_WEEK} = require("../utils/constants");
 
-const VALID_DAYS = [
-	"sunday",
-	"monday",
-	"tuesday",
-	"wednesday",
-	"thursday",
-	"friday",
-	"saturday",
-];
 
 class VendorService {
 	/**
@@ -463,9 +455,9 @@ class VendorService {
 							`Time period at index ${index} is missing required fields (day, openingHour, closingHour)`,
 						);
 					}
-					if (!VALID_DAYS.includes(period.day.toLowerCase())) {
+					if (!DAYS_OF_WEEK.includes(period.day.toLowerCase())) {
 						throw new Error(
-							`Time period at index ${index} has invalid day value. Must be one of: ${VALID_DAYS.join(", ")}`,
+							`Time period at index ${index} has invalid day value. Must be one of: ${DAYS_OF_WEEK.join(", ")}`,
 						);
 					}
 				});
@@ -647,9 +639,9 @@ class VendorService {
 		) {
 			if (periods.length > 0) {
 				periods.forEach((entry, index) => {
-					if (!VALID_DAYS.includes(entry.day?.toLowerCase())) {
+					if (!DAYS_OF_WEEK.includes(entry.day?.toLowerCase())) {
 						throw new Error(
-							`timePeriod[${index}]: invalid day "${entry.day}". Must be one of: ${VALID_DAYS.join(", ")}`,
+							`timePeriod[${index}]: invalid day "${entry.day}". Must be one of: ${DAYS_OF_WEEK.join(", ")}`,
 						);
 					}
 					if (_parseTime(entry.openingHour) === null) {
@@ -751,9 +743,9 @@ class VendorService {
 			servicesOffered === "InstantMeals" ||
 			servicesOffered === "hybridMeals"
 		) {
-			if (!VALID_DAYS.includes(entry.day?.toLowerCase())) {
+			if (!DAYS_OF_WEEK.includes(entry.day?.toLowerCase())) {
 				throw new Error(
-					`Invalid day "${entry.day}". Must be one of: ${VALID_DAYS.join(", ")}`,
+					`Invalid day "${entry.day}". Must be one of: ${DAYS_OF_WEEK.join(", ")}`,
 				);
 			}
 			if (_parseTime(entry.openingHour) === null) {
