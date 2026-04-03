@@ -58,9 +58,7 @@ const _isVendorOpenNow = (vendor) => {
 	const now = new Date(Date.now() + 60 * 60 * 1000);
 	const nowMinutes = now.getUTCHours() * 60 + now.getUTCMinutes();
 
-	// ── preOrderMeals ─────────────────────────────────────────────────────────
-	// orderingTime is a cutoff — orders are accepted any time BEFORE that time.
-	// e.g. "08:00 AM" means the customer must order before 8 AM.
+	// ── preOrderMeals ────────────
 	if (servicesOffered === "preOrderMeals") {
 		const { preorderPeriods } = storeDetails;
 		if (!preorderPeriods || preorderPeriods.length === 0) return false;
