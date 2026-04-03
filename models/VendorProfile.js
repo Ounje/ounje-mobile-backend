@@ -29,6 +29,7 @@ const storeDetailsSchema = new mongoose.Schema(
 				period: String,
 			},
 		],
+		isOpen: { type: Boolean, default: false },
 	},
 	{ _id: false },
 );
@@ -79,25 +80,25 @@ const vendorProfileSchema = new mongoose.Schema(
 			minOrderAmount: { type: Number, default: 0 },
 			deliveryPrice: { type: Number, default: 0 },
 		},
-		operatingHours: [
-			{
-				day: {
-					type: String,
-					enum: [
-						"monday",
-						"tuesday",
-						"wednesday",
-						"thursday",
-						"friday",
-						"saturday",
-						"sunday",
-					],
-				},
-				open: String,
-				close: String,
-				isOpen: { type: Boolean, default: false },
-			},
-		],
+		// operatingHours: [
+		// 	{
+		// 		day: {
+		// 			type: String,
+		// 			enum: [
+		// 				"monday",
+		// 				"tuesday",
+		// 				"wednesday",
+		// 				"thursday",
+		// 				"friday",
+		// 				"saturday",
+		// 				"sunday",
+		// 			],
+		// 		},
+		// 		open: String,
+		// 		close: String,
+		// 		isOpen: { type: Boolean, default: false },
+		// 	},
+		// ],
 		bankDetails: {
 			accountNumber: { type: String, select: false },
 			bankCode: { type: String, select: false },

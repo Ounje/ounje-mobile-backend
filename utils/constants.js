@@ -114,6 +114,16 @@ const AVAILABLE_ZONES = [
 	"Agege",
 ];
 
+const DAYS_OF_WEEK = [
+    "sunday",
+    "monday",
+    "tuesday",
+    "wednesday",
+    "thursday",
+    "friday",
+    "saturday",
+];
+
 const getAllDeclineReasons = () => Object.values(DECLINE_REASONS);
 const getAllCancellationReasons = () => Object.values(CANCELLATION_REASONS);
 
@@ -133,6 +143,7 @@ module.exports = {
 	CANCELLATION_CATEGORIES,
 	CANCELLATION_REASON_LABELS,
 	AVAILABLE_ZONES,
+	DAYS_OF_WEEK,
 	getAllDeclineReasons,
 	getAllCancellationReasons,
 	getCancellationReasonsByCategory,

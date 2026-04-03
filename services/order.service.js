@@ -8,6 +8,8 @@ const {
 	RiderProfile,
 } = require("../models");
 const { calculateOunjeFee, identifyZone } = require("../utils/delivery");
+const { parseTime: _parseTime } = require("../utils/time");
+const {isVendorOpenNow,buildClosedReason} = require("../utils/vendorScheduleCheck");
 const crypto = require("crypto");
 const { sendPushNotification } = require("./push.notification.service");
 const ledgerService = require("./ledger.service");
@@ -26,6 +28,7 @@ const calculateRiderRank = (totalDeliveries) => {
 	if (totalDeliveries >= 10) return "Bronze Rider";
 	return "New Rider";
 };
+
 
 // --- Helpers ---
 
@@ -395,7 +398,7 @@ const createOrder = async (userId, data) => {
 		throw new Error("No items in the order.");
 	}
 
-	// 1. Fetch Vendor (needed before zone identification)
+	// 1. Fetch Vendor
 	const vendor = await VendorProfile.findById(vendorId);
 	if (!vendor) throw new Error("Vendor not found");
 	if (!vendor.location || !vendor.location.coordinates) {
@@ -406,48 +409,14 @@ const createOrder = async (userId, data) => {
 		throw new Error("Vendor address is missing");
 	}
 
-	// 1a. Enforce vendor store status
-	const storeDetail = vendor.storeDetails?.[0];
-	if (storeDetail && storeDetail.status && storeDetail.status !== "active") {
-		throw new AppError("This vendor's store is currently not accepting orders.", 400);
+	// 1b. Enforce vendor operating schedule
+	if (!isVendorOpenNow(vendor)) {
+		throw new AppError(buildClosedReason(vendor), 400);
 	}
 
-	// 1b. Enforce operating hours using storeDetails[0].timePeriod
-	if (storeDetail?.timePeriod?.length > 0) {
-		const DAY_NAMES = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"];
-		const now = new Date();
-		const todayName = DAY_NAMES[now.getDay()];
-		const todayPeriod = storeDetail.timePeriod.find(
-			(tp) => tp.day?.toLowerCase() === todayName,
-		);
-		if (todayPeriod) {
-			// Parse "8:00 AM" / "5:30 PM" format → minutes since midnight
-			const parseHourStr = (str) => {
-				const m = str?.trim().match(/^(\d+):(\d+)\s*(AM|PM)$/i);
-				if (!m) return null;
-				let h = parseInt(m[1]);
-				const min = parseInt(m[2]);
-				const period = m[3].toUpperCase();
-				if (period === "AM") { if (h === 12) h = 0; }
-				else { if (h !== 12) h += 12; }
-				return h * 60 + min;
-			};
-			const openMin = parseHourStr(todayPeriod.openingHour);
-			const closeMin = parseHourStr(todayPeriod.closingHour);
-			const nowMin = now.getHours() * 60 + now.getMinutes();
-			if (openMin !== null && closeMin !== null) {
-				if (nowMin < openMin || nowMin >= closeMin) {
-					throw new AppError(
-						`This vendor is currently closed (open ${todayPeriod.openingHour} – ${todayPeriod.closingHour}). Please order during their working hours.`,
-						400,
-					);
-				}
-			}
-		}
-	}
-
-	// 2. Identify Zone from vendor address (where rider picks up — not customer delivery address)
-	const orderZone = identifyZone(vendorAddress);
+	// 2. Identify Zone from vendor coordinates (primary) with address as fallback
+	const [vendorLng, vendorLat] = vendor.location.coordinates;
+	const orderZone = identifyZone(vendorAddress, vendorLat, vendorLng);
 
 	// 3. Calculate Delivery Fee
 	const fee = await calculateOunjeFee(vendorAddress, deliveryAddress);
@@ -496,7 +465,6 @@ const createOrder = async (userId, data) => {
 		}
 
 		if (itemType === "Combo") {
-			// FIX 1: validatedComboSelections is now always [] or populated — never undefined
 			orderItemData.comboSelections = validatedComboSelections;
 		}
 
@@ -529,7 +497,6 @@ const createOrder = async (userId, data) => {
 			.lean();
 
 		for (const parent of compulsoryParents) {
-			// All subCategoryItemIds in this order that belong to this parent
 			const orderedSubCatIds = new Set(
 				orderItems
 					.filter(
@@ -541,7 +508,6 @@ const createOrder = async (userId, data) => {
 					.map((oi) => oi.subCategoryItemId.toString()),
 			);
 
-			// Every sub-category group must have at least one item ordered
 			for (const subCat of parent.subCategory || []) {
 				if (!subCat.items || subCat.items.length === 0) continue;
 				const groupCovered = subCat.items.some((i) =>
@@ -601,6 +567,7 @@ const createOrder = async (userId, data) => {
 		status: ORDER_STATUS.CONFIRMING,
 		subStatus: ORDER_SUB_STATUS.CONFIRMING,
 		zone: orderZone,
+		isPreorder: vendor.storeDetails?.[0]?.servicesOffered === "preOrderMeals",
 	});
 	order.orderNumber = await generateOrderNumber(order._id);
 	await order.save();
@@ -624,6 +591,9 @@ const createOrder = async (userId, data) => {
  * Calculate totalPrice, deliveryFee, serviceFee for a cart WITHOUT creating an order.
  * Used by the payment initiation endpoint so the frontend can display the correct
  * amount before the user pays.
+ *
+ * NOTE: Schedule enforcement is intentionally skipped here — price estimation
+ * for cart preview should not be blocked by operating hours.
  */
 const estimateOrderPrice = async (cartData) => {
 	const { items, vendorId, deliveryAddress } = cartData;
@@ -681,9 +651,6 @@ const updateOrderStatus = async (orderId, status, subStatus) => {
 		const body = subStatus || `Your order is now ${status}`;
 		await sendPushNotification(fcmToken, title, body);
 	}
-
-	// Dispatch is handled in order.vendor.service.js vendorMarkReady → startDispatch
-	// No automatic rider search triggered here.
 
 	return order;
 };
@@ -794,13 +761,11 @@ const acceptOrder = async (orderId, riderId) => {
 		{
 			_id: orderId,
 			$or: [
-				// Primary state: vendor marked ready → rider search triggered
 				{
 					status: ORDER_STATUS.RIDING,
 					subStatus: ORDER_SUB_STATUS.LOOKING_FOR_RIDER,
 					rider: null,
 				},
-				// Fallback: order packaged but rider search not yet complete
 				{
 					status: ORDER_STATUS.PACKAGING,
 					subStatus: ORDER_SUB_STATUS.PACKAGED,
@@ -864,7 +829,6 @@ const acceptOrder = async (orderId, riderId) => {
 		const { cancelDispatch } = require("./order.rider.service");
 		cancelDispatch(orderId);
 	} catch (dispatchErr) {
-		// Non-fatal — dispatch timer will expire harmlessly if already gone
 		logger.warn(`cancelDispatch non-fatal error: ${dispatchErr.message}`);
 	}
 
@@ -875,7 +839,6 @@ const acceptOrder = async (orderId, riderId) => {
 		}
 	} catch (ledgerErr) {
 		logger.error(`Failed to hold rider fee for order ${orderId}: ${ledgerErr.message}`);
-		// Non-blocking — order accept still succeeds
 	}
 
 	logger.info(`Rider ${riderId} accepted Order ${orderId}`);
@@ -1007,7 +970,6 @@ const cancelOrder = async (orderId, customerId) => {
 	return order;
 };
 
-// NEW: vendor marks food as packaged/ready — triggers rider search
 const vendorMarkReady = async (orderId, vendorId) => {
 	const order = await Order.findById(orderId);
 	if (!order) throw new Error("Order not found");
@@ -1030,7 +992,6 @@ const vendorMarkReady = async (orderId, vendorId) => {
 	// NOTE: Rider dispatch is handled by order.vendor.service.js vendorMarkReady → startDispatch
 	// This function in order.service.js is legacy and not called by any controller.
 
-	// Notify customer food is packaged
 	_emitOrderUpdate(order.customer, {
 		orderId: order._id,
 		status: order.status,
@@ -1041,7 +1002,6 @@ const vendorMarkReady = async (orderId, vendorId) => {
 	return order;
 };
 
-// NEW: vendor accepts order → moves to PACKAGING/CONFIRMED
 const vendorAcceptOrder = async (orderId, vendorId) => {
 	const order = await Order.findById(orderId);
 	if (!order) throw new Error("Order not found");
@@ -1063,7 +1023,6 @@ const vendorAcceptOrder = async (orderId, vendorId) => {
 		await ledgerService.pendVendorEarning(order.vendor, order._id);
 		logger.info(`[WALLET] Vendor earning moved to pending: orderId=${orderId} vendorId=${order.vendor} amount=${order.vendorEarning}`);
 	} catch (ledgerErr) {
-		// Non-blocking — order acceptance still succeeds
 		logger.error(`[WALLET] Failed to pend vendor earning on accept: orderId=${orderId} err=${ledgerErr.message}`);
 	}
 
@@ -1092,7 +1051,6 @@ const resendDeliveryOtp = async (orderId, userId, role) => {
 	const order = await Order.findById(orderId);
 	if (!order) throw new Error("Order not found");
 
-	// Allow both customer and rider to trigger resend
 	if (role === "rider") {
 		const { RiderProfile } = require("../models");
 		const rider = await RiderProfile.findOne({ user: userId });

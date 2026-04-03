@@ -76,10 +76,7 @@ const getVendor = async (req, res) => {
 
 const getVendors = async (req, res) => {
 	try {
-		// No filter needed here because we want to see all vendors
-		// No populate needed yet, unless you want to see their menu items immediately
 		const result = await paginate(VendorProfile, req.query);
-
 		res.status(200).json(result);
 	} catch (err) {
 		res.status(500).json({ message: err.message });
@@ -89,28 +86,27 @@ const getVendors = async (req, res) => {
 //Customer side
 //with this you'll get the vendor details along with their menu and options
 const userGetVendor = async (req, res) => {
-    try {
-        const vendorId = req.params.id;
-        if (!mongoose.Types.ObjectId.isValid(vendorId)) {
-            return res.status(400).json({ message: "Invalid Vendor ID format" });
-        }
+	try {
+		const vendorId = req.params.id;
+		if (!mongoose.Types.ObjectId.isValid(vendorId)) {
+			return res.status(400).json({ message: "Invalid Vendor ID format" });
+		}
 
-        // Automatically get customer's saved address from DB
-        let customerLocation = null;
-        if (req.user) {
-            const { Customer } = require("../models");
-            const customer = await Customer.findOne({ user: req.user.id });
-            customerLocation = customer?.savedAddresses?.[0]?.address || null;
-        }
+		let customerLocation = null;
+		if (req.user) {
+			const { Customer } = require("../models");
+			const customer = await Customer.findOne({ user: req.user.id });
+			customerLocation = customer?.savedAddresses?.[0]?.address || null;
+		}
 
-        const vendor = await vendorService.getVendorWithProducts(vendorId, customerLocation);
-        res.status(200).json(vendor);
-    } catch (err) {
-        logger.error(`USER_GET_VENDOR_ERROR: ${err.message}`);
-        if (err.message === "Vendor not found")
-            return res.status(404).json({ message: err.message });
-        res.status(500).json({ message: "Internal Server Error", error: err.message });
-    }
+		const vendor = await vendorService.getVendorWithProducts(vendorId, customerLocation);
+		res.status(200).json(vendor);
+	} catch (err) {
+		logger.error(`USER_GET_VENDOR_ERROR: ${err.message}`);
+		if (err.message === "Vendor not found")
+			return res.status(404).json({ message: err.message });
+		res.status(500).json({ message: "Internal Server Error", error: err.message });
+	}
 };
 
 const updateBankDetails = async (req, res) => {
@@ -131,11 +127,7 @@ const getNearbyVendors = async (req, res) => {
 		const { lat, lng } = req.query;
 		const userId = req.user ? req.user.id : null;
 
-		const result = await vendorService.getNearbyVendors({
-			lat,
-			lng,
-			userId,
-		});
+		const result = await vendorService.getNearbyVendors({ lat, lng, userId });
 
 		res.status(200).json(result);
 	} catch (err) {
@@ -149,15 +141,8 @@ const getNearbyVendors = async (req, res) => {
 
 const completeVendorRegistration = async (req, res) => {
 	try {
-		// Prepare data from body
 		const data = { ...req.body };
-		// If file uploaded, get path
 		const fileUrl = req.file ? req.file.path : null;
-
-		if (!req.file && !data.ninID) {
-			// Basic check here, though service also checks. Service throws if missing.
-			// We'll let service handle validation mostly, but valid req.file handling is here.
-		}
 
 		const result = await vendorService.completeRegistration(
 			req.user.id,
@@ -166,7 +151,6 @@ const completeVendorRegistration = async (req, res) => {
 		);
 
 		if (result.success === false) {
-			// Handle the specific "needs CAC" case which returns 400 usually
 			return res.status(result.status || 400).json(result);
 		}
 
@@ -175,10 +159,7 @@ const completeVendorRegistration = async (req, res) => {
 	} catch (error) {
 		logger.error(`Error completing vendor registration: ${error.message}`);
 
-		if (
-			error.message.includes("required") ||
-			error.message.includes("Invalid")
-		) {
+		if (error.message.includes("required") || error.message.includes("Invalid")) {
 			return res.status(400).json({ success: false, message: error.message });
 		}
 		if (error.message === "Vendor not found") {
@@ -198,8 +179,6 @@ const completeVendorRegistration = async (req, res) => {
 
 const updateVendorProfileImage = async (req, res) => {
 	try {
-		const vendorId = req.user.id;
-
 		if (!req.file) {
 			return res.status(400).json({
 				success: false,
@@ -208,7 +187,7 @@ const updateVendorProfileImage = async (req, res) => {
 		}
 
 		const result = await vendorService.uploadAndUpdateVendorProfileImage(
-			vendorId,
+			req.user.id,
 			req.file,
 		);
 
@@ -224,10 +203,7 @@ const updateVendorProfileImage = async (req, res) => {
 
 const deleteVendorProfileImage = async (req, res) => {
 	try {
-		const vendorId = req.user.id;
-
-		const result = await vendorService.deleteVendorProfileImage(vendorId);
-
+		const result = await vendorService.deleteVendorProfileImage(req.user.id);
 		return res.status(200).json(result);
 	} catch (error) {
 		logger.error(`Delete Vendor Profile Image Error: ${error.message}`);
@@ -237,6 +213,7 @@ const deleteVendorProfileImage = async (req, res) => {
 		});
 	}
 };
+
 const updateVendorLocation = async (req, res) => {
 	try {
 		const { address, coordinates } = req.body;
@@ -251,7 +228,7 @@ const updateVendorLocation = async (req, res) => {
 			{
 				location: {
 					type: "Point",
-					coordinates, // [longitude, latitude]
+					coordinates,
 					address,
 				},
 			},
@@ -288,8 +265,7 @@ const updateVendorProfile = async (req, res) => {
 
 const deactivateVendorAccount = async (req, res) => {
 	try {
-		const vendorId = req.user.id;
-		const result = await vendorService.deactivateVendorAccount(vendorId);
+		const result = await vendorService.deactivateVendorAccount(req.user.id);
 		return res.status(200).json(result);
 	} catch (error) {
 		logger.error(`Deactivate Vendor Account Error: ${error.message}`);
@@ -299,18 +275,15 @@ const deactivateVendorAccount = async (req, res) => {
 		});
 	}
 };
+
 const toggleVendorOnlineStatus = async (req, res) => {
 	try {
 		const vendor = await VendorProfile.findOne({ owner: req.user.id });
 		if (!vendor) return res.status(404).json({ success: false, message: "Vendor not found" });
 
-		// isActive = account-level activation — NEVER toggled here.
-		// Online/offline is tracked via storeDetails[0].status only.
 		const currentlyOnline = vendor.storeDetails?.[0]?.status === "active";
 		const newStatus = currentlyOnline ? "deactivated" : "active";
 
-		// Guard: vendor cannot go offline while an order is active.
-		// Active = confirming (awaiting acceptance) or pending (accepted, preparing).
 		if (currentlyOnline) {
 			const { Order } = require("../models");
 			const activeOrder = await Order.findOne({
@@ -329,7 +302,6 @@ const toggleVendorOnlineStatus = async (req, res) => {
 		if (vendor.storeDetails?.[0]) {
 			vendor.storeDetails[0].status = newStatus;
 		} else {
-			// storeDetails missing — create the entry
 			vendor.storeDetails = [{ status: newStatus }];
 		}
 		await vendor.save();
@@ -338,7 +310,7 @@ const toggleVendorOnlineStatus = async (req, res) => {
 		return res.json({
 			success: true,
 			isOnline,
-			isActive: vendor.isActive, // account status — unchanged
+			isActive: vendor.isActive,
 			message: `Store is now ${isOnline ? "online" : "offline"}`,
 		});
 	} catch (error) {
@@ -347,22 +319,17 @@ const toggleVendorOnlineStatus = async (req, res) => {
 	}
 };
 
-/**
- * Get Vendor Wallet
- * GET /api/vendors/wallet
- */
 const getVendorWallet = async (req, res) => {
 	try {
 		const vendorProfile = await VendorProfile.findOne({ owner: req.user.id }).select("_id");
 		if (!vendorProfile) {
 			return res.status(404).json({ success: false, message: "Vendor profile not found" });
 		}
-		const vendorId = vendorProfile._id;
 
 		const [balance, todayEarnings, { transactions }] = await Promise.all([
-			ledgerService.getAccountBalance(vendorId, "VENDOR"),
-			ledgerService.getDailyEarnings(vendorId, "VENDOR"),
-			ledgerService.getTransactionHistory(vendorId, "VENDOR", 20, 0),
+			ledgerService.getAccountBalance(vendorProfile._id, "VENDOR"),
+			ledgerService.getDailyEarnings(vendorProfile._id, "VENDOR"),
+			ledgerService.getTransactionHistory(vendorProfile._id, "VENDOR", 20, 0),
 		]);
 
 		return res.status(200).json({
@@ -387,6 +354,66 @@ const getVendorWallet = async (req, res) => {
 	}
 };
 
+/**
+ * PUT /api/vendors/profile/periods
+ * Replace the entire operating schedule (timePeriod or preorderPeriods).
+ * Send an empty array [] to clear.
+ */
+const updateOperatingPeriods = async (req, res) => {
+	try {
+		const { periods } = req.body;
+
+		if (!Array.isArray(periods)) {
+			return res.status(400).json({
+				success: false,
+				message: "periods must be an array",
+			});
+		}
+
+		const result = await vendorService.updateOperatingPeriods(
+			req.user.id,
+			periods,
+		);
+		return res.status(200).json({ success: true, data: result });
+	} catch (error) {
+		return res.status(400).json({ success: false, message: error.message });
+	}
+};
+
+/**
+ * POST /api/vendors/profile/periods
+ * Append a single period entry to the existing schedule without touching
+ * the rest. Validates using the same rules as updateOperatingPeriods.
+ */
+const addOperatingPeriod = async (req, res) => {
+	try {
+		const result = await vendorService.addOperatingPeriod(
+			req.user.id,
+			req.body,
+		);
+		return res.status(201).json({ success: true, data: result });
+	} catch (error) {
+		return res.status(400).json({ success: false, message: error.message });
+	}
+};
+
+/**
+ * DELETE /api/vendors/profile/periods/:index
+ * Remove a single period entry by its array index.
+ */
+const deleteOperatingPeriod = async (req, res) => {
+	try {
+		const index = parseInt(req.params.index, 10);
+		if (isNaN(index) || index < 0) {
+			return res.status(400).json({ success: false, message: "Invalid period index" });
+		}
+		const result = await vendorService.deleteOperatingPeriod(req.user.id, index);
+		return res.status(200).json({ success: true, data: result });
+	} catch (error) {
+		return res.status(400).json({ success: false, message: error.message });
+	}
+};
+
 module.exports = {
 	completeVendorRegistration,
 	getPopularVendors,
@@ -403,4 +430,7 @@ module.exports = {
 	updateVendorProfile,
 	toggleVendorOnlineStatus,
 	getVendorWallet,
+	updateOperatingPeriods,
+	addOperatingPeriod,
+	deleteOperatingPeriod,
 };
