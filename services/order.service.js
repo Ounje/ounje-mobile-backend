@@ -8,6 +8,7 @@ const {
 	RiderProfile,
 } = require("../models");
 const { calculateOunjeFee, identifyZone } = require("../utils/delivery");
+const { parseTime: _parseTime } = require("../utils/time");
 const crypto = require("crypto");
 const { sendPushNotification } = require("./push.notification.service");
 const ledgerService = require("./ledger.service");
@@ -25,6 +26,113 @@ const calculateRiderRank = (totalDeliveries) => {
 	if (totalDeliveries >= 50) return "Silver Rider";
 	if (totalDeliveries >= 10) return "Bronze Rider";
 	return "New Rider";
+};
+
+// ── Days lookup ───────────────────────────────────────────────────────────────
+const DAYS_OF_WEEK = [
+	"sunday",
+	"monday",
+	"tuesday",
+	"wednesday",
+	"thursday",
+	"friday",
+	"saturday",
+];
+
+// ── Vendor schedule check ─────────────────────────────────────────────────────
+/**
+ * Returns true if the vendor is currently accepting orders based on their
+ * configured schedule. Nigeria is WAT (UTC+1), no DST.
+ *
+ * - InstantMeals / hybridMeals: checks timePeriod day + opening/closing hours
+ * - preOrderMeals: checks that now falls within at least one orderingTime window
+ *   (stored as a range string e.g. "10:00 AM - 11:00 AM")
+ */
+const _isVendorOpenNow = (vendor) => {
+	const storeDetails = vendor.storeDetails?.[0];
+	if (!storeDetails) return false;
+
+	const { servicesOffered } = storeDetails;
+
+	// Shift current time to WAT (UTC+1)
+	const now = new Date(Date.now() + 60 * 60 * 1000);
+	const nowMinutes = now.getUTCHours() * 60 + now.getUTCMinutes();
+
+	// ── preOrderMeals ─────────────────────────────────────────────────────────
+	// orderingTime is a cutoff — orders are accepted any time BEFORE that time.
+	// e.g. "08:00 AM" means the customer must order before 8 AM.
+	if (servicesOffered === "preOrderMeals") {
+		const { preorderPeriods } = storeDetails;
+		if (!preorderPeriods || preorderPeriods.length === 0) return false;
+
+		return preorderPeriods.some((entry) => {
+			if (!entry.orderingTime) return false;
+
+			const open = _parseTime(entry.orderingTime);
+			if (open === null) return false;
+
+			// Orders accepted from orderingTime onwards
+			return nowMinutes >= open;
+		});
+	}
+
+	// ── InstantMeals / hybridMeals ────────────────────────────────────────────
+	const { timePeriod } = storeDetails;
+	if (!timePeriod || timePeriod.length === 0) return false;
+
+	const todayName = DAYS_OF_WEEK[now.getUTCDay()];
+	const todayEntry = timePeriod.find(
+		(t) => t.day?.toLowerCase() === todayName,
+	);
+	if (!todayEntry) return false;
+
+	const open = _parseTime(todayEntry.openingHour);
+	const close = _parseTime(todayEntry.closingHour);
+	if (open === null || close === null) return false;
+
+	// Support overnight schedules e.g. 22:00 → 02:00
+	if (close < open) return nowMinutes >= open || nowMinutes < close;
+	return nowMinutes >= open && nowMinutes < close;
+};
+
+/**
+ * Build a human-readable reason why the vendor is currently closed.
+ * Called only when _isVendorOpenNow returns false.
+ */
+const _buildClosedReason = (vendor) => {
+	const storeDetails = vendor.storeDetails?.[0];
+	const { servicesOffered } = storeDetails;
+
+	if (servicesOffered === "preOrderMeals") {
+		const { preorderPeriods } = storeDetails;
+		if (!preorderPeriods || preorderPeriods.length === 0) {
+			return "This vendor has not configured their preorder windows yet.";
+		}
+		const windows = preorderPeriods
+			.map((p) => `${p.period} (opens at ${p.orderingTime})`)
+			.join(", ");
+		return `Ordering is currently closed. Preorder windows: ${windows}.`;
+	}
+
+	// InstantMeals / hybridMeals
+	const { timePeriod } = storeDetails;
+	if (!timePeriod || timePeriod.length === 0) {
+		return "This vendor has not set their operating hours yet.";
+	}
+
+	const now = new Date(Date.now() + 60 * 60 * 1000); // WAT
+	const todayName = DAYS_OF_WEEK[now.getUTCDay()];
+	const todayEntry = timePeriod.find(
+		(t) => t.day?.toLowerCase() === todayName,
+	);
+
+	if (!todayEntry) {
+		const capitalised =
+			todayName.charAt(0).toUpperCase() + todayName.slice(1);
+		return `This vendor is closed on ${capitalised}s.`;
+	}
+
+	return `This vendor is currently closed. Operating hours today: ${todayEntry.openingHour} – ${todayEntry.closingHour}.`;
 };
 
 // --- Helpers ---
@@ -376,7 +484,7 @@ const createOrder = async (userId, data) => {
 		throw new Error("No items in the order.");
 	}
 
-	// 1. Fetch Vendor (needed before zone identification)
+	// 1. Fetch Vendor
 	const vendor = await VendorProfile.findById(vendorId);
 	if (!vendor) throw new Error("Vendor not found");
 	if (!vendor.location || !vendor.location.coordinates) {
@@ -387,8 +495,14 @@ const createOrder = async (userId, data) => {
 		throw new Error("Vendor address is missing");
 	}
 
-	// 2. Identify Zone from vendor address (where rider picks up — not customer delivery address)
-	const orderZone = identifyZone(vendorAddress);
+	// 1b. Enforce vendor operating schedule
+	if (!_isVendorOpenNow(vendor)) {
+		throw new AppError(_buildClosedReason(vendor), 400);
+	}
+
+	// 2. Identify Zone from vendor coordinates (primary) with address as fallback
+	const [vendorLng, vendorLat] = vendor.location.coordinates;
+	const orderZone = identifyZone(vendorAddress, vendorLat, vendorLng);
 
 	// 3. Calculate Delivery Fee
 	const fee = await calculateOunjeFee(vendorAddress, deliveryAddress);
@@ -437,7 +551,6 @@ const createOrder = async (userId, data) => {
 		}
 
 		if (itemType === "Combo") {
-			// FIX 1: validatedComboSelections is now always [] or populated — never undefined
 			orderItemData.comboSelections = validatedComboSelections;
 		}
 
@@ -461,7 +574,6 @@ const createOrder = async (userId, data) => {
 			.lean();
 
 		for (const parent of compulsoryParents) {
-			// All subCategoryItemIds in this order that belong to this parent
 			const orderedSubCatIds = new Set(
 				orderItems
 					.filter(
@@ -473,7 +585,6 @@ const createOrder = async (userId, data) => {
 					.map((oi) => oi.subCategoryItemId.toString()),
 			);
 
-			// Every sub-category group must have at least one item ordered
 			for (const subCat of parent.subCategory || []) {
 				if (!subCat.items || subCat.items.length === 0) continue;
 				const groupCovered = subCat.items.some((i) =>
@@ -533,6 +644,7 @@ const createOrder = async (userId, data) => {
 		status: ORDER_STATUS.CONFIRMING,
 		subStatus: ORDER_SUB_STATUS.CONFIRMING,
 		zone: orderZone,
+		isPreorder: vendor.storeDetails?.[0]?.servicesOffered === "preOrderMeals",
 	});
 	order.orderNumber = await generateOrderNumber(order._id);
 	await order.save();
@@ -556,6 +668,9 @@ const createOrder = async (userId, data) => {
  * Calculate totalPrice, deliveryFee, serviceFee for a cart WITHOUT creating an order.
  * Used by the payment initiation endpoint so the frontend can display the correct
  * amount before the user pays.
+ *
+ * NOTE: Schedule enforcement is intentionally skipped here — price estimation
+ * for cart preview should not be blocked by operating hours.
  */
 const estimateOrderPrice = async (cartData) => {
 	const { items, vendorId, deliveryAddress } = cartData;
@@ -613,9 +728,6 @@ const updateOrderStatus = async (orderId, status, subStatus) => {
 		const body = subStatus || `Your order is now ${status}`;
 		await sendPushNotification(fcmToken, title, body);
 	}
-
-	// Dispatch is handled in order.vendor.service.js vendorMarkReady → startDispatch
-	// No automatic rider search triggered here.
 
 	return order;
 };
@@ -726,13 +838,11 @@ const acceptOrder = async (orderId, riderId) => {
 		{
 			_id: orderId,
 			$or: [
-				// Primary state: vendor marked ready → rider search triggered
 				{
 					status: ORDER_STATUS.RIDING,
 					subStatus: ORDER_SUB_STATUS.LOOKING_FOR_RIDER,
 					rider: null,
 				},
-				// Fallback: order packaged but rider search not yet complete
 				{
 					status: ORDER_STATUS.PACKAGING,
 					subStatus: ORDER_SUB_STATUS.PACKAGED,
@@ -796,7 +906,6 @@ const acceptOrder = async (orderId, riderId) => {
 		const { cancelDispatch } = require("./order.rider.service");
 		cancelDispatch(orderId);
 	} catch (dispatchErr) {
-		// Non-fatal — dispatch timer will expire harmlessly if already gone
 		logger.warn(`cancelDispatch non-fatal error: ${dispatchErr.message}`);
 	}
 
@@ -807,7 +916,6 @@ const acceptOrder = async (orderId, riderId) => {
 		}
 	} catch (ledgerErr) {
 		logger.error(`Failed to hold rider fee for order ${orderId}: ${ledgerErr.message}`);
-		// Non-blocking — order accept still succeeds
 	}
 
 	logger.info(`Rider ${riderId} accepted Order ${orderId}`);
@@ -939,7 +1047,6 @@ const cancelOrder = async (orderId, customerId) => {
 	return order;
 };
 
-// NEW: vendor marks food as packaged/ready — triggers rider search
 const vendorMarkReady = async (orderId, vendorId) => {
 	const order = await Order.findById(orderId);
 	if (!order) throw new Error("Order not found");
@@ -962,7 +1069,6 @@ const vendorMarkReady = async (orderId, vendorId) => {
 	// NOTE: Rider dispatch is handled by order.vendor.service.js vendorMarkReady → startDispatch
 	// This function in order.service.js is legacy and not called by any controller.
 
-	// Notify customer food is packaged
 	_emitOrderUpdate(order.customer, {
 		orderId: order._id,
 		status: order.status,
@@ -973,7 +1079,6 @@ const vendorMarkReady = async (orderId, vendorId) => {
 	return order;
 };
 
-// NEW: vendor accepts order → moves to PACKAGING/CONFIRMED
 const vendorAcceptOrder = async (orderId, vendorId) => {
 	const order = await Order.findById(orderId);
 	if (!order) throw new Error("Order not found");
@@ -995,7 +1100,6 @@ const vendorAcceptOrder = async (orderId, vendorId) => {
 		await ledgerService.pendVendorEarning(order.vendor, order._id);
 		logger.info(`[WALLET] Vendor earning moved to pending: orderId=${orderId} vendorId=${order.vendor} amount=${order.vendorEarning}`);
 	} catch (ledgerErr) {
-		// Non-blocking — order acceptance still succeeds
 		logger.error(`[WALLET] Failed to pend vendor earning on accept: orderId=${orderId} err=${ledgerErr.message}`);
 	}
 
@@ -1024,7 +1128,6 @@ const resendDeliveryOtp = async (orderId, userId, role) => {
 	const order = await Order.findById(orderId);
 	if (!order) throw new Error("Order not found");
 
-	// Allow both customer and rider to trigger resend
 	if (role === "rider") {
 		const { RiderProfile } = require("../models");
 		const rider = await RiderProfile.findOne({ user: userId });
