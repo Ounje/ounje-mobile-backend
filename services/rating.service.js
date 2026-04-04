@@ -163,6 +163,16 @@ class RatingService {
 		// Update target model with new stats
 		await Model.findByIdAndUpdate(targetId, updateData);
 
+		// Keep ranking scores in sync whenever a rating changes
+		if (targetType === "Vendor") {
+			const vendorService = require("./vendor.service");
+			await vendorService.updateVendorRankingScore(targetId);
+		}
+		if (targetType === "Rider") {
+			const riderService = require("./rider.service");
+			await riderService.updateRiderRankingScore(targetId);
+		}
+
 		return { averageRating: avg, totalRatings: count };
 	}
 

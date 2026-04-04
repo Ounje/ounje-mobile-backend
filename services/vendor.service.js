@@ -77,8 +77,6 @@ class VendorService {
 	}
 
 	async getPopularVendors(zone) {
-		// Show all active vendor accounts — online AND offline.
-		// The frontend displays an Open/Closed badge based on storeDetails[0].status.
 		const filter = {
 			isActive: true,
 			storeDetails: { $exists: true, $not: { $size: 0 } },
@@ -86,10 +84,30 @@ class VendorService {
 		if (zone) {
 			filter["location.address"] = { $regex: zone, $options: "i" };
 		}
-		// Sort: online vendors first, then by rating
+		// online vendors first, then highest ranking score
 		return VendorProfile.find(filter)
-			.sort({ "storeDetails.0.status": -1, averageRating: -1 })
+			.sort({ "storeDetails.0.status": -1, rankingScore: -1, averageRating: -1 })
 			.limit(20);
+	}
+
+	// Recalculates and saves a vendor's ranking score.
+	// Call this after a new rating is saved or an order is delivered.
+	// Formula: (totalOrders * 0.5) + (averageRating * 10 * 0.5)
+	// averageRating is scaled ×10 so it sits in the same ballpark as order counts.
+	async updateVendorRankingScore(vendorId) {
+		try {
+			const Order = require("../models/Order");
+			const vendor = await VendorProfile.findById(vendorId).select("averageRating rankingScore");
+			if (!vendor) return;
+
+			const totalOrders = await Order.countDocuments({ vendor: vendorId, status: "delivered" });
+			const score = (totalOrders * 0.5) + ((vendor.averageRating || 0) * 10 * 0.5);
+
+			await VendorProfile.findByIdAndUpdate(vendorId, { rankingScore: score });
+		} catch (err) {
+			// non-blocking — ranking update shouldn't break anything
+			require("../utils/logger").error(`updateVendorRankingScore failed: ${err.message}`);
+		}
 	}
 
 	/**

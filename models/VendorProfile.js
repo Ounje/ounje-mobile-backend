@@ -62,6 +62,7 @@ const vendorProfileSchema = new mongoose.Schema(
 			week: { type: Number, default: 0 },
 			total: { type: Number, default: 0 },
 		},
+		rankingScore: { type: Number, default: 0, index: true },
 		location: {
 			type: { type: String, enum: ["Point"], default: "Point" },
 			coordinates: { type: [Number] },
