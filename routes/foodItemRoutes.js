@@ -17,6 +17,7 @@ const {
 	addSubCategories,
 	deleteSubCategory,
 	toggleFoodItemAvailability,
+	toggleSubItemAvailability,
 } = require("../controllers/foodItemController");
 const {
 	getCategoryValues,
@@ -534,6 +535,14 @@ router.patch(
 	roleGuard(["vendor"]),
 	checkActiveUser,
 	toggleFoodItemAvailability,
+);
+
+router.patch(
+	"/:foodItemId/subcategory/:subItemId/availability",
+	authMiddleware,
+	roleGuard(["vendor"]),
+	checkActiveUser,
+	toggleSubItemAvailability,
 );
 
 module.exports = router;

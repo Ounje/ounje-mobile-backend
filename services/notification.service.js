@@ -102,15 +102,16 @@ class NotificationService {
 	// ============ VENDOR NOTIFICATIONS ============
 
 	async notifyNewOrder(vendorId, order) {
+		const earning = order.vendorEarning ?? order.totalPrice;
 		return this.createNotification({
 			recipient: vendorId,
 			recipientModel: "vendor",
 			type: "new_order",
 			title: "🎉 New Order Received!",
-			message: `You have a new order for ₦${order.totalPrice}`,
+			message: `You have a new order worth ₦${earning.toLocaleString()} (your earnings)`,
 			data: {
 				orderId: order._id,
-				totalPrice: order.totalPrice,
+				vendorEarning: earning,
 				itemCount: order.items?.length || 0,
 			},
 			priority: "high",
@@ -118,12 +119,13 @@ class NotificationService {
 	}
 
 	async notifyOrderCancelled(vendorId, order) {
+		const earning = order.vendorEarning ?? order.totalPrice;
 		return this.createNotification({
 			recipient: vendorId,
 			recipientModel: "vendor",
 			type: "order_cancelled",
 			title: "Order Cancelled",
-			message: `Order for ₦${order.totalPrice} has been cancelled`,
+			message: `Order worth ₦${earning.toLocaleString()} (your earnings) has been cancelled`,
 			data: { orderId: order._id },
 		});
 	}

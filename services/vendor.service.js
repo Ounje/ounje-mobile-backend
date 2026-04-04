@@ -164,7 +164,12 @@ class VendorService {
 			);
 		}
 
-		const isOnline = vendor.storeDetails?.[0]?.status === "active";
+		const storeDetail = vendor.storeDetails?.[0];
+		const isOnline = storeDetail?.status === "active";
+		const servicesOffered = storeDetail?.servicesOffered ?? null;
+		const timePeriod = storeDetail?.timePeriod ?? [];
+		const preorderPeriods = storeDetail?.preorderPeriods ?? [];
+
 		const vendorJson = vendor.toJSON();
 		delete vendorJson.storeDetails;
 		delete vendorJson.balance;
@@ -174,6 +179,9 @@ class VendorService {
 		return {
 			...vendorJson,
 			isOnline,
+			servicesOffered,
+			timePeriod,
+			preorderPeriods,
 			foodItems,
 			combos,
 			estimatedDeliveryTime,
