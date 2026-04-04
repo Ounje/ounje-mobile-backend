@@ -229,6 +229,17 @@ const _sendNextDispatch = async (orderIdStr) => {
 		);
 	}
 
+	// Push notification — reaches rider even when the app is in the background or killed
+	try {
+		await notificationService.notifyRiderOrderAvailable(rider._id, {
+			_id: orderIdStr,
+			deliveryFee: orderDetails?.deliveryFee ?? 0,
+			zone: orderDetails?.zone ?? null,
+		});
+	} catch (pushErr) {
+		logger.warn(`[Dispatch] Push to rider ${riderUserId} failed: ${pushErr.message}`);
+	}
+
 	// Set 60s timeout — advance to next rider if no response
 	const timerId = setTimeout(async () => {
 		logger.info(
