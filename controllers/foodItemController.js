@@ -1040,6 +1040,54 @@ const toggleComboAvailability = async (req, res) => {
 	}
 };
 
+// PATCH /api/food-items/:foodItemId/subcategory/:subItemId/availability
+// Toggles the isAvailable flag on a single sub-category item
+const toggleSubItemAvailability = async (req, res) => {
+	try {
+		const { foodItemId, subItemId } = req.params;
+		const vendorId = req.user.id;
+
+		const vendor = await VendorProfile.findOne({ owner: vendorId }).lean();
+		if (!vendor)
+			return res.status(404).json({ success: false, message: "Vendor not found" });
+
+		const foodItem = await FoodItem.findOne({ _id: foodItemId, vendor: vendor._id });
+		if (!foodItem)
+			return res.status(404).json({ success: false, message: "Food item not found" });
+
+		// Find the sub-item across all subcategory groups
+		let found = false;
+		for (const group of foodItem.subCategory) {
+			const subItem = group.items.id(subItemId);
+			if (subItem) {
+				subItem.isAvailable = !subItem.isAvailable;
+				found = true;
+				break;
+			}
+		}
+
+		if (!found)
+			return res.status(404).json({ success: false, message: "Sub-item not found" });
+
+		await foodItem.save();
+
+		// Return the updated state of the toggled sub-item
+		let updatedItem = null;
+		for (const group of foodItem.subCategory) {
+			const subItem = group.items.id(subItemId);
+			if (subItem) { updatedItem = subItem; break; }
+		}
+
+		return res.json({
+			success: true,
+			isAvailable: updatedItem.isAvailable,
+			message: `Item is now ${updatedItem.isAvailable ? "available" : "unavailable"}`,
+		});
+	} catch (error) {
+		return res.status(500).json({ success: false, message: error.message });
+	}
+};
+
 module.exports = {
 	createFoodItem,
 	updateFoodItem,
@@ -1060,5 +1108,6 @@ module.exports = {
 	getVendorCombos,
 	getVendorCombosGrouped,
 	toggleFoodItemAvailability,
+	toggleSubItemAvailability,
 	toggleComboAvailability,
 };

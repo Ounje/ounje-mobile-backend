@@ -2,6 +2,7 @@ const mongoose = require("mongoose");
 const { Order, VendorProfile } = require("../models");
 const orderService = require("./order.service");
 const notificationService = require("./notification.service");
+const ledgerService = require("./ledger.service");
 const { ORDER_STATUS, ORDER_SUB_STATUS } = require("../utils/constants");
 const logger = require("../utils/logger");
 
@@ -98,11 +99,16 @@ const vendorAcceptOrder = async (orderId, vendorId) => {
 		throw new Error("Order is no longer in confirming status");
 	}
 
-	// Set confirming/confirmed — vendor has acknowledged the order.
-	// Rider search starts only when vendor begins preparing (vendorStartPreparing).
 	order.status = ORDER_STATUS.CONFIRMING;
 	order.subStatus = ORDER_SUB_STATUS.CONFIRMED;
 	await order.save();
+
+	// move vendor earning from hold → pending so it shows in wallet right away
+	try {
+		await ledgerService.pendVendorEarning(order.vendor, order._id);
+	} catch (ledgerErr) {
+		logger.error(`[WALLET] pendVendorEarning failed on accept: orderId=${orderId} err=${ledgerErr.message}`);
+	}
 
 	try {
 		await notificationService.notifyCustomerOrderAccepted(
@@ -305,7 +311,7 @@ const getVendorOrders = async (vendorProfileId, query = {}) => {
 	const orders = await Order.find(filter)
 		.populate("customer", "firstName lastName phone -_id")
 		.populate({ path: "rider", select: "user", populate: { path: "user", select: "name phone" } })
-		.populate("items.item")
+		.populate({ path: "items.item", select: "name comboName img imageUrl" })
 		.sort({ createdAt: -1 });
 
 	// Flatten rider.user.name → rider.name so frontend reads work unchanged
