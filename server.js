@@ -9,6 +9,9 @@ const logger = require("./utils/logger");
 // Load all models early so Mongoose model registration is guaranteed
 require("./models");
 
+// Initialize Firebase Admin SDK early so push notifications are ready before any request
+require("./utils/firebase");
+
 const authRoutes = require("./routes/authRoutes");
 const foodItemRoutes = require("./routes/foodItemRoutes");
 const comboRoutes = require("./routes/comboRoutes");

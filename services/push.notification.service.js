@@ -1,10 +1,11 @@
-const axios = require("axios");
+const admin = require("../utils/firebase");
+const logger = require("../utils/logger");
 
 /**
- * Send push notification via Expo Push API.
- * Accepts Expo push tokens (ExponentPushToken[xxx]) registered by the mobile app.
+ * Send push notification via Firebase Admin SDK (FCM).
+ * Accepts raw FCM tokens registered by the mobile app via @react-native-firebase/messaging.
  *
- * @param {string} token     - Expo push token
+ * @param {string} token     - FCM device token
  * @param {string} title     - Notification title
  * @param {string} body      - Notification body
  * @param {object} [options] - Extra options: { channelId, data }
@@ -13,40 +14,43 @@ const sendPushNotification = async (token, title, body, options = {}) => {
 	try {
 		if (!token) return;
 
-		// Only send to valid Expo push tokens
-		if (!token.startsWith("ExponentPushToken") && !token.startsWith("ExpoPushToken")) {
-			console.log("⚠️ Push skipped: not an Expo push token:", token.slice(0, 20));
+		const messaging = admin.messaging?.();
+		if (!messaging) {
+			logger.warn("⚠️ Firebase Admin not initialized — push skipped");
 			return;
 		}
 
-		const response = await axios.post(
-			"https://exp.host/--/api/v2/push/send",
-			{
-				to: token,
-				title,
-				body,
-				sound: "default",
+		// FCM requires all data values to be strings
+		const dataPayload = {};
+		if (options.data) {
+			for (const [k, v] of Object.entries(options.data)) {
+				dataPayload[k] = String(v);
+			}
+		}
+
+		const message = {
+			token,
+			notification: { title, body },
+			android: {
 				priority: "high",
-				// Route to the high-importance Android channel defined in the app
-				channelId: options.channelId ?? "orders",
-				...(options.data && { data: options.data }),
-			},
-			{
-				headers: {
-					"Content-Type": "application/json",
-					Accept: "application/json",
+				notification: {
+					channelId: options.channelId ?? "orders",
+					priority: "high",
+					defaultSound: true,
 				},
 			},
-		);
+			apns: {
+				payload: {
+					aps: { sound: "default", badge: 1 },
+				},
+			},
+			...(Object.keys(dataPayload).length > 0 && { data: dataPayload }),
+		};
 
-		const result = response.data?.data;
-		if (result?.status === "error") {
-			console.error("❌ Expo push error:", result.message);
-		} else {
-			console.log("✅ Push notification sent via Expo:", title);
-		}
+		await messaging.send(message);
+		logger.info(`✅ Push notification sent via Firebase: ${title}`);
 	} catch (error) {
-		console.error("❌ Expo push error:", error.message);
+		logger.error(`❌ Firebase push error: ${error.message}`);
 	}
 };
 
