@@ -359,10 +359,27 @@ const updateBankDetails = async (userId, bankDetails) => {
 };
 
 /**
- * Leaderboard
+ * Leaderboard — sorted by rankingScore DESC.
+ * Falls back to totalDeliveries if no scores are computed yet.
  */
 const getRiderLeaderboard = async () => {
-	return ratingService.getRiderLeaderboard();
+	const riders = await RiderProfile.find({ isActive: true })
+		.sort({ rankingScore: -1, totalDeliveries: -1 })
+		.limit(20)
+		.populate("user", "name")
+		.lean();
+
+	const data = riders.map((r) => ({
+		riderId: r.user?._id ?? r._id,
+		name: r.user?.name ?? "—",
+		totalDeliveries: r.totalDeliveries ?? 0,
+		rating: r.averageRating ?? r.ratings?.average ?? 0,
+		rankingScore: r.rankingScore ?? 0,
+		tier: r.tier ?? "STARTER",
+		acceptanceRate: r.acceptanceRate ?? 100,
+	}));
+
+	return { success: true, count: data.length, data };
 };
 
 /**
@@ -428,6 +445,37 @@ const deactivateRiderAccount = async (userId) => {
 	};
 };
 
+// Work out what tier a rider belongs to based on their score.
+// Thresholds are deliberately generous for launch so new riders aren't stuck at STARTER long.
+const _tierForScore = (score) => {
+	if (score >= 80) return "ELITE";
+	if (score >= 40) return "PRO";
+	if (score >= 15) return "ACTIVE";
+	return "STARTER";
+};
+
+// Recomputes and saves a rider's ranking score + tier.
+// Formula: (totalDeliveries * 0.4) + (averageRating * 0.4) + (acceptanceRate * 0.2)
+// Call this after: order accepted, order delivered, rating received.
+const updateRiderRankingScore = async (riderId) => {
+	try {
+		const rider = await RiderProfile.findById(riderId).select(
+			"totalDeliveries averageRating acceptanceRate",
+		);
+		if (!rider) return;
+
+		const score =
+			(rider.totalDeliveries * 0.4) +
+			((rider.averageRating || 0) * 0.4) +
+			((rider.acceptanceRate ?? 100) * 0.2);
+
+		const tier = _tierForScore(score);
+		await RiderProfile.findByIdAndUpdate(riderId, { rankingScore: score, tier });
+	} catch (err) {
+		logger.error(`updateRiderRankingScore failed riderId=${riderId}: ${err.message}`);
+	}
+};
+
 module.exports = {
 	getRiderDashboard,
 	completeRiderRegistration,
@@ -440,4 +488,5 @@ module.exports = {
 	updateBankDetails,
 	getRiderLeaderboard,
 	deactivateRiderAccount,
+	updateRiderRankingScore,
 };

@@ -741,6 +741,22 @@ const verifyDeliveryOtp = async (order, otp, riderId) => {
 		);
 	}
 
+	// Update ranking scores for both vendor and rider after each delivery
+	try {
+		const vendorService = require("./vendor.service");
+		await vendorService.updateVendorRankingScore(order.vendor);
+	} catch (err) {
+		logger.error(`Vendor ranking update failed for order ${order._id}: ${err.message}`);
+	}
+	try {
+		if (order.rider) {
+			const riderService = require("./rider.service");
+			await riderService.updateRiderRankingScore(order.rider);
+		}
+	} catch (err) {
+		logger.error(`Rider ranking update failed for order ${order._id}: ${err.message}`);
+	}
+
 	return { success: true };
 };
 
@@ -830,6 +846,25 @@ const acceptOrder = async (orderId, riderId) => {
 		cancelDispatch(orderId);
 	} catch (dispatchErr) {
 		logger.warn(`cancelDispatch non-fatal error: ${dispatchErr.message}`);
+	}
+
+	// Track acceptance + update ranking score
+	try {
+		const updatedRider = await RiderProfile.findByIdAndUpdate(
+			riderId,
+			{ $inc: { ordersAccepted: 1 } },
+			{ new: true, select: "ordersOffered ordersAccepted" },
+		);
+		if (updatedRider) {
+			const rate = updatedRider.ordersOffered > 0
+				? Math.round((updatedRider.ordersAccepted / updatedRider.ordersOffered) * 100)
+				: 100;
+			await RiderProfile.findByIdAndUpdate(riderId, { acceptanceRate: rate });
+			const riderSvc = require("./rider.service");
+			await riderSvc.updateRiderRankingScore(riderId);
+		}
+	} catch (rankErr) {
+		logger.error(`Rider ranking update failed on accept: ${rankErr.message}`);
 	}
 
 	// Hold delivery fee in escrow so it shows in the rider's wallet immediately

@@ -112,17 +112,29 @@ const startDispatch = async (orderId, vendorLocation, orderZone) => {
 			return;
 		}
 
-		// Sort by distance to vendor (GPS-equipped riders first; riders at [0,0] go last)
+		// Sort by rankingScore DESC first, then by distance to vendor as tiebreaker.
+		// Riders with no GPS coords go to the end regardless of score.
 		const vendorCoords = vendorLocation?.coordinates;
-		const sorted = candidates.slice().sort((a, b) => {
+
+		// Re-fetch candidates with rankingScore included
+		const candidateIds = candidates.map((r) => r._id);
+		const withScore = await RiderProfile.find({ _id: { $in: candidateIds } })
+			.select("user currentLocation rankingScore");
+
+		const sorted = withScore.slice().sort((a, b) => {
 			const aC = a.currentLocation?.coordinates;
 			const bC = b.currentLocation?.coordinates;
 			const aValid = hasValidGPS(aC);
 			const bValid = hasValidGPS(bC);
-			if (!aValid && !bValid) return 0;
+			// Riders without valid GPS always go last
+			if (!aValid && !bValid) return (b.rankingScore || 0) - (a.rankingScore || 0);
 			if (!aValid) return 1;
 			if (!bValid) return -1;
-			if (!hasValidGPS(vendorCoords)) return 0;
+			// Both have GPS — primary sort by rankingScore, secondary by distance
+			const scoreDiff = (b.rankingScore || 0) - (a.rankingScore || 0);
+			if (Math.abs(scoreDiff) > 5) return scoreDiff; // clear score gap → use score
+			// Scores within 5 pts → prefer closer rider
+			if (!hasValidGPS(vendorCoords)) return scoreDiff;
 			return distanceKm(vendorCoords, aC) - distanceKm(vendorCoords, bC);
 		});
 
@@ -172,6 +184,27 @@ const _sendNextDispatch = async (orderIdStr) => {
 	}
 
 	const riderUserId = rider.user.toString();
+
+	// Track that this rider was offered an order — keeps acceptanceRate accurate
+	try {
+		const updated = await RiderProfile.findByIdAndUpdate(
+			rider._id,
+			{ $inc: { ordersOffered: 1 } },
+			{ new: true, select: "ordersOffered ordersAccepted" },
+		);
+		if (updated) {
+			const rate = updated.ordersOffered > 0
+				? Math.round((updated.ordersAccepted / updated.ordersOffered) * 100)
+				: 100;
+			await RiderProfile.findByIdAndUpdate(rider._id, { acceptanceRate: rate });
+			// Update ranking score non-blocking
+			const riderSvc = require("./rider.service");
+			riderSvc.updateRiderRankingScore(rider._id).catch(() => {});
+		}
+	} catch (trackErr) {
+		logger.warn(`[Dispatch] ordersOffered track failed: ${trackErr.message}`);
+	}
+
 	logger.info(`[Dispatch] Sending riderDispatch to userId=${riderUserId} for order ${orderIdStr} | global.io=${!!global.io}`);
 	if (global.io) {
 		global.io.to(riderUserId).emit("riderDispatch", {

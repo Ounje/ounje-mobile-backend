@@ -27,10 +27,11 @@ const getAllVendors = async (req, res) => {
 					$project: {
 						name: 1, bannerUrl: 1, logoUrl: 1, profileImage: 1,
 						location: 1, storeDetails: 1, averageRating: 1,
-						ratingCount: 1, fulfillmentSettings: 1, operatingHours: 1,
-						distanceMeters: 1,
+						ratingCount: 1, rankingScore: 1, fulfillmentSettings: 1,
+						operatingHours: 1, distanceMeters: 1,
 					},
 				},
+				{ $sort: { rankingScore: -1, averageRating: -1 } },
 				{ $limit: 200 },
 			]);
 			return res.json({ success: true, data: vendors });
@@ -38,9 +39,9 @@ const getAllVendors = async (req, res) => {
 
 		const vendors = await VendorProfile.find(baseFilter)
 			.select(
-				"name bannerUrl logoUrl profileImage location storeDetails averageRating ratingCount fulfillmentSettings operatingHours",
+				"name bannerUrl logoUrl profileImage location storeDetails averageRating ratingCount rankingScore fulfillmentSettings operatingHours",
 			)
-			.sort({ averageRating: -1 })
+			.sort({ rankingScore: -1, averageRating: -1 })
 			.limit(200)
 			.lean();
 		res.json({ success: true, data: vendors });
