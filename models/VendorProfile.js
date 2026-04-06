@@ -68,6 +68,7 @@ const vendorProfileSchema = new mongoose.Schema(
 			coordinates: { type: [Number] },
 			address: String,
 		},
+		zone: { type: String, default: null }, // Explicitly set delivery zone — used for rider dispatch
 		fulfillmentSettings: {
 			type: {
 				type: String,

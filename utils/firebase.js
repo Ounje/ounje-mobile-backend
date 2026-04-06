@@ -12,6 +12,7 @@ function initFirebase() {
 		console.warn(
 			"⚠️ Firebase configuration missing or invalid. Push notifications will be disabled.",
 		);
+		console.warn("Firebase init error:", error.message);
 	}
 	return admin;
 }

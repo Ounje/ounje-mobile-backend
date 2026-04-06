@@ -104,10 +104,15 @@ const startDispatch = async (orderId, vendorLocation, orderZone) => {
 	);
 
 	try {
+		// Debug: count ALL riders in DB so we can spot status/isActive issues
+		const totalRiders = await RiderProfile.countDocuments({});
+		const availableRiders = await RiderProfile.countDocuments({ status: "available", isActive: true });
+		logger.info(`[Dispatch] DB snapshot — total riders: ${totalRiders} | available+active: ${availableRiders}`);
+
 		const candidates = await _buildCandidateList(vendorLocation, orderZone);
 
 		if (!candidates.length) {
-			logger.warn(`[Dispatch] No available riders found across all tiers for order ${orderIdStr}`);
+			logger.warn(`[Dispatch] No available riders found across all tiers for order ${orderIdStr} | zone="${orderZone}" | totalRiders=${totalRiders} | availableRiders=${availableRiders}`);
 			await _notifyNoRiders(orderIdStr);
 			return;
 		}

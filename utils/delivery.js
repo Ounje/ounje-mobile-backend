@@ -117,7 +117,12 @@ async function calculateOunjeFee(vendorAddr, customerAddr, surge = 1.0) {
     }
 }
 
-const identifyZone = (address) => {
+const identifyZone = (address, explicitZone) => {
+    // Prefer explicitly set vendor zone (most accurate)
+    if (explicitZone && AVAILABLE_ZONES.includes(explicitZone)) {
+        return explicitZone;
+    }
+    // Fallback: substring match on address
     if (!address) return "Other";
     const lower = address.toLowerCase();
     const found = AVAILABLE_ZONES.find(zone => lower.includes(zone.toLowerCase()));
