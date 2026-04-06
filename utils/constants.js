@@ -107,6 +107,7 @@ const AVAILABLE_ZONES = [
 	"Ojota",
 	"Maryland",
 	"Gbagada",
+	"Berger",
 	"Ikorodu",
 	"Ajah",
 	"Sangotedo",
