@@ -414,9 +414,10 @@ const createOrder = async (userId, data) => {
 		throw new AppError(buildClosedReason(vendor), 400);
 	}
 
-	// 2. Identify Zone from vendor coordinates (primary) with address as fallback
+	// 2. Identify Zone — prefer explicit vendor.zone, fallback to address substring match
 	const [vendorLng, vendorLat] = vendor.location.coordinates;
-	const orderZone = identifyZone(vendorAddress, vendorLat, vendorLng);
+	const orderZone = identifyZone(vendorAddress, vendor.zone);
+	logger.info(`[Order] Zone resolved: "${orderZone}" (vendor.zone="${vendor.zone}", address="${vendorAddress}")`);
 
 	// 3. Calculate Delivery Fee
 	const fee = await calculateOunjeFee(vendorAddress, deliveryAddress);

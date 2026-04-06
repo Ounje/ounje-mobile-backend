@@ -164,7 +164,7 @@ const vendorStartPreparing = async (orderId, vendorId) => {
 };
 
 const vendorMarkReady = async (orderId, vendorId) => {
-	const order = await Order.findById(orderId).populate("vendor", "name location");
+	const order = await Order.findById(orderId).populate("vendor", "name location zone");
 	if (!order) throw new Error("Order not found");
 
 	if (order.vendor._id.toString() !== vendorId) {
@@ -229,8 +229,19 @@ const vendorMarkReady = async (orderId, vendorId) => {
 	try {
 		const vendorLocation = order.vendor?.location;
 		const { startDispatch } = require("./order.rider.service");
-		logger.info(`[vendorMarkReady] Triggering startDispatch for order ${orderId} zone="${order.zone}"`);
-		await startDispatch(order._id, vendorLocation, order.zone);
+
+		// Re-resolve zone at dispatch time — order.zone may be "Other"/null for orders created
+		// before the explicit vendor.zone field was added. Prefer vendor.zone, then address match.
+		let dispatchZone = order.zone;
+		if (!dispatchZone || dispatchZone === "Other") {
+			const { identifyZone } = require("../utils/delivery");
+			const vendorAddress = order.vendor?.location?.address || "";
+			dispatchZone = identifyZone(vendorAddress, order.vendor?.zone);
+			logger.info(`[vendorMarkReady] Zone re-resolved: "${dispatchZone}" (was "${order.zone}") for order ${orderId}`);
+		}
+
+		logger.info(`[vendorMarkReady] Triggering startDispatch for order ${orderId} zone="${dispatchZone}"`);
+		await startDispatch(order._id, vendorLocation, dispatchZone);
 	} catch (error) {
 		logger.error(`Dispatch start failed (non-blocking): ${error.message}`);
 	}

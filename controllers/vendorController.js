@@ -217,13 +217,19 @@ const deleteVendorProfileImage = async (req, res) => {
 
 const updateVendorLocation = async (req, res) => {
 	try {
-		const { address, coordinates } = req.body;
+		const { address, coordinates, zone } = req.body;
 		if (!address || !Array.isArray(coordinates) || coordinates.length !== 2) {
 			return res.status(400).json({
 				success: false,
 				message: "address and coordinates [longitude, latitude] are required",
 			});
 		}
+
+		// Resolve zone: use explicit zone from request, else infer from address
+		const { identifyZone } = require("../utils/delivery");
+		const resolvedZone = zone || identifyZone(address);
+		logger.info(`[VendorLocation] Resolved zone="${resolvedZone}" for vendor ${req.user.id}`);
+
 		await VendorProfile.findOneAndUpdate(
 			{ owner: req.user.id },
 			{
@@ -232,10 +238,11 @@ const updateVendorLocation = async (req, res) => {
 					coordinates,
 					address,
 				},
+				zone: resolvedZone !== "Other" ? resolvedZone : null,
 			},
 			{ new: true },
 		);
-		return res.status(200).json({ success: true, message: "Location updated" });
+		return res.status(200).json({ success: true, message: "Location updated", zone: resolvedZone });
 	} catch (error) {
 		logger.error(`Update Vendor Location Error: ${error.message}`);
 		return res.status(500).json({

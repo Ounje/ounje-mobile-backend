@@ -146,11 +146,18 @@ const getRiderProfile = async (userId) => {
 	const setupComplete = riderProfile.setupComplete === true;
 	const missingFields = []; // No longer dynamically calculating this as it causes loops
 
-	// Ensure isActive is consistent with setupComplete
-	if (setupComplete && !riderProfile.isActive) {
+	// Ensure isActive and status are both correct for a completed setup.
+	// A rider who completed setup must always be available for dispatch.
+	// This catches both the isActive=false case AND status drift (e.g. status="offline" after a crash).
+	const needsHeal = setupComplete && (
+		!riderProfile.isActive ||
+		!["available", "busy"].includes(riderProfile.status)
+	);
+	if (needsHeal) {
 		riderProfile.isActive = true;
 		riderProfile.status = "available";
 		await riderProfile.save();
+		logger.info(`[RiderProfile] Auto-healed status to available for rider ${riderProfile._id}`);
 	}
 
 	return {
