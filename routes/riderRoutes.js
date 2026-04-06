@@ -24,6 +24,7 @@ const {
 	updatePushToken,
 	uploadProfilePicture,
 	updateNotificationPreferences,
+	updateRiderOnlineStatus,
 } = require("../controllers/riderController");
 
 // FIX 3: Endpoint corrected to '/location' since the server.js prefix is '/api/riders'
@@ -208,6 +209,14 @@ router.delete(
 	authMiddleware,
 	roleGuard(["rider"]),
 	deactivateRiderAccount,
+);
+
+// Toggle rider online / offline status (used by the app's Online/Offline pill)
+router.put(
+	"/status",
+	authMiddleware,
+	roleGuard(["rider"]),
+	updateRiderOnlineStatus,
 );
 
 // Get authenticated rider's own reviews

@@ -328,6 +328,25 @@ const updatePushToken = async (req, res) => {
 	}
 };
 
+/**
+ * Update rider online/offline status
+ * PUT /api/riders/status
+ * Body: { status: "available" | "offline" }
+ */
+const updateRiderOnlineStatus = async (req, res) => {
+	try {
+		const { status } = req.body;
+		if (!["available", "offline"].includes(status)) {
+			return res.status(400).json({ success: false, message: "Status must be 'available' or 'offline'" });
+		}
+		const result = await riderService.updateRiderStatus(req.user.id, status);
+		res.json(result);
+	} catch (err) {
+		logger.error(`Update rider status error: ${err.message}`);
+		res.status(500).json({ success: false, message: err.message });
+	}
+};
+
 module.exports = {
 	completeRiderRegistration,
 	registerRider,
@@ -343,4 +362,5 @@ module.exports = {
 	updatePushToken,
 	uploadProfilePicture,
 	updateNotificationPreferences,
+	updateRiderOnlineStatus,
 };
