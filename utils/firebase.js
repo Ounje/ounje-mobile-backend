@@ -3,7 +3,11 @@ let serviceAccount;
 
 function initFirebase() {
 	try {
-		serviceAccount = require("../config/serviceAccountKey.json");
+		if (process.env.FIREBASE_SERVICE_ACCOUNT_JSON) {
+			serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_JSON);
+		} else {
+			serviceAccount = require("../config/serviceAccountKey.json");
+		}
 		admin.initializeApp({
 			credential: admin.credential.cert(serviceAccount),
 		});
