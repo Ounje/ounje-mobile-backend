@@ -65,15 +65,15 @@ const _buildCandidateList = async (vendorLocation, orderZone) => {
 				currentLocation: {
 					$near: {
 						$geometry: vendorLocation,
-						$maxDistance: 5000,
+						$maxDistance: 3000,
 					},
 				},
 			}).select("user currentLocation");
 			if (gps.length > 0) {
-				logger.info(`[Dispatch] GPS tier: ${gps.length} rider(s) within 5km`);
+				logger.info(`[Dispatch] GPS tier: ${gps.length} rider(s) within 3km`);
 				return gps;
 			}
-			logger.warn(`[Dispatch] GPS tier: 0 riders within 5km — falling back to all-available`);
+			logger.warn(`[Dispatch] GPS tier: 0 riders within 3km — falling back to all-available`);
 		} catch (gpsErr) {
 			logger.warn(`[Dispatch] GPS tier failed (no 2dsphere index?): ${gpsErr.message}`);
 		}
