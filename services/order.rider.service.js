@@ -14,33 +14,58 @@ const getRiderDeclineReasonText = (reason) => {
 	return reasonTexts[reason] || reason;
 };
 
+const notifyRiders = (riders, orderId, order) => {
+	riders.forEach((rider) => {
+		if (global.io) {
+			global.io.to(rider.user.toString()).emit("newOrderAvailable", {
+				orderId,
+				message: "New delivery request nearby!",
+			});
+		}
+
+		if (order) {
+			notificationService.notifyRiderOrderAvailable(rider.user, order).catch((err) => {
+				logger.error(`FCM fallback failed for rider ${rider.user}: ${err.message}`);
+			});
+		}
+	});
+};
+
 const findNearbyRiders = async (vendorLocation, orderId) => {
 	try {
-		// 1. Find all available riders within 3km (3000 meters)
+		// 1. Find all available riders within 15km
 		const nearbyRiders = await RiderProfile.find({
 			status: "available",
 			isActive: true,
 			currentLocation: {
 				$near: {
-					$geometry: vendorLocation, // The Vendor's [lng, lat]
-					$maxDistance: 3000,
+					$geometry: vendorLocation,
+					$maxDistance: 15000,
 				},
 			},
 		});
 
-		// 2. Broadcast to these specific riders via Socket.io
-		if (global.io && nearbyRiders.length > 0) {
-			nearbyRiders.forEach((rider) => {
-				// Emit to the rider's User ID (owner of the profile)
-				global.io.to(rider.user.toString()).emit("newOrderAvailable", {
-					orderId: orderId,
-					message: "New delivery request nearby!",
-				});
-			});
-			logger.info(`Pings sent to ${nearbyRiders.length} riders.`);
+		// 2. Fetch order for FCM payload
+		const order = await Order.findById(orderId).select("_id deliveryFee zone");
+
+		if (nearbyRiders.length > 0) {
+			notifyRiders(nearbyRiders, orderId, order);
+			logger.info(`Pings sent to ${nearbyRiders.length} nearby riders.`);
+			return nearbyRiders;
 		}
 
-		return nearbyRiders;
+		// 3. Fallback: no riders within 15km — broadcast to ALL available riders
+		logger.warn(`No riders within 15km for order ${orderId}. Broadcasting to all available riders.`);
+		const allRiders = await RiderProfile.find({ status: "available", isActive: true });
+
+		if (allRiders.length > 0) {
+			notifyRiders(allRiders, orderId, order);
+			logger.info(`Fallback pings sent to ${allRiders.length} riders.`);
+		} else {
+			logger.warn(`No available riders at all for order ${orderId}.`);
+		}
+
+		return allRiders;
 	} catch (error) {
 		logger.error(`Error finding riders: ${error.message}`);
 	}
