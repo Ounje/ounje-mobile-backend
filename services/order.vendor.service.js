@@ -88,7 +88,7 @@ const declineOrder = async (orderId, vendorId, declineData = {}) => {
 };
 
 const vendorAcceptOrder = async (orderId, vendorId) => {
-	const order = await Order.findById(orderId);
+	const order = await Order.findById(orderId).populate("vendor", "name");
 	if (!order) throw new Error("Order not found");
 
 	if (order.vendor.toString() !== vendorId) {
@@ -114,6 +114,7 @@ const vendorAcceptOrder = async (orderId, vendorId) => {
 		await notificationService.notifyCustomerOrderAccepted(
 			order.customer,
 			order,
+			order.vendor?.name || "Your vendor",
 		);
 		logger.info(`Order ${orderId} accepted by vendor ${vendorId}`);
 	} catch (error) {
