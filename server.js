@@ -101,13 +101,19 @@ io.on("connection", async (socket) => {
 			socket.join(userId);
 			logger.info(`Socket auto-joined userId room: ${userId}`);
 
-			// Join VendorProfile and RiderProfile rooms so backend can emit to profile IDs
-			const { VendorProfile, RiderProfile } = require("./models");
+			// Join Customer, VendorProfile and RiderProfile rooms so backend can emit to profile IDs
+			const { Customer, VendorProfile, RiderProfile } = require("./models");
 
-			const [vendor, rider] = await Promise.all([
+			const [customer, vendor, rider] = await Promise.all([
+				Customer.findOne({ user: userId }).select("_id").lean(),
 				VendorProfile.findOne({ owner: userId }).select("_id").lean(),
 				RiderProfile.findOne({ user: userId }).select("_id status isActive operatingArea").lean(),
 			]);
+
+			if (customer) {
+				socket.join(customer._id.toString());
+				logger.info(`Socket auto-joined customerProfile room: ${customer._id}`);
+			}
 
 			if (vendor) {
 				socket.join(vendor._id.toString());
