@@ -24,6 +24,7 @@ const generateOtp = () => Math.floor(1000 + Math.random() * 9000).toString();
 const normalizePhone = require("../utils/phoneNormalizer");
 const { checkActiveUser } = require("../middleware/auth");
 const { validateUserStatus } = require("../utils/accountValidator");
+const { provisionCustomerDVA } = require("../services/dva.service");
 
 const register = asyncHandler(async (req, res) => {
 	const { name, role, phone, location, email, otpSession, fcmToken } = req.body;
@@ -117,6 +118,35 @@ const register = asyncHandler(async (req, res) => {
 		});
 	}
 	await profile.save();
+
+	// Provision Paystack Virtual Account for Customers ──
+	if (role === "customer") {
+		// setImmediate ensures this doesn't delay the registration response to the user
+		setImmediate(async () => {
+			try {
+
+				// ── NAME SPLITTING LOGIC ──
+				// Uses the same logic found in your Kitchen Sync 
+				const nameParts = customerDoc.user.name.trim().split(" ");
+				const firstName = nameParts[0];
+				const lastName = nameParts.length > 1 ? nameParts.slice(1).join(" ") : "Customer";
+
+				// We fetch a fresh copy with the user populated for Paystack metadata
+				const customerDoc = await Customer.findById(profile._id).populate("user");
+				const { customerCode, titanAccount } = await provisionCustomerDVA(customerDoc);
+
+				await Customer.findByIdAndUpdate(profile._id, {
+					firstName, // Update the profile with split names
+                	lastName,
+					paystackCustomerCode: customerCode,
+					titanAccount, // This stores the bank name and account number
+				});
+				logger.info(`✓ Titan DVA provisioned for customer ${firstName} ${lastName}`);
+			} catch (err) {
+				logger.error(`DVA provision failed for ${profile._id}: ${err.message}`);
+			}
+		});
+	}
 
 	// === START KITCHEN SYNC ===
 	// Only sync if the role is 'customer' or 'vendor'

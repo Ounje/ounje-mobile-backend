@@ -9,6 +9,22 @@ const customerSchema = new mongoose.Schema(
 			required: true,
 			unique: true,
 		},
+
+		// Paystack customer code ─────────────────────────────
+		paystackCustomerCode: {
+			type: String,
+			default: null,
+			// e.g. 'CUS_abc123xyz'
+		},
+	
+		// Titan dedicated virtual account ─────────────────────
+		titanAccount: {
+			accountNumber: { type: String, default: null }, // e.g. '9012345678'
+			accountName:   { type: String, default: null }, // e.g. 'YourApp/John Doe'
+			bankName:      { type: String, default: null }, // 'Titan Paystack'
+			bankSlug:      { type: String, default: null }, // 'titan-paystack'
+		},
+
 		firstName: { type: String },
 		lastName: { type: String },
 		phone: { type: String },

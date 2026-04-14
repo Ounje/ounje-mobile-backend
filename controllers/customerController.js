@@ -195,7 +195,8 @@ const getCustomerWallet = async (req, res) => {
 		return res.json({
 			balance: balanceInfo.availableBalance ?? 0,
 			pendingBalance: balanceInfo.pendingBalance ?? 0,
-			accountNumber: null, // not applicable for customers
+			// ── UPDATED: Provide the actual bank details ──
+            bankDetails: customer.titanAccount || null,
 			transactions,
 		});
 	} catch (err) {
