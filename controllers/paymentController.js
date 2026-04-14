@@ -191,7 +191,55 @@ const webhookHandler = async (req, res) => {
 		const event = req.body;
 
 		if (event.event === "charge.success") {
-			const { amount, metadata, reference } = event.data;
+			const { amount, metadata, reference, customer: paystackCustomer } = event.data;
+
+			// ── START OF NEW DVA LOGIC ──
+            // If the payment came through a virtual bank account (Titan)
+            if (event.data.channel === "dedicated_nuban") {
+                const naira = amount / 100;
+                try {
+                    const customer = await Customer.findOne({
+                        paystackCustomerCode: paystackCustomer.customer_code,
+                    });
+
+                    if (!customer) {
+                        console.error(`DVA: No customer for ${paystackCustomer.customer_code}`);
+                        return res.status(200).send("Customer not found");
+                    }
+
+                    const alreadyProcessed = await Payment.findOne({ reference });
+                    if (alreadyProcessed) return res.status(200).send("Already processed");
+
+                    // Record payment & credit wallet
+                    await Payment.create({
+                        reference,
+                        customer: customer._id,
+                        amount: naira,
+                        status: "success",
+                        paidAt: event.data.paid_at,
+                    });
+
+                    await ledgerService.creditAccount(
+                        customer._id,
+                        "CUSTOMER",
+                        naira,
+                        "DVA_TRANSFER",
+                        { reference }
+                    );
+
+                    if (global.io) {
+                        global.io.to(customer._id.toString()).emit("walletCredited", {
+                            amount: naira,
+                            reference,
+                            message: `₦${naira.toLocaleString()} added to your wallet`,
+                        });
+                    }
+                } catch (err) {
+                    console.error("DVA error:", err.message);
+                }
+                return res.status(200).send("DVA processed");
+            }
+            // ── END OF NEW DVA LOGIC ──
 
 			// ── New flow: PendingCheckout exists ─────────────────────────────────
 			const pendingCheckout = await PendingCheckout.findOne({ reference });
