@@ -16,13 +16,13 @@ const customerSchema = new mongoose.Schema(
 			default: null,
 			// e.g. 'CUS_abc123xyz'
 		},
-	
+
 		// Titan dedicated virtual account ─────────────────────
 		titanAccount: {
 			accountNumber: { type: String, default: null }, // e.g. '9012345678'
-			accountName:   { type: String, default: null }, // e.g. 'YourApp/John Doe'
-			bankName:      { type: String, default: null }, // 'Titan Paystack'
-			bankSlug:      { type: String, default: null }, // 'titan-paystack'
+			accountName: { type: String, default: null }, // e.g. 'YourApp/John Doe'
+			bankName: { type: String, default: null }, // 'Titan Paystack'
+			bankSlug: { type: String, default: null }, // 'titan-paystack'
 		},
 
 		firstName: { type: String },
@@ -42,14 +42,18 @@ const customerSchema = new mongoose.Schema(
 			pushNotifications: { type: Boolean, default: true },
 		},
 	},
-	{ timestamps: true, toJSON: { virtuals: true }, toObject: { virtuals: true } },
+	{
+		timestamps: true,
+		toJSON: { virtuals: true },
+		toObject: { virtuals: true },
+	},
 );
 
 customerSchema.virtual("orderCount", {
-    ref: "Order",           // The model to count from
-    localField: "_id",      // The ID of the Customer
-    foreignField: "customer", // The field in the Order model that stores the Customer ID
-    count: true,            // Return just the number
+	ref: "Order", // The model to count from
+	localField: "_id", // The ID of the Customer
+	foreignField: "customer", // The field in the Order model that stores the Customer ID
+	count: true, // Return just the number
 });
 
 customerSchema.plugin(toJSON);

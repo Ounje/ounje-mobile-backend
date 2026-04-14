@@ -19,41 +19,43 @@ const { provisionCustomerDVA } = require("../services/dva.service");
  *   3. Otherwise → call Paystack, save result, return it
  */
 const getOrCreateDVA = async (req, res) => {
-  try {
-    const userId = req.user.id;
+	try {
+		const userId = req.user.id;
 
-    const customer = await Customer.findOne({ user: userId }).populate("user");
-    if (!customer) {
-      return res.status(404).json({ success: false, error: "Customer not found" });
-    }
+		const customer = await Customer.findOne({ user: userId }).populate("user");
+		if (!customer) {
+			return res
+				.status(404)
+				.json({ success: false, error: "Customer not found" });
+		}
 
-    // ── Fast path: account already exists in DB ──────────────────────
-    if (customer.titanAccount?.accountNumber) {
-      return res.status(200).json({
-        success: true,
-        titanAccount: customer.titanAccount,
-      });
-    }
+		// ── Fast path: account already exists in DB ──────────────────────
+		if (customer.titanAccount?.accountNumber) {
+			return res.status(200).json({
+				success: true,
+				titanAccount: customer.titanAccount,
+			});
+		}
 
-    // ── Slow path: provision for the first time ───────────────────────
-    const { customerCode, titanAccount } = await provisionCustomerDVA(customer);
+		// ── Slow path: provision for the first time ───────────────────────
+		const { customerCode, titanAccount } = await provisionCustomerDVA(customer);
 
-    // Persist to DB
-    customer.paystackCustomerCode = customerCode;
-    customer.titanAccount = titanAccount;
-    await customer.save();
+		// Persist to DB
+		customer.paystackCustomerCode = customerCode;
+		customer.titanAccount = titanAccount;
+		await customer.save();
 
-    return res.status(200).json({
-      success: true,
-      titanAccount,
-    });
-  } catch (err) {
-    console.error("DVA getOrCreate error:", err.message);
-    return res.status(500).json({
-      success: false,
-      error: err.message || "Could not provision virtual account",
-    });
-  }
+		return res.status(200).json({
+			success: true,
+			titanAccount,
+		});
+	} catch (err) {
+		console.error("DVA getOrCreate error:", err.message);
+		return res.status(500).json({
+			success: false,
+			error: err.message || "Could not provision virtual account",
+		});
+	}
 };
 
 /**
@@ -64,8 +66,8 @@ const getOrCreateDVA = async (req, res) => {
  * Idempotent: safe to call even if the account was already created.
  */
 const provisionDVA = async (req, res) => {
-  // Reuse the same logic — just POST instead of GET
-  return getOrCreateDVA(req, res);
+	// Reuse the same logic — just POST instead of GET
+	return getOrCreateDVA(req, res);
 };
 
 module.exports = { getOrCreateDVA, provisionDVA };
