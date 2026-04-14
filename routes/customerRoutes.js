@@ -318,6 +318,94 @@ router.post(
 	updateCustomerProfileImage,
 );
 
-router.get("/wallet", authMiddleware, roleGuard(["customer"]), getCustomerWallet);
+/**
+ * @swagger
+ * /api/customers/wallet:
+ *   get:
+ *     summary: Get customer wallet balance and transactions
+ *     description: Retrieve the wallet balance, pending balance, transaction history, and assigned bank account details (Titan/Paystack DVA) for the authenticated customer.
+ *     tags: [Customers]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Wallet retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 balance:
+ *                   type: number
+ *                   example: 1500
+ *                 pendingBalance:
+ *                   type: number
+ *                   example: 300
+ *                 bankDetails:
+ *                   type: object
+ *                   nullable: true
+ *                   properties:
+ *                     accountNumber:
+ *                       type: string
+ *                       example: "9012345678"
+ *                     accountName:
+ *                       type: string
+ *                       example: "YourApp/John Doe"
+ *                     bankName:
+ *                       type: string
+ *                       example: "Titan Paystack"
+ *                     bankSlug:
+ *                       type: string
+ *                       example: "titan-paystack"
+ *                 transactions:
+ *                   type: array
+ *                   items:
+ *                     type: object
+ *                     properties:
+ *                       _id:
+ *                         type: string
+ *                       amount:
+ *                         type: number
+ *                         example: 500
+ *                       entryType:
+ *                         type: string
+ *                         enum: [CREDIT, DEBIT]
+ *                       reason:
+ *                         type: string
+ *                         example: ORDER_EARNING
+ *                       balanceAfter:
+ *                         type: number
+ *                         example: 1500
+ *                       createdAt:
+ *                         type: string
+ *                         format: date-time
+ *       401:
+ *         description: Unauthorized - Invalid or missing token
+ *       404:
+ *         description: Customer not found
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 error:
+ *                   type: string
+ *                   example: Customer not found
+ *       500:
+ *         description: Internal server error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 error:
+ *                   type: string
+ */
+router.get(
+	"/wallet",
+	authMiddleware,
+	roleGuard(["customer"]),
+	getCustomerWallet,
+);
 
 module.exports = router;
