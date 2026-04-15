@@ -1,44 +1,51 @@
 const mongoose = require("mongoose");
-
 const Payout = require("../models/Payout");
+
 const VendorProfile = require("../models/VendorProfile");
 const RiderProfile = require("../models/RiderProfile");
 
 const paystack = require("../utils/paystack");
 const ledgerService = require("./ledger.service");
 
-// ADDED: centralized logger (replace console.log / console.error)
-const logger = require("../utils/logger");
+const logger = require("../utils/logger"); // FIX #6: use logger
 
-// Ensure models are registered
+// Ensure critical models are registered
 if (!mongoose.models.VendorProfile) {
 	try {
 		require("../models/VendorProfile");
 	} catch (e) {
-		logger.warn("VendorProfile load error:", e.message); // changed from console.warn
+		logger.warn("VendorProfile model load error:", e.message);
 	}
 }
-
 if (!mongoose.models.RiderProfile) {
 	try {
 		require("../models/RiderProfile");
 	} catch (e) {
-		logger.warn("RiderProfile load error:", e.message); // changed from console.warn
+		logger.warn("RiderProfile model load error:", e.message);
 	}
 }
 
 /**
- * Calculate Paystack + Stamp Duty (2026 Nigeria)
+ * HELPER: Calculates total deductions (Paystack Fee + 2026 Stamp Duty)
+ * Based on Paystack Nigeria Transfer Rates and 2026 Tax Laws.
  */
 const calculateTotalFees = (amount) => {
 	let paystackFee = 0;
 	let stampDuty = 0;
 
-	if (amount <= 5000) paystackFee = 10;
-	else if (amount <= 50000) paystackFee = 25;
-	else paystackFee = 50;
+	// 1. Paystack Transfer Fee Bands
+	if (amount <= 5000) {
+		paystackFee = 10;
+	} else if (amount <= 50000) {
+		paystackFee = 25;
+	} else {
+		paystackFee = 50;
+	}
 
-	if (amount >= 10000) stampDuty = 50;
+	// 2. 2026 Electronic Money Transfer Levy (Stamp Duty)
+	if (amount >= 10000) {
+		stampDuty = 50;
+	}
 
 	return {
 		paystackFee,
@@ -48,7 +55,7 @@ const calculateTotalFees = (amount) => {
 };
 
 /**
- * MAIN: Process payout
+ * Process a single payout to a user's BANK account via Paystack
  */
 const processSinglePayout = async ({
 	userId,
@@ -58,53 +65,54 @@ const processSinglePayout = async ({
 	name,
 	orderId,
 }) => {
-	// CHANGED: console.log → logger.info
-	logger.info(`[PAYOUT] ${userType} ${userId} -> ₦${amount}`);
+	logger.info(
+		`Processing withdrawal for ${userType} ${userId} amount: ${amount}`,
+	);
 
-	// ─────────────────────────────────────────────
-	// 1. Calculate fees
-	// ─────────────────────────────────────────────
 	const fees = calculateTotalFees(amount);
-
-	// ADDED: net amount after deductions
 	const netAmount = amount - fees.total;
 
-	// ADDED: guard against invalid payout after fees
 	if (netAmount <= 0) {
 		return {
 			success: false,
 			reason: "amount_too_low",
-			detail: `Amount ₦${amount} cannot cover fees ₦${fees.total}`,
+			detail: `Amount NGN ${amount} cannot cover fees of NGN ${fees.total}`,
 		};
 	}
 
-	// ─────────────────────────────────────────────
-	// 2. Validate bank details
-	// ─────────────────────────────────────────────
-	if (!bankDetails?.accountNumber || !bankDetails?.bankCode) {
-		// ADDED: store payout as pending instead of failing hard
+	if (!bankDetails || !bankDetails.accountNumber || !bankDetails.bankCode) {
 		const pending = await Payout.create({
 			user: userId,
 			userType,
 			order: orderId,
 			amount,
-			feeDeducted: fees.total, // ADDED: persist deducted fees
-			netAmount, // ADDED: persist net payout
+			feeDeducted: fees.total,
+			netAmount,
 			bankDetails: bankDetails || {},
 			status: "pending",
 		});
-
 		return { success: false, reason: "no_bank", payout: pending };
 	}
 
-	// ─────────────────────────────────────────────
-	// 3. Reserve funds (Ledger)
-	// ─────────────────────────────────────────────
+	// FIX #3: Deduplication — prevent concurrent duplicate payouts
+	const existingPayout = await Payout.findOne({
+		user: userId,
+		...(orderId ? { order: orderId } : {}),
+		status: { $in: ["processing", "completed"] },
+	});
+	if (existingPayout) {
+		return {
+			success: false,
+			reason: "duplicate_payout",
+			payout: existingPayout,
+		};
+	}
+
+	// Reserve balance (moves from available → pending in ledger)
 	let reserved;
 	try {
 		reserved = await ledgerService.reserveBalance(userId, userType, amount);
 	} catch (err) {
-		// ADDED: create failed payout record for insufficient funds
 		const failed = await Payout.create({
 			user: userId,
 			userType,
@@ -114,101 +122,81 @@ const processSinglePayout = async ({
 			status: "failed",
 			failureReason: "insufficient_funds",
 		});
-
 		return { success: false, reason: "insufficient_funds", payout: failed };
 	}
 
-	// ─────────────────────────────────────────────
-	// 4. Create payout record
-	// ─────────────────────────────────────────────
-	// ADDED: idempotency key for safe retries
-	const idempotencyKey = `payout_${Date.now()}_${userId}`;
+	// FIX #2: stable idempotency key — not timestamp-based
+	const stableKey = `payout_${userId}_${orderId ?? reserved.entry._id}`;
 
 	let payout = await Payout.create({
 		user: userId,
 		userType,
 		order: orderId,
 		amount,
-		feeDeducted: fees.total, // ADDED
-		netAmount, // ADDED
+		feeDeducted: fees.total,
+		netAmount,
 		bankDetails,
 		status: "processing",
 		ledgerEntry: reserved.entry._id,
-		idempotencyKey,
+		idempotencyKey: stableKey,
 	});
 
 	try {
-		// ─────────────────────────────────────────────
-		// 5. Get or create Paystack recipient
-		// ─────────────────────────────────────────────
-		const Model = userType === "VENDOR" ? VendorProfile : RiderProfile;
-		const user = await Model.findById(userId);
+		// Resolve Paystack Recipient
+		let recipientCode;
+		const model = userType === "VENDOR" ? VendorProfile : RiderProfile;
 
-		// ADDED: safety check to prevent null access crash
-		if (!user) throw new Error("User profile not found");
+		// FIX #5: use findOne({ user: userId }) not findById(userId)
+		const profile = await model.findOne({ user: userId });
+		if (!profile)
+			throw new Error(`${userType} profile not found for userId ${userId}`);
 
-		let recipientCode = user.paystackRecipientCode;
-
-		if (!recipientCode) {
+		if (profile.paystackRecipientCode) {
+			recipientCode = profile.paystackRecipientCode;
+		} else {
 			const recipient = await paystack.recipients.create({
-				name: name || user.name || "Recipient",
+				name: name || profile.name || "Recipient",
 				account_number: bankDetails.accountNumber,
 				bank_code: bankDetails.bankCode,
 			});
-
 			recipientCode = recipient?.data?.recipient_code;
-
-			// ADDED: explicit validation of Paystack response
-			if (!recipientCode) {
-				throw new Error("Failed to create recipient");
-			}
-
-			user.paystackRecipientCode = recipientCode;
-			await user.save();
+			if (!recipientCode) throw new Error("Failed to get recipient code");
+			profile.paystackRecipientCode = recipientCode;
+			await profile.save();
 		}
 
-		// ─────────────────────────────────────────────
-		// 6. Initiate transfer
-		// ─────────────────────────────────────────────
+		// Trigger Transfer
 		const transfer = await paystack.transfer.initiate({
-			// FIX: send NET amount (after fees), not full amount
+			// FIX #4: send netAmount (after fees) not full amount
 			amount: Math.round(netAmount * 100),
 			recipient: recipientCode,
-			reason: "Wallet Withdrawal",
-			idempotencyKey,
+			reason: `Wallet Withdrawal`,
+			reference: stableKey, // FIX #2: pass stable key as Paystack reference
 		});
 
 		const transferCode = transfer?.data?.transfer_code;
 
-		// ─────────────────────────────────────────────
-		// 7. Finalize ledger
-		// ─────────────────────────────────────────────
-		await ledgerService.completePayout(userId, userType, amount);
+		// FIX #1: Do NOT call completePayout here.
+		// completePayout is called in the Paystack webhook on transfer.success.
+		// reverseReserve is called on transfer.failed / transfer.reversed.
+		// This prevents ledger debit before money actually leaves Paystack.
 
-		// ─────────────────────────────────────────────
-		// 8. Mark success
-		// ─────────────────────────────────────────────
-		payout.status = "completed";
+		payout.status = "processing"; // stays processing until webhook confirms
 		payout.transactionRef = transferCode;
-		payout.processedAt = new Date();
-
 		await payout.save();
 
 		return { success: true, payout };
 	} catch (err) {
-		// CHANGED: console.error → logger.error
-		logger.error("[PAYOUT ERROR]", err.message);
-
-		// ─────────────────────────────────────────────
-		// Rollback ledger
-		// ─────────────────────────────────────────────
-		await ledgerService.reverseReserve(userId, userType, amount, err.message);
-
+		logger.error("Transfer failed:", err.message);
+		await ledgerService.reverseReserve(
+			userId,
+			userType,
+			amount,
+			`Withdrawal failed: ${err.message}`,
+		);
 		payout.status = "failed";
 		payout.failureReason = err.message;
-
 		await payout.save();
-
 		return {
 			success: false,
 			reason: "transfer_failed",
@@ -218,30 +206,36 @@ const processSinglePayout = async ({
 	}
 };
 
-/**
- * Disable auto payout (wallet-managed system)
- */
 const processAutoPayoutsForOrder = async (orderId) => {
-	// CHANGED: console.log → logger.info
-	logger.info(`[PAYOUT] Auto-transfer disabled for order ${orderId}`);
+	logger.info(
+		`Skipping auto-bank transfer for order ${orderId}. Funds are managed in internal wallets.`,
+	);
+	return { vendor: "MANAGED_IN_WALLET", rider: "MANAGED_IN_WALLET" };
+};
 
-	return {
-		vendor: "MANAGED_IN_WALLET",
-		rider: "MANAGED_IN_WALLET",
-	};
+// FIX #7: stubs throw instead of silently doing nothing
+const processPendingPayout = async (payoutId) => {
+	throw new Error("processPendingPayout: not yet implemented");
+};
+
+const processPendingPayoutsForUser = async (userId, userType) => {
+	throw new Error("processPendingPayoutsForUser: not yet implemented");
 };
 
 /**
- * Get bank details
+ * Fetch user bank details (used by rider/vendor profile)
  */
 const getUserBankDetails = async (userId, userType = "RIDER") => {
 	const Model = userType === "VENDOR" ? VendorProfile : RiderProfile;
 
-	const profile = await Model.findById(userId).select(
+	// FIX #5: consistent use of findOne({ user: userId })
+	const profile = await Model.findOne({ user: userId }).select(
 		"bankDetails paystackRecipientCode",
 	);
 
-	if (!profile || !profile.bankDetails) return null;
+	if (!profile || !profile.bankDetails) {
+		return null;
+	}
 
 	return {
 		accountNumber: profile.bankDetails.accountNumber,
@@ -252,8 +246,82 @@ const getUserBankDetails = async (userId, userType = "RIDER") => {
 	};
 };
 
+/**
+ * NEW: Called by Paystack webhook on transfer.success
+ * Finalizes the ledger — debits pendingBalance (money has left the system).
+ */
+const handleTransferSuccess = async (transferCode) => {
+	const payout = await Payout.findOne({ transactionRef: transferCode });
+	if (!payout) {
+		logger.warn(
+			`handleTransferSuccess: no payout found for transferCode=${transferCode}`,
+		);
+		return;
+	}
+	if (payout.status === "completed") {
+		logger.warn(
+			`handleTransferSuccess: already completed for transferCode=${transferCode}`,
+		);
+		return;
+	}
+
+	await ledgerService.completePayout(
+		payout.user,
+		payout.userType,
+		payout.amount,
+	);
+	payout.status = "completed";
+	payout.processedAt = new Date();
+	await payout.save();
+
+	logger.info(
+		`[PAYOUT] Completed: transferCode=${transferCode} userId=${payout.user} amount=${payout.amount}`,
+	);
+};
+
+/**
+ * NEW: Called by Paystack webhook on transfer.failed / transfer.reversed
+ * Moves money back from pending → available in the ledger.
+ */
+const handleTransferFailure = async (
+	transferCode,
+	reason = "Transfer failed",
+) => {
+	const payout = await Payout.findOne({ transactionRef: transferCode });
+	if (!payout) {
+		logger.warn(
+			`handleTransferFailure: no payout found for transferCode=${transferCode}`,
+		);
+		return;
+	}
+	if (payout.status === "failed") {
+		logger.warn(
+			`handleTransferFailure: already failed for transferCode=${transferCode}`,
+		);
+		return;
+	}
+
+	await ledgerService.reverseReserve(
+		payout.user,
+		payout.userType,
+		payout.amount,
+		reason,
+	);
+	payout.status = "failed";
+	payout.failureReason = reason;
+	await payout.save();
+
+	logger.info(
+		`[PAYOUT] Reversed: transferCode=${transferCode} userId=${payout.user} amount=${payout.amount}`,
+	);
+};
+
 module.exports = {
-	processSinglePayout,
 	processAutoPayoutsForOrder,
+	processSinglePayout,
+	processPendingPayout,
+	processPendingPayoutsForUser,
 	getUserBankDetails,
+	handleTransferSuccess, // wire these up in your webhook handler
+	handleTransferFailure,
 };
