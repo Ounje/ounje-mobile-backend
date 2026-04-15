@@ -4,7 +4,7 @@ const paystack = axios.create({
   baseURL: "https://api.paystack.co",
   headers: {
     // Use TEST key consistently (replace with production key for prod env)
-    Authorization: `Bearer ${process.env.PAYSTACK_TEST_SECRET_KEY}`,
+    Authorization: `Bearer ${process.env.PAYSTACK_SECRET_KEY}`,
     "Content-Type": "application/json",
   },
 });
@@ -73,6 +73,36 @@ exports.transfer= {
         })
     ),
 }
+
+exports.customer = {
+  create: async ({ email, first_name, last_name, phone }) =>
+    safeRequest(
+      paystack.post("/customer", { email, first_name, last_name, phone })
+    ),
+
+  fetch: async (customerCode) =>
+    safeRequest(paystack.get(`/customer/${customerCode}`)),
+};
+
+exports.dedicatedAccount = {
+  assign: async ({ customer, first_name, last_name, phone, preferred_bank = "wema-bank" }) =>
+    safeRequest(
+      paystack.post("/dedicated_account/assign", {
+        customer,
+        first_name,
+        last_name,
+        phone,
+        preferred_bank,
+        country: "NG",
+      })
+    ),
+
+  fetch: async (accountNumber) =>
+    safeRequest(paystack.get(`/dedicated_account/${accountNumber}`)),
+
+  deactivate: async (dedicatedAccountId) =>
+    safeRequest(paystack.delete(`/dedicated_account/${dedicatedAccountId}`)),
+};
 
 // module.exports = {
 //   transaction: {
