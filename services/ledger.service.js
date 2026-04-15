@@ -1,6 +1,6 @@
 const { LedgerEntry, LedgerAccount } = require("../models");
 const mongoose = require("mongoose");
-const logger = require("../utils/logger"); // ✅ FIX #6: logger imported
+const logger = require("../utils/logger"); //  FIX #6: logger imported
 
 /**
  * Ledger Service - Double-entry bookkeeping for payments
@@ -15,7 +15,7 @@ const logger = require("../utils/logger"); // ✅ FIX #6: logger imported
 
 /**
  * Ensure ledger accounts exist for a user (atomic upsert)
- * ✅ FIX #5: replaced findOne+create with findOneAndUpdate upsert to prevent duplicate accounts
+ *  FIX #5: replaced findOne+create with findOneAndUpdate upsert to prevent duplicate accounts
  */
 const ensureAccount = async (userId, type, session = null) => {
 	const options = { upsert: true, new: true, setDefaultsOnInsert: true };
@@ -57,7 +57,7 @@ const creditAccount = async (
 	session.startTransaction();
 
 	try {
-		// ✅ FIX #1: atomic $inc update instead of read-modify-write to prevent race conditions
+		//  FIX #1: atomic $inc update instead of read-modify-write to prevent race conditions
 		const account = await LedgerAccount.findOneAndUpdate(
 			{ userId, type: userType },
 			{
@@ -116,7 +116,7 @@ const debitAccount = async (
 	session.startTransaction();
 
 	try {
-		// ✅ FIX #1: atomic conditional decrement — only succeeds if balance is sufficient
+		//  FIX #1: atomic conditional decrement — only succeeds if balance is sufficient
 		const account = await LedgerAccount.findOneAndUpdate(
 			{ userId, type: userType, availableBalance: { $gte: amount } },
 			{ $inc: { availableBalance: -amount } },
@@ -168,7 +168,7 @@ const reserveBalance = async (userId, userType, amount) => {
 	session.startTransaction();
 
 	try {
-		// ✅ FIX #1: atomic conditional update
+		//  FIX #1: atomic conditional update
 		const account = await LedgerAccount.findOneAndUpdate(
 			{ userId, type: userType, availableBalance: { $gte: amount } },
 			{ $inc: { availableBalance: -amount, pendingBalance: amount } },
@@ -220,7 +220,7 @@ const completePayout = async (userId, userType, amount) => {
 	session.startTransaction();
 
 	try {
-		// ✅ FIX #1: atomic conditional decrement on pendingBalance
+		//  FIX #1: atomic conditional decrement on pendingBalance
 		const account = await LedgerAccount.findOneAndUpdate(
 			{ userId, type: userType, pendingBalance: { $gte: amount } },
 			{ $inc: { pendingBalance: -amount } },
@@ -239,7 +239,7 @@ const completePayout = async (userId, userType, amount) => {
 					entryType: "DEBIT",
 					reason: "PAYOUT",
 					meta: { action: "complete_payout" },
-					balanceAfter: account.pendingBalance, // ✅ FIX #4: actual remaining pendingBalance, not hardcoded 0
+					balanceAfter: account.pendingBalance, //  FIX #4: actual remaining pendingBalance, not hardcoded 0
 				},
 			],
 			{ session },
@@ -276,7 +276,7 @@ const reverseReserve = async (
 	session.startTransaction();
 
 	try {
-		// ✅ FIX #1: atomic conditional update
+		//  FIX #1: atomic conditional update
 		const account = await LedgerAccount.findOneAndUpdate(
 			{ userId, type: userType, pendingBalance: { $gte: amount } },
 			{ $inc: { pendingBalance: -amount, availableBalance: amount } },
@@ -408,7 +408,7 @@ const creditRiderFromOrder = async (order, deliveryFee) => {
 
 /**
  * Audit: Get all ledger entries for reconciliation
- * ✅ FIX #5: running balance now accounts for bucket-transfer entries (PAYOUT_PENDING, REVERSAL, etc.)
+ *  FIX #5: running balance now accounts for bucket-transfer entries (PAYOUT_PENDING, REVERSAL, etc.)
  * that move money between balances without changing net worth
  */
 const getAccountStatement = async (userId, userType, startDate, endDate) => {
@@ -430,7 +430,7 @@ const getAccountStatement = async (userId, userType, startDate, endDate) => {
 		"VENDOR_ORDER_PENDING", // hold → pending
 	]);
 
-	// ✅ FIX #5: only count entries that affect net balance (i.e. real money in/out)
+	//  FIX #5: only count entries that affect net balance (i.e. real money in/out)
 	let runningBalance = 0;
 	const withRunningBalance = entries.map((entry) => {
 		const isBucketTransfer = BUCKET_TRANSFER_REASONS.has(entry.reason);
@@ -461,7 +461,7 @@ const holdRiderFee = async (userId, amount, orderId) => {
 	const session = await mongoose.startSession();
 	session.startTransaction();
 	try {
-		// ✅ FIX #1: atomic $inc
+		//  FIX #1: atomic $inc
 		const account = await LedgerAccount.findOneAndUpdate(
 			{ userId, type: "RIDER" },
 			{
@@ -498,7 +498,7 @@ const holdRiderFee = async (userId, amount, orderId) => {
 /**
  * 2. Release Hold to Available (Token Verified)
  * Called by orderController.verifyDeliveryOtp
- * ✅ FIX #2: idempotency guard — will not double-credit if called twice
+ *  FIX #2: idempotency guard — will not double-credit if called twice
  */
 const releaseRiderFee = async (userId, orderId) => {
 	const session = await mongoose.startSession();
@@ -506,7 +506,7 @@ const releaseRiderFee = async (userId, orderId) => {
 	try {
 		const account = await ensureAccount(userId, "RIDER", session);
 
-		// ✅ FIX #2: idempotency check — bail if already released for this order
+		//  FIX #2: idempotency check — bail if already released for this order
 		const alreadyReleased = await LedgerEntry.findOne({
 			orderId,
 			accountId: account._id,
@@ -540,7 +540,7 @@ const releaseRiderFee = async (userId, orderId) => {
 			}
 		}
 
-		// ✅ FIX #1: atomic update
+		//  FIX #1: atomic update
 		await LedgerAccount.findOneAndUpdate(
 			{ _id: account._id },
 			{
@@ -611,8 +611,8 @@ const getDailyEarnings = async (userId, userType, date = new Date()) => {
 
 /**
  * Move vendor's held earnings (holdBalance) to pendingBalance when vendor accepts the order.
- * ✅ FIX #2: idempotency guard added
- * ✅ FIX #1: atomic updates
+ *  FIX #2: idempotency guard added
+ *  FIX #1: atomic updates
  */
 const pendVendorEarning = async (vendorId, orderId) => {
 	const session = await mongoose.startSession();
@@ -620,7 +620,7 @@ const pendVendorEarning = async (vendorId, orderId) => {
 	try {
 		const account = await ensureAccount(vendorId, "VENDOR", session);
 
-		// ✅ FIX #2: idempotency — bail if already pended
+		//  FIX #2: idempotency — bail if already pended
 		const alreadyPended = await LedgerEntry.findOne({
 			orderId,
 			accountId: account._id,
@@ -637,7 +637,7 @@ const pendVendorEarning = async (vendorId, orderId) => {
 		const holdEntry = await LedgerEntry.findOne({
 			orderId,
 			accountId: account._id,
-			reason: "VENDOR_EARNING_HOLD", // ✅ dedicated reason, not shared with rider
+			reason: "VENDOR_EARNING_HOLD", //  dedicated reason, not shared with rider
 		});
 
 		let amount;
@@ -658,7 +658,7 @@ const pendVendorEarning = async (vendorId, orderId) => {
 			}
 		}
 
-		// ✅ FIX #1: atomic update
+		//  FIX #1: atomic update
 		await LedgerAccount.findOneAndUpdate(
 			{ _id: account._id },
 			{
@@ -705,14 +705,14 @@ const pendVendorEarning = async (vendorId, orderId) => {
 
 /**
  * Hold vendor's meal earnings until delivery is confirmed.
- * ✅ FIX: uses dedicated reason "VENDOR_EARNING_HOLD" (not shared with rider's "DELIVERY_FEE_HOLD")
- * ✅ FIX #1: atomic update
+ *  FIX: uses dedicated reason "VENDOR_EARNING_HOLD" (not shared with rider's "DELIVERY_FEE_HOLD")
+ *  FIX #1: atomic update
  */
 const holdVendorAmount = async (vendorId, amount, orderId) => {
 	const session = await mongoose.startSession();
 	session.startTransaction();
 	try {
-		// ✅ FIX #1: atomic $inc
+		//  FIX #1: atomic $inc
 		const account = await LedgerAccount.findOneAndUpdate(
 			{ userId: vendorId, type: "VENDOR" },
 			{
@@ -728,7 +728,7 @@ const holdVendorAmount = async (vendorId, amount, orderId) => {
 					accountId: account._id,
 					amount,
 					entryType: "CREDIT",
-					reason: "VENDOR_EARNING_HOLD", // ✅ FIX: dedicated reason
+					reason: "VENDOR_EARNING_HOLD", //  FIX: dedicated reason
 					orderId,
 					meta: { status: "awaiting_delivery", role: "vendor" },
 					balanceAfter: account.availableBalance,
@@ -748,8 +748,8 @@ const holdVendorAmount = async (vendorId, amount, orderId) => {
 
 /**
  * Release vendor's earnings to availableBalance on delivery completion.
- * ✅ FIX #2: idempotency guard
- * ✅ FIX #1: atomic updates
+ *  FIX #2: idempotency guard
+ *  FIX #1: atomic updates
  */
 const releaseVendorAmount = async (vendorId, orderId) => {
 	const session = await mongoose.startSession();
@@ -757,7 +757,7 @@ const releaseVendorAmount = async (vendorId, orderId) => {
 	try {
 		const account = await ensureAccount(vendorId, "VENDOR", session);
 
-		// ✅ FIX #2: idempotency — bail if already released
+		//  FIX #2: idempotency — bail if already released
 		const alreadyReleased = await LedgerEntry.findOne({
 			orderId,
 			accountId: account._id,
@@ -791,7 +791,7 @@ const releaseVendorAmount = async (vendorId, orderId) => {
 			const holdEntry = await LedgerEntry.findOne({
 				orderId,
 				accountId: account._id,
-				reason: "VENDOR_EARNING_HOLD", // ✅ updated reason
+				reason: "VENDOR_EARNING_HOLD", //  updated reason
 			});
 
 			if (!holdEntry) {
@@ -809,7 +809,7 @@ const releaseVendorAmount = async (vendorId, orderId) => {
 			);
 		}
 
-		// ✅ FIX #1: atomic update
+		//  FIX #1: atomic update
 		await LedgerAccount.findOneAndUpdate(
 			{ _id: account._id },
 			{
@@ -853,7 +853,7 @@ const releaseVendorAmount = async (vendorId, orderId) => {
 
 /**
  * Reverse a delivery fee hold — called when a rider declines after accepting.
- * ✅ FIX #1: atomic update
+ *  FIX #1: atomic update
  */
 const reverseRiderFeeHold = async (riderId, orderId) => {
 	const session = await mongoose.startSession();
@@ -874,7 +874,7 @@ const reverseRiderFeeHold = async (riderId, orderId) => {
 
 		const amount = holdEntry.amount;
 
-		// ✅ FIX #1: atomic update
+		//  FIX #1: atomic update
 		await LedgerAccount.findOneAndUpdate(
 			{ _id: account._id },
 			{ $inc: { holdBalance: -amount } },
