@@ -92,7 +92,7 @@ exports.dedicatedAccount = {
 		first_name,
 		last_name,
 		phone,
-		preferred_bank = "Titan-Paystack",
+		preferred_bank = "titan-Paystack",
 	}) =>
 		safeRequest(
 			paystack.post("/dedicated_account/assign", {
