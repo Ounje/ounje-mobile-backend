@@ -620,6 +620,17 @@ const logOut = asyncHandler(async (req, res) => {
 	const { refreshToken } = req.body;
 	if (!refreshToken) return res.sendStatus(204);
 
+	const tokenRecord = await RefreshToken.findOne({ token: refreshToken });
+	if (tokenRecord) {
+		const user = await User.findById(tokenRecord.user).select("role");
+		if (user?.role === "vendor") {
+			await VendorProfile.updateOne(
+				{ owner: tokenRecord.user, "storeDetails.0": { $exists: true } },
+				{ $set: { "storeDetails.0.status": "inactive" } }
+			);
+		}
+	}
+
 	await RefreshToken.deleteOne({ token: refreshToken });
 	res.json({ message: "Logged out successfully" });
 });

@@ -91,7 +91,7 @@ const vendorAcceptOrder = async (orderId, vendorId) => {
 	const order = await Order.findById(orderId).populate("vendor", "name");
 	if (!order) throw new Error("Order not found");
 
-	if (order.vendor.toString() !== vendorId) {
+	if ((order.vendor._id ?? order.vendor).toString() !== vendorId) {
 		throw new Error("You can only accept orders from your restaurant");
 	}
 
