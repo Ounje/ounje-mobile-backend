@@ -16,18 +16,25 @@ const formatCustomerProfile = (customer) => {
 		...customerData,
 		// Ensure essential fields are present even if they are in User
 		email: user.email ?? null,
-		name: customer.firstName && customer.lastName ? `${customer.firstName} ${customer.lastName}` : user.name,
+		name:
+			customer.firstName && customer.lastName
+				? `${customer.firstName} ${customer.lastName}`
+				: user.name,
 		phone: customer.phone || user.phone,
-		address: customer.savedAddresses && customer.savedAddresses.length > 0 ? customer.savedAddresses[0].address : user.address,
+		address:
+			customer.savedAddresses && customer.savedAddresses.length > 0
+				? customer.savedAddresses[0].address
+				: user.address,
 		// Location preferences
 		totalOrders: customer.orderCount || 0,
-		location: customer.savedAddresses && customer.savedAddresses.length > 0
-			? {
-				type: "Point",
-				coordinates: customer.savedAddresses[0].coordinates
-			}
-			: user.location,
-		wallet: 0 // Placeholder for wallet balance if implemented later
+		location:
+			customer.savedAddresses && customer.savedAddresses.length > 0
+				? {
+						type: "Point",
+						coordinates: customer.savedAddresses[0].coordinates,
+					}
+				: user.location,
+		wallet: 0, // Placeholder for wallet balance if implemented later
 	};
 };
 
@@ -35,7 +42,9 @@ const getCustomerProfile = async (req, res) => {
 	const userId = req.user.id; // This is the User ID from JWT
 	try {
 		// Find Customer by user reference, not by ID
-		const customer = await Customer.findOne({ user: userId }).populate("user").populate("orderCount");
+		const customer = await Customer.findOne({ user: userId })
+			.populate("user")
+			.populate("orderCount");
 
 		if (!customer) {
 			return res.status(404).json({ error: "Customer not found" });
@@ -76,10 +85,13 @@ const updateCustomerProfile = async (req, res) => {
 				const newAddress = {
 					label: "Home",
 					address: location,
-					coordinates: [geo.lng, geo.lat]
+					coordinates: [geo.lng, geo.lat],
 				};
 				// Replace or add the first address
-				if (existingProfile.savedAddresses && existingProfile.savedAddresses.length > 0) {
+				if (
+					existingProfile.savedAddresses &&
+					existingProfile.savedAddresses.length > 0
+				) {
 					existingProfile.savedAddresses[0] = newAddress;
 				} else {
 					existingProfile.savedAddresses = [newAddress];
@@ -89,11 +101,10 @@ const updateCustomerProfile = async (req, res) => {
 		}
 
 		const [customer] = await Promise.all([
-			Customer.findOneAndUpdate(
-				{ user: userId },
-				updateData,
-				{ new: true, runValidators: true }
-			).populate("user", "email role name phone address location"),
+			Customer.findOneAndUpdate({ user: userId }, updateData, {
+				new: true,
+				runValidators: true,
+			}).populate("user", "email role name phone address location"),
 			Object.keys(userUpdate).length > 0
 				? User.findByIdAndUpdate(userId, { $set: userUpdate }, { new: true })
 				: Promise.resolve(null),
@@ -124,7 +135,7 @@ const deleteCustomerProfile = async (req, res) => {
 		const customer = await Customer.findOneAndUpdate(
 			{ user: userId },
 			{ isActive: false },
-			{ new: true }
+			{ new: true },
 		).populate("user", "email");
 
 		if (!customer) {
@@ -175,7 +186,10 @@ const updateCustomerProfileImage = async (req, res) => {
 const getCustomerWallet = async (req, res) => {
 	try {
 		const userId = req.user.id;
-		const customer = await Customer.findOne({ user: userId }).select("_id").lean();
+
+		const customer = await Customer.findOne({ user: userId })
+			.select("_id titanAccount")
+			.lean();
 
 		if (!customer) {
 			return res.status(404).json({ error: "Customer not found" });
@@ -183,8 +197,17 @@ const getCustomerWallet = async (req, res) => {
 
 		const ledgerService = require("../services/ledger.service");
 
-		// Customers may accumulate credit (e.g., refunds). If no account exists yet, return zeros.
-		const balanceInfo = await ledgerService.getAccountBalance(customer._id, "CUSTOMER");
+		let balanceInfo = { availableBalance: 0, pendingBalance: 0 };
+
+		try {
+			balanceInfo = await ledgerService.getAccountBalance(
+				customer._id,
+				"CUSTOMER",
+			);
+		} catch (err) {
+			// fallback safely
+		}
+
 		const { transactions = [] } = await ledgerService.getTransactionHistory(
 			customer._id,
 			"CUSTOMER",
@@ -195,7 +218,12 @@ const getCustomerWallet = async (req, res) => {
 		return res.json({
 			balance: balanceInfo.availableBalance ?? 0,
 			pendingBalance: balanceInfo.pendingBalance ?? 0,
-			accountNumber: null, // not applicable for customers
+
+			bankDetails: customer.titanAccount || {
+				status: "processing",
+				message: "Your account is being prepared. Please check back shortly.",
+			},
+
 			transactions,
 		});
 	} catch (err) {

@@ -80,6 +80,7 @@ app.use("/api/notifications", notificationRouter);
 app.use("/api/promo", promoRouter);
 app.use("/api/announcements", require("./routes/announcementRoutes"));
 app.use("/api/finance", require("./routes/financeRoutes"));
+app.use("/api/dva", require("./routes/dvaRoutes"));
 // app.use("/api/test", require("./tests/test01"));
 
 logger.info(`Frontend URL: ${process.env.FRONTEND_URL}`);

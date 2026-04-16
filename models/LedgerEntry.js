@@ -1,17 +1,42 @@
-const mongoose = require('mongoose');
+const mongoose = require("mongoose");
 const { Schema, model } = mongoose;
 
-const ledgerEntrySchema = new Schema({
-    accountId: { type: Schema.Types.ObjectId, ref: 'LedgerAccount', required: true, index: true },
-    contraAccountId: { type: Schema.Types.ObjectId, ref: 'LedgerAccount' },
-    orderId: { type: Schema.Types.ObjectId, ref: 'Order' },
+const ledgerEntrySchema = new Schema(
+  {
+    accountId: {
+      type: Schema.Types.ObjectId,
+      ref: "LedgerAccount",
+      required: true,
+      index: true,
+    },
+    contraAccountId: { type: Schema.Types.ObjectId, ref: "LedgerAccount" },
+    orderId: { type: Schema.Types.ObjectId, ref: "Order" },
     amount: { type: Number, required: true }, // positive numbers only; type will indicate DEBIT/CREDIT meaning
-    entryType: { type: String, enum: ['CREDIT', 'DEBIT'], required: true },
-    reason: { type: String, enum: ['ORDER_EARNING', 'COMMISSION', 'PAYOUT', 'PAYOUT_PENDING', 'ADJUSTMENT', 'REFUND', 'REVERSAL', 'DELIVERY_FEE_HOLD', 'WALLET_PAYMENT', 'VENDOR_ORDER_PENDING'], required: true },
+    entryType: { type: String, enum: ["CREDIT", "DEBIT"], required: true },
+    reason: {
+      type: String,
+      enum: [
+        "ORDER_EARNING",
+        "COMMISSION",
+        "PAYOUT",
+        "PAYOUT_PENDING",
+        "ADJUSTMENT",
+        "REFUND",
+        "REVERSAL",
+        "DELIVERY_FEE_HOLD",
+        "VENDOR_EARNING_HOLD",
+        "WALLET_PAYMENT",
+        "WALLET_TOPUP",
+        "DVA_TRANSFER",
+        "VENDOR_ORDER_PENDING",
+      ],
+      required: true,
+    },
     meta: { type: Schema.Types.Mixed },
     balanceAfter: { type: Number }, // fill for convenience (cached snapshot after applying this entry within txn)
-}, { timestamps: true });
+  },
+  { timestamps: true },
+);
 
-
-const LedgerEntry = model('LedgerEntry', ledgerEntrySchema);
+const LedgerEntry = model("LedgerEntry", ledgerEntrySchema);
 module.exports = LedgerEntry;

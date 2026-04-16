@@ -24,6 +24,7 @@ const generateOtp = () => Math.floor(1000 + Math.random() * 9000).toString();
 const normalizePhone = require("../utils/phoneNormalizer");
 const { checkActiveUser } = require("../middleware/auth");
 const { validateUserStatus } = require("../utils/accountValidator");
+const { provisionCustomerDVA } = require("../services/dva.service");
 
 const register = asyncHandler(async (req, res) => {
 	const { name, role, phone, location, email, otpSession, fcmToken } = req.body;
@@ -117,6 +118,62 @@ const register = asyncHandler(async (req, res) => {
 		});
 	}
 	await profile.save();
+
+	// Provision Paystack Virtual Account for Customers ──
+	if (role === "customer") {
+		// Fire-and-forget async execution
+		setImmediate(() => {
+			(async () => {
+				try {
+					// 1. Fetch fresh customer with populated user
+					const customerDoc = await Customer.findById(profile._id).populate(
+						"user",
+					);
+
+					if (!customerDoc || !customerDoc.user) {
+						throw new Error(
+							"Customer or user document not found for DVA provisioning",
+						);
+					}
+
+					// 2. Idempotency check (avoid duplicate provisioning)
+					if (customerDoc.paystackCustomerCode && customerDoc.titanAccount) {
+						logger.info(
+							`DVA already exists for customer ${profile._id}, skipping provisioning`,
+						);
+						return;
+					}
+
+					// 3. Safe name parsing
+					const fullName = customerDoc.user.name || "Customer";
+					const nameParts = fullName.trim().split(" ");
+					const firstName = nameParts[0];
+					const lastName =
+						nameParts.length > 1 ? nameParts.slice(1).join(" ") : "Customer";
+
+					// 4. Provision virtual account
+					const { customerCode, titanAccount } =
+						await provisionCustomerDVA(customerDoc);
+
+					// 5. Update customer record
+					await Customer.findByIdAndUpdate(profile._id, {
+						firstName,
+						lastName,
+						paystackCustomerCode: customerCode,
+						titanAccount,
+					});
+
+					logger.info(
+						`✓ Titan DVA provisioned for customer ${firstName} ${lastName} (${profile._id})`,
+					);
+				} catch (err) {
+					logger.error(
+						`DVA provision failed for customer ${profile._id}: ${err.message}`,
+					);
+				}
+			})();
+		});
+	}
 
 	// === START KITCHEN SYNC ===
 	// Only sync if the role is 'customer' or 'vendor'
@@ -433,11 +490,17 @@ const requestPhoneOtp = asyncHandler(async (req, res) => {
 					`This number is registered as a ${actualRole} account. Do you want to login as a ${actualRole}?`,
 					400,
 				);
-				err.error = { code: actualRole === "vendor" ? "WRONG_ROLE_VENDOR" : "WRONG_ROLE_RIDER" };
+				err.error = {
+					code:
+						actualRole === "vendor" ? "WRONG_ROLE_VENDOR" : "WRONG_ROLE_RIDER",
+				};
 				throw err;
 			}
 
-			throw new AppError(`No ${role} account found with this phone number`, 404);
+			throw new AppError(
+				`No ${role} account found with this phone number`,
+				404,
+			);
 		}
 	}
 
@@ -592,7 +655,10 @@ const refresh = asyncHandler(async (req, res) => {
 
 	// Rotate: delete old token, issue new refresh token
 	await RefreshToken.deleteOne({ token: refreshToken });
-	const newRefreshToken = generateRefreshToken({ id: user._id, role: user.role });
+	const newRefreshToken = generateRefreshToken({
+		id: user._id,
+		role: user.role,
+	});
 	await RefreshToken.create({
 		token: newRefreshToken,
 		user: user._id,
@@ -656,14 +722,16 @@ const checkPhone = asyncHandler(async (req, res) => {
 		return res.json({
 			exists: true,
 			role: "vendor",
-			message: "This number is already registered as a Vendor. Do you want to login as a Vendor?",
+			message:
+				"This number is already registered as a Vendor. Do you want to login as a Vendor?",
 		});
 	}
 	if (riderProfile && role !== "rider") {
 		return res.json({
 			exists: true,
 			role: "rider",
-			message: "This number is already registered as a Rider. Do you want to login as a Rider?",
+			message:
+				"This number is already registered as a Rider. Do you want to login as a Rider?",
 		});
 	}
 
