@@ -19,6 +19,7 @@ const getAllVendors = async (req, res) => {
 					$geoNear: {
 						near: { type: "Point", coordinates },
 						distanceField: "distanceMeters",
+						maxDistance: 5000,
 						query: baseFilter,
 						spherical: true,
 					},

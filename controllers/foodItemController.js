@@ -785,19 +785,36 @@ const deleteCombo = async (req, res) => {
 
 const getAllCombos = async (req, res) => {
 	try {
-		// Only return combos from vendors that are currently online
-		const onlineVendors = await VendorProfile.find({
+		const { lat, lng } = req.query;
+		const vendorFilter = {
 			isActive: true,
 			"storeDetails.0.status": "active",
-		}).select("_id");
-		const onlineVendorIds = onlineVendors.map((v) => v._id);
+		};
+
+		let onlineVendorIds;
+		if (lat && lng) {
+			// Return combos only from vendors within 10km of customer
+			const nearbyVendors = await VendorProfile.aggregate([
+				{
+					$geoNear: {
+						near: { type: "Point", coordinates: [parseFloat(lng), parseFloat(lat)] },
+						distanceField: "distanceMeters",
+						maxDistance: 10000,
+						query: vendorFilter,
+						spherical: true,
+					},
+				},
+				{ $project: { _id: 1 } },
+			]);
+			onlineVendorIds = nearbyVendors.map((v) => v._id);
+		} else {
+			const onlineVendors = await VendorProfile.find(vendorFilter).select("_id");
+			onlineVendorIds = onlineVendors.map((v) => v._id);
+		}
 
 		const populateOptions = [
 			{ path: "vendor", select: "name img description averageRating totalOrders storeDetails" },
-			{
-				path: "selections.items.item",
-				select: "name img description price",
-			},
+			{ path: "selections.items.item", select: "name img description price" },
 			{ path: "comboGroup", select: "name description" },
 		];
 
