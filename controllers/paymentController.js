@@ -176,8 +176,9 @@ const verifyPayment = async (req, res) => {
 			},
 		});
 	} catch (err) {
+		const paystackError = err.response?.data?.message || err.response?.data?.error || err.message;
 		logger.error("Verification Error:", err.response?.data || err.message);
-		res.status(500).json({ error: "Payment verification failed" });
+		res.status(500).json({ error: paystackError || "Payment verification failed" });
 	}
 };
 
