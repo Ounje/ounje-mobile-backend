@@ -149,15 +149,17 @@ const getRiderProfile = async (userId) => {
 	// Ensure isActive and status are both correct for a completed setup.
 	// A rider who completed setup must always be available for dispatch.
 	// This catches both the isActive=false case AND status drift (e.g. status="offline" after a crash).
-	const needsHeal = setupComplete && (
-		!riderProfile.isActive ||
-		!["available", "busy"].includes(riderProfile.status)
-	);
+	const needsHeal =
+		setupComplete &&
+		(!riderProfile.isActive ||
+			!["available", "busy"].includes(riderProfile.status));
 	if (needsHeal) {
 		riderProfile.isActive = true;
 		riderProfile.status = "available";
 		await riderProfile.save();
-		logger.info(`[RiderProfile] Auto-healed status to available for rider ${riderProfile._id}`);
+		logger.info(
+			`[RiderProfile] Auto-healed status to available for rider ${riderProfile._id}`,
+		);
 	}
 
 	return {
@@ -188,7 +190,7 @@ const getRiderProfile = async (userId) => {
 					accountName: bankDetails.accountName,
 					bankCode: bankDetails.bankCode,
 					bankName: bankDetails.bankName || null,
-			  }
+				}
 			: null,
 	};
 };
@@ -352,10 +354,15 @@ const updateBankDetails = async (userId, bankDetails) => {
 	const riderProfile = await RiderProfile.findOne({ user: userId });
 	if (!riderProfile) throw new Error("Rider profile not found");
 
+	// Save the bank details onto the profile
+	riderProfile.bankDetails = { accountNumber, bankCode, accountName };
+	riderProfile.paystackRecipientCode = undefined; // invalidate stale recipient
+	await riderProfile.save();
+
+	// Pass userId (not riderProfile._id) — Payout.user stores the user ID
 	const retryResults = await payoutService.processPendingPayoutsForUser(
-		riderProfile._id,
+		userId,
 		"RIDER",
-		{ accountNumber, bankCode, accountName },
 	);
 
 	return {
@@ -472,14 +479,19 @@ const updateRiderRankingScore = async (riderId) => {
 		if (!rider) return;
 
 		const score =
-			(rider.totalDeliveries * 0.4) +
-			((rider.averageRating || 0) * 0.4) +
-			((rider.acceptanceRate ?? 100) * 0.2);
+			rider.totalDeliveries * 0.4 +
+			(rider.averageRating || 0) * 0.4 +
+			(rider.acceptanceRate ?? 100) * 0.2;
 
 		const tier = _tierForScore(score);
-		await RiderProfile.findByIdAndUpdate(riderId, { rankingScore: score, tier });
+		await RiderProfile.findByIdAndUpdate(riderId, {
+			rankingScore: score,
+			tier,
+		});
 	} catch (err) {
-		logger.error(`updateRiderRankingScore failed riderId=${riderId}: ${err.message}`);
+		logger.error(
+			`updateRiderRankingScore failed riderId=${riderId}: ${err.message}`,
+		);
 	}
 };
 
