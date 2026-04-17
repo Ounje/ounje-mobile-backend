@@ -553,7 +553,8 @@ const getAllFoodItems = async (req, res) => {
 		// Define what we want to "join" from the Vendor model
 		const populate = {
 			path: "vendor",
-			select: "storeDetails name img profileImage bannerUrl logoUrl description averageRating totalOrders",
+			select:
+				"storeDetails name img profileImage bannerUrl logoUrl description averageRating totalOrders",
 			select:
 				"storeDetails name img profileImage bannerUrl logoUrl description averageRating totalOrders",
 		};
@@ -801,7 +802,10 @@ const getAllCombos = async (req, res) => {
 			const nearbyVendors = await VendorProfile.aggregate([
 				{
 					$geoNear: {
-						near: { type: "Point", coordinates: [parseFloat(lng), parseFloat(lat)] },
+						near: {
+							type: "Point",
+							coordinates: [parseFloat(lng), parseFloat(lat)],
+						},
 						near: {
 							type: "Point",
 							coordinates: [parseFloat(lng), parseFloat(lat)],
@@ -816,7 +820,6 @@ const getAllCombos = async (req, res) => {
 			]);
 			onlineVendorIds = nearbyVendors.map((v) => v._id);
 		} else {
-			const onlineVendors = await VendorProfile.find(vendorFilter).select("_id");
 			const onlineVendors =
 				await VendorProfile.find(vendorFilter).select("_id");
 			onlineVendorIds = onlineVendors.map((v) => v._id);
