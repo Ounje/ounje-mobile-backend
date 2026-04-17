@@ -112,7 +112,7 @@ const processSinglePayout = async ({
 	let reserved;
 	try {
 		reserved = await ledgerService.reserveBalance(userId, userType, amount);
-	} catch (err) {
+	} catch {
 		const failed = await Payout.create({
 			user: userId,
 			userType,
@@ -213,13 +213,143 @@ const processAutoPayoutsForOrder = async (orderId) => {
 	return { vendor: "MANAGED_IN_WALLET", rider: "MANAGED_IN_WALLET" };
 };
 
-// FIX #7: stubs throw instead of silently doing nothing
 const processPendingPayout = async (payoutId) => {
-	throw new Error("processPendingPayout: not yet implemented");
+	const payout = await Payout.findById(payoutId);
+
+	if (!payout) {
+		throw new Error(`processPendingPayout: payout ${payoutId} not found`);
+	}
+
+	if (payout.status !== "pending") {
+		logger.warn(
+			`processPendingPayout: payout ${payoutId} has status '${payout.status}', skipping`,
+		);
+		return { success: false, reason: "not_pending", payout };
+	}
+
+	const { recipientId, recipientType, amount, bankDetails } = payout;
+
+	if (!bankDetails?.accountNumber || !bankDetails?.bankCode) {
+		logger.warn(`processPendingPayout: payout ${payoutId} has no bank details`);
+		return { success: false, reason: "no_bank", payout };
+	}
+
+	const fees = calculateTotalFees(amount);
+	const netAmount = amount - fees.total;
+
+	if (netAmount <= 0) {
+		payout.status = "failed";
+		payout.failureReason = `Amount NGN ${amount} cannot cover fees of NGN ${fees.total}`;
+		await payout.save();
+		return { success: false, reason: "amount_too_low", payout };
+	}
+
+	try {
+		const model = recipientType === "VendorProfile" ? VendorProfile : RiderProfile;
+		const profile = await model.findById(recipientId);
+		if (!profile) throw new Error(`${recipientType} not found for id ${recipientId}`);
+
+		let recipientCode;
+		if (profile.paystackRecipientCode) {
+			recipientCode = profile.paystackRecipientCode;
+		} else {
+			const recipient = await paystack.recipients.create({
+				name: profile.name || "Recipient",
+				account_number: bankDetails.accountNumber,
+				bank_code: bankDetails.bankCode,
+			});
+			recipientCode = recipient?.data?.recipient_code;
+			if (!recipientCode) throw new Error("Failed to get recipient code");
+			profile.paystackRecipientCode = recipientCode;
+			await profile.save();
+		}
+
+		const stableKey = payout.idempotencyKey ?? `payout_pending_${payoutId}`;
+		if (!payout.idempotencyKey) {
+			payout.idempotencyKey = stableKey;
+			await payout.save();
+		}
+
+		const transfer = await paystack.transfer.initiate({
+			amount: Math.round(netAmount * 100),
+			recipient: recipientCode,
+			reason: "Wallet Withdrawal",
+			reference: stableKey,
+		});
+
+		const transferCode = transfer?.data?.transfer_code;
+		if (!transferCode) throw new Error("No transfer_code returned from Paystack");
+
+		// Stay as "pending" — webhook sets it to "processed" on success
+		payout.transactionRef = transferCode;
+		payout.feeDeducted = fees.total;
+		payout.netAmount = netAmount;
+		await payout.save();
+
+		logger.info(
+			`[PAYOUT] Pending payout initiated: payoutId=${payoutId} transferCode=${transferCode}`,
+		);
+		return { success: true, payout };
+	} catch (err) {
+		logger.error(`processPendingPayout: transfer failed for ${payoutId}: ${err.message}`);
+		payout.status = "failed";
+		payout.failureReason = err.message;
+		await payout.save();
+		return { success: false, reason: "transfer_failed", error: err.message, payout };
+	}
 };
 
 const processPendingPayoutsForUser = async (userId, userType) => {
-	throw new Error("processPendingPayoutsForUser: not yet implemented");
+	// Resolve profile _id — Payout stores recipientId (profile._id), not User._id
+	const model = userType === "VENDOR" ? VendorProfile : RiderProfile;
+	const userField = userType === "VENDOR" ? "owner" : "user";
+	const profile = await model.findOne({ [userField]: userId });
+
+	if (!profile) {
+		logger.warn(`processPendingPayoutsForUser: no ${userType} profile for userId=${userId}`);
+		return { processed: 0, results: [] };
+	}
+
+	const recipientType = userType === "VENDOR" ? "VendorProfile" : "RiderProfile";
+
+	const pendingPayouts = await Payout.find({
+		recipientId: profile._id,
+		recipientType,
+		status: "pending",
+	}).sort({ createdAt: 1 });
+
+	if (pendingPayouts.length === 0) {
+		logger.info(
+			`processPendingPayoutsForUser: no pending payouts for ${userType} ${userId}`,
+		);
+		return { processed: 0, results: [] };
+	}
+
+	logger.info(
+		`processPendingPayoutsForUser: processing ${pendingPayouts.length} payout(s) for ${userType} ${userId}`,
+	);
+
+	const results = [];
+	for (const payout of pendingPayouts) {
+		const result = await processPendingPayout(payout._id);
+		results.push({ payoutId: payout._id, ...result });
+
+		if (result.reason === "insufficient_funds") {
+			logger.warn(
+				`processPendingPayoutsForUser: stopping — insufficient funds at payoutId=${payout._id}`,
+			);
+			break;
+		}
+	}
+
+	const succeeded = results.filter((r) => r.success).length;
+	const failed = results.filter((r) => !r.success).length;
+
+	logger.info(
+		`processPendingPayoutsForUser: done — ${succeeded} succeeded, ${failed} failed for ${userType} ${userId}`,
+	);
+
+	return { processed: results.length, succeeded, failed, results };
 };
 
 /**
@@ -258,9 +388,9 @@ const handleTransferSuccess = async (transferCode) => {
 		);
 		return;
 	}
-	if (payout.status === "completed") {
+	if (payout.status === "processed") {
 		logger.warn(
-			`handleTransferSuccess: already completed for transferCode=${transferCode}`,
+			`handleTransferSuccess: already processed for transferCode=${transferCode}`,
 		);
 		return;
 	}
@@ -270,7 +400,7 @@ const handleTransferSuccess = async (transferCode) => {
 		payout.userType,
 		payout.amount,
 	);
-	payout.status = "completed";
+	payout.status = "processed";
 	payout.processedAt = new Date();
 	await payout.save();
 
