@@ -12,12 +12,17 @@ const {
 	getAllFoodItems,
 	getFoodItemById,
 	getMyFoodItems,
+	getFoodByCategory,
+	getVendorsByCategory,
 	addSubCategories,
 	deleteSubCategory,
+	toggleFoodItemAvailability,
+	toggleSubItemAvailability,
 } = require("../controllers/foodItemController");
 const {
 	getCategoryValues,
 	getSubCategoryValues,
+	getCategorySubCategoryMap,
 } = require("../utils/foodEnums");
 
 const { foodItemUpload } = require("../config/cloudinary");
@@ -211,12 +216,7 @@ router.get("/enums/categories", (req, res) => {
  */
 router.get("/enums/sub-categories", (req, res) => {
 	try {
-		const subCategories = getSubCategoryValues().map((value) => ({
-			label: value.charAt(0).toUpperCase() + value.slice(1),
-			value,
-		}));
-
-		res.json({ subCategories });
+		res.json(getCategorySubCategoryMap());
 	} catch (error) {
 		res.status(500).json({ message: "Internal server error" });
 	}
@@ -319,6 +319,11 @@ router.post(
  *       404:
  *         description: Food item not found
  */
+// Public: get individual food items for a category (e.g. ?category=rice)
+router.get("/by-category", getFoodByCategory);
+// Public: get vendors that have food items in a category
+router.get("/vendors-by-category", getVendorsByCategory);
+
 router.get("/:foodItemId", getFoodItemById);
 
 /**
@@ -522,6 +527,22 @@ router.delete(
 	roleGuard(["vendor"]),
 	checkActiveUser,
 	deleteFoodItem,
+);
+
+router.patch(
+	"/:foodItemId/availability",
+	authMiddleware,
+	roleGuard(["vendor"]),
+	checkActiveUser,
+	toggleFoodItemAvailability,
+);
+
+router.patch(
+	"/:foodItemId/subcategory/:subItemId/availability",
+	authMiddleware,
+	roleGuard(["vendor"]),
+	checkActiveUser,
+	toggleSubItemAvailability,
 );
 
 module.exports = router;

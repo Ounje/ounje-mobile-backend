@@ -22,7 +22,11 @@ const searchVendors = async (query, limit, includeUnavailable) => {
 		const matchStage = {
 			$or: [{ _id: { $in: vendorIdsFromFood } }, { $text: { $search: query } }],
 		};
-		if (!includeUnavailable) matchStage.isActive = true;
+		if (!includeUnavailable) {
+			matchStage.isActive = true;
+			matchStage.storeDetails = { $exists: true, $not: { $size: 0 } };
+			matchStage["storeDetails.0.status"] = "active";
+		}
 
 		const vendors = await VendorProfile.aggregate([
 			{ $match: matchStage },
@@ -32,9 +36,16 @@ const searchVendors = async (query, limit, includeUnavailable) => {
 					id: "$_id",
 					name: 1,
 					image: { $ifNull: ["$logoUrl", "$profileImage", "$bannerUrl"] },
-					isOpen: "$isActive",
+					isOpen: {
+						$eq: [
+							{ $arrayElemAt: ["$storeDetails.status", 0] },
+							"active",
+						],
+					},
 					averageRating: { $ifNull: ["$averageRating", 0] },
 					totalRating: { $ifNull: ["$ratingCount", 0] },
+					deliveryFee: { $ifNull: ["$fulfillmentSettings.deliveryPrice", 0] },
+					location: 1,
 					_id: 0,
 				},
 			},
@@ -74,18 +85,15 @@ const searchFoodItems = async (query, limit, includeUnavailable) => {
 			{
 				$project: {
 					type: { $literal: "fooditems" },
-					id: "$_id",
-					//category: 1,
-					//subCategoryName: "$subCategory.name",
+					id: "$subCategory.items._id",
 					name: "$subCategory.items.name",
 					image: "$subCategory.items.img",
 					price: "$subCategory.items.price",
 					description: "$subCategory.items.description",
-					//preparationTime: "$subCategory.items.preparationTime",
-					//isCompulsory: 1,
 					vendor: {
 						id: "$vendorInfo._id",
 						name: "$vendorInfo.name",
+						image: { $ifNull: ["$vendorInfo.bannerUrl", "$vendorInfo.profileImage", "$vendorInfo.logoUrl", null] },
 					},
 					_id: 0,
 				},

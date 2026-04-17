@@ -24,9 +24,10 @@ const generateOtp = () => Math.floor(1000 + Math.random() * 9000).toString();
 const normalizePhone = require("../utils/phoneNormalizer");
 const { checkActiveUser } = require("../middleware/auth");
 const { validateUserStatus } = require("../utils/accountValidator");
+const { provisionCustomerDVA } = require("../services/dva.service");
 
 const register = asyncHandler(async (req, res) => {
-	const { name, role, phone, location, email, otpSession } = req.body;
+	const { name, role, phone, location, email, otpSession, fcmToken } = req.body;
 
 	if (!otpSession) throw new AppError("OTP session token is required", 400);
 
@@ -85,6 +86,7 @@ const register = asyncHandler(async (req, res) => {
 		address: location,
 		location: coordinates,
 		role: role.toLowerCase(),
+		fcmToken: fcmToken || null,
 	});
 	await user.save();
 
@@ -116,6 +118,62 @@ const register = asyncHandler(async (req, res) => {
 		});
 	}
 	await profile.save();
+
+	// Provision Paystack Virtual Account for Customers ──
+	if (role === "customer") {
+		// Fire-and-forget async execution
+		setImmediate(() => {
+			(async () => {
+				try {
+					// 1. Fetch fresh customer with populated user
+					const customerDoc = await Customer.findById(profile._id).populate(
+						"user",
+					);
+
+					if (!customerDoc || !customerDoc.user) {
+						throw new Error(
+							"Customer or user document not found for DVA provisioning",
+						);
+					}
+
+					// 2. Idempotency check (avoid duplicate provisioning)
+					if (customerDoc.paystackCustomerCode && customerDoc.titanAccount) {
+						logger.info(
+							`DVA already exists for customer ${profile._id}, skipping provisioning`,
+						);
+						return;
+					}
+
+					// 3. Safe name parsing
+					const fullName = customerDoc.user.name || "Customer";
+					const nameParts = fullName.trim().split(" ");
+					const firstName = nameParts[0];
+					const lastName =
+						nameParts.length > 1 ? nameParts.slice(1).join(" ") : "Customer";
+
+					// 4. Provision virtual account
+					const { customerCode, titanAccount } =
+						await provisionCustomerDVA(customerDoc);
+
+					// 5. Update customer record
+					await Customer.findByIdAndUpdate(profile._id, {
+						firstName,
+						lastName,
+						paystackCustomerCode: customerCode,
+						titanAccount,
+					});
+
+					logger.info(
+						`✓ Titan DVA provisioned for customer ${firstName} ${lastName} (${profile._id})`,
+					);
+				} catch (err) {
+					logger.error(
+						`DVA provision failed for customer ${profile._id}: ${err.message}`,
+					);
+				}
+			})();
+		});
+	}
 
 	// === START KITCHEN SYNC ===
 	// Only sync if the role is 'customer' or 'vendor'
@@ -280,7 +338,7 @@ const requestEmailOtp = asyncHandler(async (req, res) => {
 });
 
 const verifyEmailOtp = asyncHandler(async (req, res) => {
-	const { email, otp, role, flow } = req.body;
+	const { email, otp, role, flow, fcmToken } = req.body;
 	if (!email || !otp) throw new AppError("Email and OTP required", 400);
 	if (!role) throw new AppError("Role is required", 400);
 	if (!flow) throw new AppError("Flow (login/signup) is required", 400);
@@ -327,6 +385,12 @@ const verifyEmailOtp = asyncHandler(async (req, res) => {
 		}
 		// checkActiveUser && (await checkActiveUser(user._id));
 		await validateUserStatus(user._id, user.role);
+
+		if (fcmToken) {
+			user.fcmToken = fcmToken;
+			await user.save();
+		}
+
 		const accessToken = generateAccessToken({ id: user._id, role: user.role });
 		const refreshToken = generateRefreshToken({
 			id: user._id,
@@ -411,6 +475,28 @@ const requestPhoneOtp = asyncHandler(async (req, res) => {
 		}
 
 		if (!hasProfile) {
+			// Check if the number belongs to the other role
+			let actualRole = null;
+			if (role === "rider") {
+				const vendorProfile = await VendorProfile.findOne({ owner: user._id });
+				if (vendorProfile) actualRole = "vendor";
+			} else if (role === "vendor") {
+				const riderProfile = await RiderProfile.findOne({ user: user._id });
+				if (riderProfile) actualRole = "rider";
+			}
+
+			if (actualRole) {
+				const err = new AppError(
+					`This number is registered as a ${actualRole} account. Do you want to login as a ${actualRole}?`,
+					400,
+				);
+				err.error = {
+					code:
+						actualRole === "vendor" ? "WRONG_ROLE_VENDOR" : "WRONG_ROLE_RIDER",
+				};
+				throw err;
+			}
+
 			throw new AppError(
 				`No ${role} account found with this phone number`,
 				404,
@@ -434,7 +520,7 @@ const requestPhoneOtp = asyncHandler(async (req, res) => {
 });
 
 const verifyPhoneOtp = asyncHandler(async (req, res) => {
-	let { phone, otp, reference, role, flow } = req.body;
+	let { phone, otp, reference, role, flow, fcmToken } = req.body;
 	if (!phone || !otp || !reference)
 		throw new AppError("Phone, OTP, reference required", 400);
 	if (!role) throw new AppError("Role is required", 400);
@@ -495,6 +581,12 @@ const verifyPhoneOtp = asyncHandler(async (req, res) => {
 		}
 		// checkActiveUser && (await checkActiveUser(user._id));
 		await validateUserStatus(user._id, user.role);
+
+		if (fcmToken) {
+			user.fcmToken = fcmToken;
+			await user.save();
+		}
+
 		const accessToken = generateAccessToken({ id: user._id, role: user.role });
 		const refreshToken = generateRefreshToken({
 			id: user._id,
@@ -528,6 +620,17 @@ const logOut = asyncHandler(async (req, res) => {
 	const { refreshToken } = req.body;
 	if (!refreshToken) return res.sendStatus(204);
 
+	const tokenRecord = await RefreshToken.findOne({ token: refreshToken });
+	if (tokenRecord) {
+		const user = await User.findById(tokenRecord.user).select("role");
+		if (user?.role === "vendor") {
+			await VendorProfile.updateOne(
+				{ owner: tokenRecord.user, "storeDetails.0": { $exists: true } },
+				{ $set: { "storeDetails.0.status": "inactive" } }
+			);
+		}
+	}
+
 	await RefreshToken.deleteOne({ token: refreshToken });
 	res.json({ message: "Logged out successfully" });
 });
@@ -536,18 +639,34 @@ const refresh = asyncHandler(async (req, res) => {
 	const { refreshToken } = req.body;
 	if (!refreshToken) throw new AppError("Refresh token required", 401);
 
-	const tokenExists = await RefreshToken.findOne({ token: refreshToken });
-	if (!tokenExists) throw new AppError("Invalid refresh token", 403);
+	const tokenRecord = await RefreshToken.findOne({ token: refreshToken });
+	if (!tokenRecord) throw new AppError("Invalid refresh token", 403);
 
-	const decoded = jwt.verify(refreshToken, process.env.REFRESH_SECRET);
+	let decoded;
+	try {
+		decoded = jwt.verify(refreshToken, process.env.REFRESH_SECRET);
+	} catch (err) {
+		await RefreshToken.deleteOne({ token: refreshToken });
+		throw new AppError("Refresh token expired or invalid", 403);
+	}
+
 	const user = await User.findById(decoded.id);
 	if (!user) throw new AppError("User not found", 401);
 
-	const accessToken = generateAccessToken({
+	// Rotate: delete old token, issue new refresh token
+	await RefreshToken.deleteOne({ token: refreshToken });
+	const newRefreshToken = generateRefreshToken({
 		id: user._id,
 		role: user.role,
 	});
-	res.json({ accessToken });
+	await RefreshToken.create({
+		token: newRefreshToken,
+		user: user._id,
+		ip: req.ip,
+	});
+
+	const accessToken = generateAccessToken({ id: user._id, role: user.role });
+	res.json({ accessToken, refreshToken: newRefreshToken });
 });
 
 const checkUserExist = asyncHandler(async (req, res) => {
@@ -573,6 +692,52 @@ const checkUserExist = asyncHandler(async (req, res) => {
 		.json({ exists: false, message: "User does not exist" });
 });
 
+const updateFcmToken = asyncHandler(async (req, res) => {
+	const { fcmToken } = req.body;
+	const userId = req.user.id;
+
+	if (!fcmToken) {
+		throw new AppError("FCM token is required", 400);
+	}
+
+	await User.findByIdAndUpdate(userId, { fcmToken });
+	res.status(200).json({ success: true, message: "Device token saved!" });
+});
+
+const checkPhone = asyncHandler(async (req, res) => {
+	let { phone, role } = req.body;
+	if (!phone || !role) throw new AppError("Phone and role required", 400);
+
+	phone = normalizePhone(phone);
+	const user = await User.findOne({ phone });
+
+	if (!user) return res.json({ exists: false });
+
+	const [vendorProfile, riderProfile] = await Promise.all([
+		VendorProfile.findOne({ owner: user._id }),
+		RiderProfile.findOne({ user: user._id }),
+	]);
+
+	if (vendorProfile && role !== "vendor") {
+		return res.json({
+			exists: true,
+			role: "vendor",
+			message:
+				"This number is already registered as a Vendor. Do you want to login as a Vendor?",
+		});
+	}
+	if (riderProfile && role !== "rider") {
+		return res.json({
+			exists: true,
+			role: "rider",
+			message:
+				"This number is already registered as a Rider. Do you want to login as a Rider?",
+		});
+	}
+
+	return res.json({ exists: false });
+});
+
 module.exports = {
 	register,
 	login,
@@ -583,4 +748,6 @@ module.exports = {
 	logOut,
 	refresh,
 	checkUserExist,
+	updateFcmToken,
+	checkPhone,
 };

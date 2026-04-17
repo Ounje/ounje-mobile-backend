@@ -2,6 +2,7 @@ const mongoose = require("mongoose");
 const { Order, VendorProfile } = require("../models");
 const orderService = require("./order.service");
 const notificationService = require("./notification.service");
+const ledgerService = require("./ledger.service");
 const { ORDER_STATUS, ORDER_SUB_STATUS } = require("../utils/constants");
 const logger = require("../utils/logger");
 
@@ -87,10 +88,10 @@ const declineOrder = async (orderId, vendorId, declineData = {}) => {
 };
 
 const vendorAcceptOrder = async (orderId, vendorId) => {
-	const order = await Order.findById(orderId);
+	const order = await Order.findById(orderId).populate("vendor", "name");
 	if (!order) throw new Error("Order not found");
 
-	if (order.vendor.toString() !== vendorId) {
+	if ((order.vendor._id ?? order.vendor).toString() !== vendorId) {
 		throw new Error("You can only accept orders from your restaurant");
 	}
 
@@ -98,25 +99,155 @@ const vendorAcceptOrder = async (orderId, vendorId) => {
 		throw new Error("Order is no longer in confirming status");
 	}
 
-	// NOTE: We update the status cleanly then pass it back to the core service
-	// so that the core service can handle the side effect (broadcasting to Riders + socket).
-	const updatedOrder = await orderService.updateOrderStatus(
-		orderId,
-		ORDER_STATUS.PENDING,
-		ORDER_SUB_STATUS.LOOKING_FOR_RIDER
-	);
+	order.status = ORDER_STATUS.CONFIRMING;
+	order.subStatus = ORDER_SUB_STATUS.CONFIRMED;
+	await order.save();
+
+	// move vendor earning from hold → pending so it shows in wallet right away
+	try {
+		await ledgerService.pendVendorEarning(order.vendor, order._id);
+	} catch (ledgerErr) {
+		logger.error(`[WALLET] pendVendorEarning failed on accept: orderId=${orderId} err=${ledgerErr.message}`);
+	}
 
 	try {
 		await notificationService.notifyCustomerOrderAccepted(
-			updatedOrder.customer,
-			updatedOrder,
+			order.customer,
+			order,
+			order.vendor?.name || "Your vendor",
 		);
 		logger.info(`Order ${orderId} accepted by vendor ${vendorId}`);
 	} catch (error) {
 		logger.error(`Failed to send acceptance notification: ${error.message}`);
 	}
 
-	return updatedOrder;
+	// Notify customer that their order has been confirmed
+	if (global.io) {
+		global.io.to(order.customer.toString()).emit("orderUpdate", {
+			orderId: order._id,
+			status: order.status,
+			subStatus: order.subStatus,
+		});
+	}
+
+	return order;
+};
+
+const vendorStartPreparing = async (orderId, vendorId) => {
+	const order = await Order.findById(orderId).populate("vendor", "name location");
+	if (!order) throw new Error("Order not found");
+
+	if (order.vendor._id.toString() !== vendorId) {
+		throw new Error("You can only update orders from your restaurant");
+	}
+
+	const allowedStatuses = [ORDER_STATUS.CONFIRMING, ORDER_STATUS.PENDING];
+	if (!allowedStatuses.includes(order.status)) {
+		throw new Error("Order must be confirmed before starting preparation");
+	}
+
+	order.status = ORDER_STATUS.PACKAGING;
+	order.subStatus = ORDER_SUB_STATUS.PACKAGING;
+	await order.save();
+
+	// Notify customer — they see "Restaurant is preparing your order"
+	if (global.io) {
+		global.io.to(order.customer.toString()).emit("orderUpdate", {
+			orderId: order._id,
+			status: order.status,
+			subStatus: order.subStatus,
+		});
+	}
+
+	// Rider search is triggered in vendorMarkReady (when order is actually packed and ready)
+	logger.info(`Order ${orderId} — vendor ${vendorId} started preparing`);
+	return order;
+};
+
+const vendorMarkReady = async (orderId, vendorId) => {
+	const order = await Order.findById(orderId).populate("vendor", "name location zone");
+	if (!order) throw new Error("Order not found");
+
+	if (order.vendor._id.toString() !== vendorId) {
+		throw new Error("You can only update orders from your restaurant");
+	}
+
+	const allowedForReady = [ORDER_STATUS.PENDING, ORDER_STATUS.PACKAGING];
+	if (!allowedForReady.includes(order.status)) {
+		throw new Error("Order must be in preparation before marking as ready");
+	}
+
+	order.status = ORDER_STATUS.PACKAGING;
+	order.subStatus = ORDER_SUB_STATUS.PACKAGED;
+	await order.save();
+
+	// Notify customer — they see "Order is packed and ready"
+	if (global.io) {
+		global.io.to(order.customer.toString()).emit("orderUpdate", {
+			orderId: order._id,
+			status: order.status,
+			subStatus: order.subStatus,
+		});
+	}
+
+	try {
+		await notificationService.sendNotification({
+			userId: order.customer,
+			title: "Order Ready for Pickup!",
+			body: "Your order has been packed and is ready for pickup by a rider.",
+			type: "order_ready",
+			data: { orderId: order._id },
+		});
+		logger.info(`Order ${orderId} marked ready by vendor ${vendorId}`);
+	} catch (error) {
+		logger.error(`Failed to send ready notification: ${error.message}`);
+	}
+
+	logger.info(
+		`[vendorMarkReady] orderId=${orderId} | order.zone="${order.zone}" | vendorLocation=${JSON.stringify(order.vendor?.location?.coordinates)}`,
+	);
+
+	// Step 1: Always transition order to LOOKING_FOR_RIDER (guaranteed, no GPS dependency)
+	try {
+		await orderService.updateOrderStatus(
+			orderId,
+			ORDER_STATUS.RIDING,
+			ORDER_SUB_STATUS.LOOKING_FOR_RIDER,
+		);
+		logger.info(`[vendorMarkReady] Status set to RIDING/LOOKING_FOR_RIDER for order ${orderId}`);
+		if (global.io) {
+			global.io.to(order.customer.toString()).emit("orderUpdate", {
+				orderId: order._id,
+				status: ORDER_STATUS.RIDING,
+				subStatus: ORDER_SUB_STATUS.LOOKING_FOR_RIDER,
+			});
+		}
+	} catch (statusError) {
+		logger.error(`Failed to set LOOKING_FOR_RIDER status: ${statusError.message}`);
+	}
+
+	// Step 2: Start sequential dispatch — one rider at a time, 60s per rider (non-blocking)
+	try {
+		const vendorLocation = order.vendor?.location;
+		const { startDispatch } = require("./order.rider.service");
+
+		// Re-resolve zone at dispatch time — order.zone may be "Other"/null for orders created
+		// before the explicit vendor.zone field was added. Prefer vendor.zone, then address match.
+		let dispatchZone = order.zone;
+		if (!dispatchZone || dispatchZone === "Other") {
+			const { identifyZone } = require("../utils/delivery");
+			const vendorAddress = order.vendor?.location?.address || "";
+			dispatchZone = identifyZone(vendorAddress, order.vendor?.zone);
+			logger.info(`[vendorMarkReady] Zone re-resolved: "${dispatchZone}" (was "${order.zone}") for order ${orderId}`);
+		}
+
+		logger.info(`[vendorMarkReady] Triggering startDispatch for order ${orderId} zone="${dispatchZone}"`);
+		await startDispatch(order._id, vendorLocation, dispatchZone);
+	} catch (error) {
+		logger.error(`Dispatch start failed (non-blocking): ${error.message}`);
+	}
+
+	return order;
 };
 
 const getDeclineStats = async (vendorId, filters = {}) => {
@@ -158,17 +289,28 @@ const getDeclineStats = async (vendorId, filters = {}) => {
 const getVendorOrders = async (vendorProfileId, query = {}) => {
 	const { status } = query;
 
-	const filter = { vendor: vendorProfileId };
+	// Only show orders that have been paid — unpaid orders are invisible to vendor
+	const filter = { vendor: vendorProfileId, paymentStatus: "paid" };
 
 	if (status) {
-		if (status === "active") {
+		if (status === "confirming") {
+			// Only unaccepted new orders — vendor hasn't acted yet (subStatus still "confirming")
+			filter.status = ORDER_STATUS.CONFIRMING;
+			filter.subStatus = ORDER_SUB_STATUS.CONFIRMING;
+		} else if (status === "active") {
+			// Orders in progress updated within the last 24 h (excludes stale test data)
+			const staleThreshold = new Date(Date.now() - 24 * 60 * 60 * 1000);
+			filter.updatedAt = { $gte: staleThreshold };
 			filter.status = {
 				$in: [
 					ORDER_STATUS.CONFIRMING,
+					ORDER_STATUS.PACKAGING,
 					ORDER_STATUS.PENDING,
 					ORDER_STATUS.RIDING,
 				],
 			};
+			// Exclude unaccepted orders (status=confirming + subStatus=confirming = still in new tab)
+			filter.$nor = [{ status: ORDER_STATUS.CONFIRMING, subStatus: ORDER_SUB_STATUS.CONFIRMING }];
 		} else if (status === "completed") {
 			filter.status = ORDER_STATUS.DELIVERED;
 		} else if (status === "cancelled") {
@@ -179,12 +321,21 @@ const getVendorOrders = async (vendorProfileId, query = {}) => {
 	}
 
 	const orders = await Order.find(filter)
-		.populate("customer", "name address phone")
-		.populate("rider", "name phone")
-		.populate("items.item")
+		.populate("customer", "firstName lastName phone -_id")
+		.populate({ path: "rider", select: "user", populate: { path: "user", select: "name phone" } })
+		.populate({ path: "items.item", select: "name comboName img imageUrl" })
 		.sort({ createdAt: -1 });
 
-	return orders;
+	// Flatten rider.user.name → rider.name so frontend reads work unchanged
+	return orders.map((order) => {
+		const obj = order.toObject();
+		if (obj.rider?.user) {
+			obj.rider.name = obj.rider.user.name ?? null;
+			obj.rider.phone = obj.rider.user.phone ?? null;
+			delete obj.rider.user;
+		}
+		return obj;
+	});
 };
 
 const vendorGetCustomerOrderDetails = async (orderId, vendorProfileId) => {
@@ -192,66 +343,30 @@ const vendorGetCustomerOrderDetails = async (orderId, vendorProfileId) => {
 		_id: orderId,
 		vendor: vendorProfileId,
 	})
-		.populate("customer", "name")
+		.populate("customer", "firstName lastName phone -_id")
+		.populate({ path: "rider", select: "user", populate: { path: "user", select: "name phone" } })
 		.populate({
 			path: "items.item",
-			select: "category subCategory name basePrice price",
+			select: "category subCategory name comboName plateName basePrice price",
 		});
 
 	if (!order) throw new Error("Order not found");
 
-	const itemsList = order.items.map((orderItem) => {
-		let itemName = null;
-
-		if (orderItem.itemType === "FoodItem" && orderItem.item) {
-			for (const subCat of orderItem.item.subCategory || []) {
-				const found = subCat.items.find(
-					(i) => i._id.toString() === orderItem.subCategoryItemId?.toString(),
-				);
-				if (found) {
-					itemName = found.name;
-					break;
-				}
-			}
-		} else if (
-			orderItem.itemType === "Combo" ||
-			orderItem.itemType === "Plate"
-		) {
-			itemName = orderItem.item?.name || null;
-		}
-
-		const formattedItem = {
-			itemType: orderItem.itemType,
-			itemName,
-			quantity: orderItem.quantity,
-			price: orderItem.price,
-			totalPrice: orderItem.price * orderItem.quantity,
-			notes: orderItem.notes || null,
-		};
-
-		if (orderItem.itemType === "Combo") {
-			formattedItem.comboSelections = orderItem.comboSelections || [];
-		}
-
-		return formattedItem;
-	});
-
-	return {
-		customerName: order.customer.name,
-		totalAmount: order.totalPrice,
-		deliveryFee: order.deliveryFee,
-		grandTotal: order.totalPrice + order.deliveryFee,
-		status: order.status,
-		subStatus: order.subStatus,
-		deliveryAddress: order.deliveryAddress,
-		items: itemsList,
-	};
+	const obj = order.toObject();
+	if (obj.rider?.user) {
+		obj.rider.name = obj.rider.user.name ?? null;
+		obj.rider.phone = obj.rider.user.phone ?? null;
+		delete obj.rider.user;
+	}
+	return obj;
 };
 
 module.exports = {
 	getDeclineReasonText,
 	declineOrder,
 	vendorAcceptOrder,
+	vendorStartPreparing,
+	vendorMarkReady,
 	getDeclineStats,
 	getVendorOrders,
 	vendorGetCustomerOrderDetails,

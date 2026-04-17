@@ -13,6 +13,7 @@ const FOOD_ENUMS = {
 	},
 
 	SUB_CATEGORIES: {
+		SAUCES:"sauces",
 		MEAT: "meat",
 		FISH: "fish",
 		CHICKEN: "chicken",
@@ -59,15 +60,32 @@ const FOOD_ENUMS = {
 		PIE: "pie",
 		DONUT: "donut",
 		MUFFIN: "muffin",
+		SAUCE: "sauce",
+		SIDES: "sides",
 		OTHERS: "others",
 	},
 };
 
+const CATEGORY_SUBCATEGORY_MAP = {
+	protein:  ["protein", "meat", "fish", "chicken", "turkey", "goat", "eggs", "seafood", "sausage", "shrimp", "lobster", "crab", "calamari"],
+	soups:    ["soups", "soup", "stew", "sauce"],
+	rice:     ["rice", "jollof", "fried", "white", "coconut", "pasta", "sauce"],
+	swallow:  ["swallow", "sauce"],
+	sides:    ["sides", "plantain", "beans", "salad", "vegetables", "fruit", "sauce"],
+	pastries: ["pastries", "cake", "bread", "pie", "donut", "muffin"],
+	drinks:   ["drinks", "juice", "soda", "water", "wine", "beer", "smoothie"],
+	trads:    ["trads"],
+	others:   ["others"],
+};
+
 const getCategoryValues = () => Object.values(FOOD_ENUMS.CATEGORIES);
 const getSubCategoryValues = () => Object.values(FOOD_ENUMS.SUB_CATEGORIES);
+const getCategorySubCategoryMap = () => CATEGORY_SUBCATEGORY_MAP;
 
 module.exports = {
 	FOOD_ENUMS,
+	CATEGORY_SUBCATEGORY_MAP,
 	getCategoryValues,
 	getSubCategoryValues,
+	getCategorySubCategoryMap,
 };

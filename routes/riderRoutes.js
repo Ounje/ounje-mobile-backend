@@ -16,12 +16,15 @@ const {
 	completeRiderRegistration,
 	getRiderProfile,
 	getRiderWallet,
+	getRiderWalletTransactions,
 	getOperatingArea,
 	updateOperatingArea,
+	changeZone,
 	deactivateRiderAccount,
 	updatePushToken,
 	uploadProfilePicture,
 	updateNotificationPreferences,
+	updateRiderOnlineStatus,
 } = require("../controllers/riderController");
 
 // FIX 3: Endpoint corrected to '/location' since the server.js prefix is '/api/riders'
@@ -193,11 +196,27 @@ router.put(
 	updateOperatingArea,
 );
 
+// Change zone (once every 7 days)
+router.put(
+	"/profile/zone",
+	authMiddleware,
+	roleGuard(["rider"]),
+	changeZone,
+);
+
 router.delete(
 	"/profile/deactivate",
 	authMiddleware,
 	roleGuard(["rider"]),
 	deactivateRiderAccount,
+);
+
+// Toggle rider online / offline status (used by the app's Online/Offline pill)
+router.put(
+	"/status",
+	authMiddleware,
+	roleGuard(["rider"]),
+	updateRiderOnlineStatus,
 );
 
 // Get authenticated rider's own reviews
@@ -283,6 +302,36 @@ router.get(
  *                       type: string
  * */
 router.get("/wallet", authMiddleware, roleGuard(["rider"]), getRiderWallet);
+
+/**
+ * @swagger
+ * /api/riders/wallet/transactions:
+ *   get:
+ *     summary: Get paginated rider transaction history
+ *     tags: [Riders]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *           default: 20
+ *       - in: query
+ *         name: offset
+ *         schema:
+ *           type: integer
+ *           default: 0
+ *     responses:
+ *       200:
+ *         description: Transaction history
+ */
+router.get(
+	"/wallet/transactions",
+	authMiddleware,
+	roleGuard(["rider"]),
+	getRiderWalletTransactions,
+);
 
 // Save device push token for notifications
 router.post(

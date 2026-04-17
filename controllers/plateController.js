@@ -258,6 +258,57 @@ const getPopularPlates = async (req, res) => {
 	}
 };
 
+/**
+ * GET /api/plates/popular
+ * Returns top plates ranked by popularity score: likes + (ordersCount × 2)
+ */
+const getPopularPlates = async (req, res) => {
+    try {
+        const limit = Math.min(parseInt(req.query.limit) || 10, 20);
+
+        const plates = await Plate.aggregate([
+            {
+                $addFields: {
+                    popularityScore: {
+                        $add: [
+                            { $ifNull: ["$likes", 0] },
+                            { $multiply: [{ $ifNull: ["$ordersCount", 0] }, 2] },
+                        ],
+                    },
+                },
+            },
+            { $sort: { popularityScore: -1, createdAt: -1 } },
+            { $limit: limit },
+            {
+                $lookup: {
+                    from: "vendorprofiles",
+                    localField: "vendor",
+                    foreignField: "_id",
+                    as: "vendorInfo",
+                },
+            },
+            { $unwind: { path: "$vendorInfo", preserveNullAndEmptyArrays: true } },
+            {
+                $project: {
+                    name: 1, description: 1, price: 1, img: 1,
+                    likes: 1, ordersCount: 1, commentsCount: 1, popularityScore: 1,
+                    timeToMake: 1, rating: 1, averageRating: 1, createdAt: 1,
+                    vendor: {
+                        _id: "$vendorInfo._id",
+                        name: "$vendorInfo.name",
+                        isOnline: { $eq: [{ $arrayElemAt: ["$vendorInfo.storeDetails.status", 0] }, "active"] },
+                        image: { $ifNull: ["$vendorInfo.logoUrl", "$vendorInfo.profileImage", "$vendorInfo.bannerUrl", null] },
+                    },
+                },
+            },
+        ]);
+
+        res.status(200).json({ success: true, data: plates });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+};
+
 const getSpecificPlate = async (req, res) => {
 	try {
 		const { plateId } = req.params;

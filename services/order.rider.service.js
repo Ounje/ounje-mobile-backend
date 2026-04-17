@@ -508,6 +508,7 @@ const getRiderOrders = async (riderId, statusFilter) => {
 	} else if (statusFilter === "active") {
 		// Orders currently being delivered (assigned, in transit, or picked up)
 		filter.status = ORDER_STATUS.RIDING;
+		filter.subStatus = { $in: [ORDER_SUB_STATUS.RIDER_ASSIGNED, ORDER_SUB_STATUS.PICKED_UP, ORDER_SUB_STATUS.ON_THE_WAY] };
 		filter.subStatus = {
 			$in: [
 				ORDER_SUB_STATUS.RIDER_ASSIGNED,

@@ -53,6 +53,9 @@ const orderSchema = new mongoose.Schema(
 						],
 						default: undefined,
 					},
+					name: {
+						type: String, // snapshot of item display name at time of order
+					},
 					quantity: {
 						type: Number,
 						default: 1,
@@ -76,6 +79,12 @@ const orderSchema = new mongoose.Schema(
 			type: Number,
 			required: true,
 		},
+		serviceFee: {
+			type: Number,
+			default: 0
+		},
+		foodTotal: { type: Number, default: 0 },     // gross food subtotal (sum of items)
+		vendorEarning: { type: Number, default: 0 }, // net to vendor after platform commission
 		zone: {
 			type: String,
 		}, // e.g., "Ikeja"
@@ -115,6 +124,14 @@ const orderSchema = new mongoose.Schema(
 			enum: ["unpaid", "paid", "refunded"],
 			default: "unpaid",
 		},
+
+		paymentMethod: {
+			type: String,
+			enum: ["paystack", "wallet"],
+		},
+
+		isPreorder:   { type: Boolean, default: false },
+		scheduledFor: { type: Date }, // null = immediate order; set = scheduled delivery time
 
 		// Vendor decline fields (happens during confirmation stage)
 		declinedAt: Date,

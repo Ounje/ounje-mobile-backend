@@ -1,62 +1,113 @@
 const { VendorProfile, Customer } = require("../models");
 const { deleteImage } = require("../config/cloudinary");
 const payoutService = require("./payout.service");
+const { parseTime: _parseTime } = require("../utils/time");
+const {DAYS_OF_WEEK} = require("../utils/constants");
+
 
 class VendorService {
 	/**
 	 * Get nearby vendors based on location
 	 */
 	async getNearbyVendors({ lat, lng, userId }) {
-		try {
-			if ((!lat || !lng) && userId) {
-				const customer = await Customer.findOne({ user: userId });
-				if (customer?.savedAddresses?.[0]?.coordinates) {
-					lng = customer.savedAddresses[0].coordinates[0];
-					lat = customer.savedAddresses[0].coordinates[1];
-				}
+		if ((!lat || !lng) && userId) {
+			const customer = await Customer.findOne({ user: userId });
+			if (customer?.savedAddresses?.[0]?.coordinates) {
+				lng = customer.savedAddresses[0].coordinates[0];
+				lat = customer.savedAddresses[0].coordinates[1];
 			}
+		}
 
-			if (lat && lng) {
-				const vendors = await VendorProfile.find({
-					isActive: true,
-					location: {
-						$near: {
-							$geometry: {
-								type: "Point",
-								coordinates: [parseFloat(lng), parseFloat(lat)],
-							},
-							$maxDistance: 10000,
-						},
+		// Show all active vendor accounts — online AND offline.
+		// The frontend displays an Open/Closed badge based on storeDetails[0].status.
+		const baseFilter = {
+			isActive: true,
+			storeDetails: { $exists: true, $not: { $size: 0 } },
+		};
+
+		if (lat && lng) {
+			const coordinates = [parseFloat(lng), parseFloat(lat)];
+
+			// Fetch vendors within 10km sorted by distance (closest first)
+			const nearbyVendors = await VendorProfile.aggregate([
+				{
+					$geoNear: {
+						near: { type: "Point", coordinates },
+						distanceField: "distanceMeters",
+						maxDistance: 10000,
+						query: baseFilter,
+						spherical: true,
 					},
-				});
+				},
+			]);
 
-				if (vendors.length > 0) {
-					return {
-						status: "success",
-						source: "location-based",
-						results: vendors.length,
-						data: vendors,
-					};
-				}
-			}
+			// Fetch vendors beyond 10km sorted by distance
+			const furtherVendors = await VendorProfile.aggregate([
+				{
+					$geoNear: {
+						near: { type: "Point", coordinates },
+						distanceField: "distanceMeters",
+						minDistance: 10001,
+						query: baseFilter,
+						spherical: true,
+					},
+				},
+			]);
 
-			const allVendors = await VendorProfile.find({
-				isActive: true,
-			}).limit(20);
+			const data = [...nearbyVendors, ...furtherVendors];
 
 			return {
 				status: "success",
-				source: "default-fallback",
-				results: allVendors.length,
-				data: allVendors,
+				source: "location-based",
+				results: data.length,
+				nearby: nearbyVendors.length,
+				further: furtherVendors.length,
+				data,
 			};
-		} catch (error) {
-			throw error;
 		}
+
+		const allVendors = await VendorProfile.find(baseFilter).limit(20);
+
+		return {
+			status: "success",
+			source: "default-fallback",
+			results: allVendors.length,
+			data: allVendors,
+		};
 	}
 
-	async getPopularVendors() {
-		return await VendorProfile.find().sort({ totalOrders: -1 });
+	async getPopularVendors(zone) {
+		const filter = {
+			isActive: true,
+			storeDetails: { $exists: true, $not: { $size: 0 } },
+		};
+		if (zone) {
+			filter["location.address"] = { $regex: zone, $options: "i" };
+		}
+		// online vendors first, then highest ranking score
+		return VendorProfile.find(filter)
+			.sort({ "storeDetails.0.status": -1, rankingScore: -1, averageRating: -1 })
+			.limit(20);
+	}
+
+	// Recalculates and saves a vendor's ranking score.
+	// Call this after a new rating is saved or an order is delivered.
+	// Formula: (totalOrders * 0.5) + (averageRating * 10 * 0.5)
+	// averageRating is scaled ×10 so it sits in the same ballpark as order counts.
+	async updateVendorRankingScore(vendorId) {
+		try {
+			const Order = require("../models/Order");
+			const vendor = await VendorProfile.findById(vendorId).select("averageRating rankingScore");
+			if (!vendor) return;
+
+			const totalOrders = await Order.countDocuments({ vendor: vendorId, status: "delivered" });
+			const score = (totalOrders * 0.5) + ((vendor.averageRating || 0) * 10 * 0.5);
+
+			await VendorProfile.findByIdAndUpdate(vendorId, { rankingScore: score });
+		} catch (err) {
+			// non-blocking — ranking update shouldn't break anything
+			require("../utils/logger").error(`updateVendorRankingScore failed: ${err.message}`);
+		}
 	}
 
 	/**
@@ -65,27 +116,51 @@ class VendorService {
 	 * @param {string} userId - The User ID (from req.user.id)
 	 */
 	async getVendorProfile(userId) {
-		const vendor = await VendorProfile.findOne({ owner: userId }).select(
-			"+bankDetails",
-		); // Include bank details for vendor's own view
+		const vendor = await VendorProfile.findOne({ owner: userId })
+			.select(
+				"+bankDetails.accountNumber +bankDetails.bankCode +bankDetails.accountName",
+			)
+			.populate("owner", "phone email"); // Include phone/email from User
 
 		if (!vendor) throw new Error("Vendor not found");
-		return vendor;
+
+		// Compute order stats (non-blocking — return zeros on error)
+		let totalOrders = 0;
+		let ordersToday = 0;
+		try {
+			const Order = require("../models/Order");
+			const todayStart = new Date();
+			todayStart.setHours(0, 0, 0, 0);
+			const todayEnd = new Date();
+			todayEnd.setHours(23, 59, 59, 999);
+			[totalOrders, ordersToday] = await Promise.all([
+				Order.countDocuments({ vendor: vendor._id, status: "delivered" }),
+				Order.countDocuments({
+					vendor: vendor._id,
+					createdAt: { $gte: todayStart, $lte: todayEnd },
+					status: {
+						$in: ["delivered", "confirming", "packaging", "riding"],
+					},
+				}),
+			]);
+		} catch {
+			/* non-fatal */
+		}
+
+		const data = vendor.toJSON();
+		return { ...data, img: data.profileImage ?? null, totalOrders, ordersToday };
 	}
 
 	/**
 	 * Get vendor details with products (for customers viewing vendor)
 	 * @param {string} vendorId - The VendorProfile document ID
 	 */
-	async getVendorWithProducts(vendorId) {
-		// Exclude sensitive fields: balance, earnings, storeDetails
-		const vendor = await VendorProfile.findById(vendorId).select(
-			"-balance -earnings -storeDetails",
-		);
+	async getVendorWithProducts(vendorId, customerLocation) {
+		const { getEstimatedDeliveryTime } = require("../utils/delivery");
+
+		const vendor = await VendorProfile.findById(vendorId);
 		if (!vendor) throw new Error("Vendor not found");
 
-		// Fetch food items and combos for this vendor
-		// FoodItem and Combo reference the vendor by the User ID (owner field)
 		const FoodItem = require("../models").FoodItem;
 		const Combo = require("../models").Combo;
 
@@ -98,11 +173,36 @@ class VendorService {
 			),
 		]);
 
-		// Return vendor profile with products
+		// Calculate ETA if customer location provided
+		let estimatedDeliveryTime = null;
+		if (customerLocation && vendor.location?.address) {
+			estimatedDeliveryTime = await getEstimatedDeliveryTime(
+				vendor.location.address,
+				customerLocation,
+			);
+		}
+
+		const storeDetail = vendor.storeDetails?.[0];
+		const isOnline = storeDetail?.status === "active";
+		const servicesOffered = storeDetail?.servicesOffered ?? null;
+		const timePeriod = storeDetail?.timePeriod ?? [];
+		const preorderPeriods = storeDetail?.preorderPeriods ?? [];
+
+		const vendorJson = vendor.toJSON();
+		delete vendorJson.storeDetails;
+		delete vendorJson.balance;
+		delete vendorJson.earnings;
+		delete vendorJson.bankDetails;
+
 		return {
-			...vendor.toJSON(),
+			...vendorJson,
+			isOnline,
+			servicesOffered,
+			timePeriod,
+			preorderPeriods,
 			foodItems,
 			combos,
+			estimatedDeliveryTime,
 		};
 	}
 
@@ -121,7 +221,9 @@ class VendorService {
 				},
 			},
 			{ new: true },
-		).select("+bankDetails");
+		).select(
+			"+bankDetails.accountNumber +bankDetails.bankCode +bankDetails.accountName",
+		);
 
 		if (!vendor) throw new Error("Vendor not found");
 
@@ -304,16 +406,12 @@ class VendorService {
 		try {
 			let periods = [];
 
-			// If it's already an array, use it
 			if (Array.isArray(data.preorderPeriods)) {
 				periods = data.preorderPeriods;
-			}
-			// If it's a JSON string, parse it
-			else if (typeof data.preorderPeriods === "string") {
+			} else if (typeof data.preorderPeriods === "string") {
 				periods = JSON.parse(data.preorderPeriods);
 			}
 
-			// Validate each period has required fields
 			if (Array.isArray(periods)) {
 				periods.forEach((period, index) => {
 					if (
@@ -354,60 +452,38 @@ class VendorService {
 		try {
 			let periods = [];
 
-			// If it's already an array, use it
 			if (Array.isArray(data.timePeriod)) {
 				periods = data.timePeriod;
-			}
-			// If it's a JSON string, parse it
-			else if (typeof data.timePeriod === "string") {
+			} else if (typeof data.timePeriod === "string") {
 				const parsed = JSON.parse(data.timePeriod);
-				// If parsed result is an array, use it
 				if (Array.isArray(parsed)) {
 					periods = parsed;
-				}
-				// If it's an object with array properties, try to extract the array
-				else if (typeof parsed === "object" && parsed !== null) {
-					// Check if it has a periods or items property that's an array
+				} else if (typeof parsed === "object" && parsed !== null) {
 					if (Array.isArray(parsed.periods)) {
 						periods = parsed.periods;
 					} else if (Array.isArray(parsed.items)) {
 						periods = parsed.items;
-					}
-					// Otherwise wrap single object in array
-					else {
+					} else {
 						periods = [parsed];
 					}
 				}
-			}
-			// If it's a single object, wrap it in an array
-			else if (
+			} else if (
 				typeof data.timePeriod === "object" &&
 				!Array.isArray(data.timePeriod)
 			) {
 				periods = [data.timePeriod];
 			}
 
-			// Validate each period has required fields
 			if (Array.isArray(periods)) {
-				const validDays = [
-					"sunday",
-					"monday",
-					"tuesday",
-					"wednesday",
-					"thursday",
-					"friday",
-					"saturday",
-				];
-
 				periods.forEach((period, index) => {
 					if (!period.day || !period.openingHour || !period.closingHour) {
 						throw new Error(
 							`Time period at index ${index} is missing required fields (day, openingHour, closingHour)`,
 						);
 					}
-					if (!validDays.includes(period.day.toLowerCase())) {
+					if (!DAYS_OF_WEEK.includes(period.day.toLowerCase())) {
 						throw new Error(
-							`Time period at index ${index} has invalid day value. Must be one of: ${validDays.join(", ")}`,
+							`Time period at index ${index} has invalid day value. Must be one of: ${DAYS_OF_WEEK.join(", ")}`,
 						);
 					}
 				});
@@ -461,6 +537,7 @@ class VendorService {
 			success: true,
 			message: "Profile image updated successfully",
 			imageUrl: file.path,
+			img: file.path,
 		};
 	}
 
@@ -504,6 +581,301 @@ class VendorService {
 			console.error("Error deactivating vendor account:", error);
 			throw error;
 		}
+	}
+
+	/**
+	 * Update the vendor's operating periods.
+	 *
+	 * Behavior is determined by the vendor's servicesOffered:
+	 *   - "preOrderMeals"              → updates preorderPeriods
+	 *   - "InstantMeals" / "hybridMeals" → updates timePeriod
+	 *
+	 * Sending an empty array clears the respective schedule.
+	 *
+	 * timePeriod entry:      { day, openingHour, closingHour }
+	 * preorderPeriod entry:  { orderingTime, preparationTime, period }
+	 *
+	 * @param {string} userId
+	 * @param {Array}  periods  — array of period objects (type inferred from servicesOffered)
+	 */
+	async updateOperatingPeriods(userId, periods) {
+		if (!Array.isArray(periods)) {
+			throw new Error("periods must be an array");
+		}
+
+		const vendor = await VendorProfile.findOne({ owner: userId });
+		if (!vendor) throw new Error("Vendor not found");
+
+		if (!vendor.storeDetails || vendor.storeDetails.length === 0) {
+			throw new Error("Complete your store registration before updating periods");
+		}
+
+		const servicesOffered = vendor.storeDetails[0].servicesOffered;
+
+		// ── preOrderMeals → update preorderPeriods ────────────────────────────
+		if (servicesOffered === "preOrderMeals") {
+			if (periods.length > 0) {
+				const VALID_MEAL_PERIODS = ["breakfast", "lunch", "dinner"];
+
+				periods.forEach((entry, index) => {
+					if (!entry.orderingTime) {
+						throw new Error(
+							`preorderPeriods[${index}]: orderingTime is required`,
+						);
+					}
+					if (!entry.preparationTime) {
+						throw new Error(
+							`preorderPeriods[${index}]: preparationTime is required`,
+						);
+					}
+					if (!entry.period) {
+						throw new Error(
+							`preorderPeriods[${index}]: period is required`,
+						);
+					}
+					if (!VALID_MEAL_PERIODS.includes(entry.period)) {
+						throw new Error(
+							`preorderPeriods[${index}]: invalid period "${entry.period}". Must be one of: ${VALID_MEAL_PERIODS.join(", ")}`,
+						);
+					}
+				});
+			}
+
+			vendor.storeDetails[0].preorderPeriods = periods.map((p) => ({
+				orderingTime: p.orderingTime,
+				preparationTime: p.preparationTime,
+				period: p.period,
+			}));
+
+			vendor.markModified("storeDetails");
+			await vendor.save();
+
+			return {
+				success: true,
+				message: "Preorder periods updated",
+				servicesOffered,
+				preorderPeriods: vendor.storeDetails[0].preorderPeriods,
+			};
+		}
+
+		// InstantMeals / hybridMeals → update timePeriod
+		if (
+			servicesOffered === "InstantMeals" ||
+			servicesOffered === "hybridMeals"
+		) {
+			if (periods.length > 0) {
+				periods.forEach((entry, index) => {
+					if (!DAYS_OF_WEEK.includes(entry.day?.toLowerCase())) {
+						throw new Error(
+							`timePeriod[${index}]: invalid day "${entry.day}". Must be one of: ${DAYS_OF_WEEK.join(", ")}`,
+						);
+					}
+					if (_parseTime(entry.openingHour) === null) {
+						throw new Error(
+							`timePeriod[${index}]: invalid openingHour "${entry.openingHour}". Use "HH:MM" or "H:MM AM/PM"`,
+						);
+					}
+					if (_parseTime(entry.closingHour) === null) {
+						throw new Error(
+							`timePeriod[${index}]: invalid closingHour "${entry.closingHour}". Use "HH:MM" or "H:MM AM/PM"`,
+						);
+					}
+				});
+			}
+
+			// Normalize day names to lowercase
+			vendor.storeDetails[0].timePeriod = periods.map((t) => ({
+				day: t.day.toLowerCase(),
+				openingHour: t.openingHour,
+				closingHour: t.closingHour,
+			}));
+
+			vendor.markModified("storeDetails");
+			await vendor.save();
+
+			return {
+				success: true,
+				message: "Operating schedule updated",
+				servicesOffered,
+				timePeriod: vendor.storeDetails[0].timePeriod,
+			};
+		}
+
+		throw new Error(
+			`Unknown servicesOffered type "${servicesOffered}". Cannot update periods.`,
+		);
+	}
+
+	/**
+	 * Append a single period entry to the existing schedule.
+	 * Validates the entry using the same rules as updateOperatingPeriods.
+	 *
+	 * @param {string} userId
+	 * @param {object} entry  — single period object
+	 */
+	async addOperatingPeriod(userId, entry) {
+		const vendor = await VendorProfile.findOne({ owner: userId });
+		if (!vendor) throw new Error("Vendor not found");
+
+		if (!vendor.storeDetails || vendor.storeDetails.length === 0) {
+			throw new Error("Complete your store registration before adding periods");
+		}
+
+		const servicesOffered = vendor.storeDetails[0].servicesOffered;
+
+		// ── preOrderMeals ─────────────────────────────────────────────────────
+		if (servicesOffered === "preOrderMeals") {
+			const VALID_MEAL_PERIODS = ["breakfast", "lunch", "dinner"];
+
+			if (!entry.orderingTime) throw new Error("orderingTime is required");
+			if (!entry.preparationTime) throw new Error("preparationTime is required");
+			if (!entry.period) throw new Error("period is required");
+			if (!VALID_MEAL_PERIODS.includes(entry.period)) {
+				throw new Error(
+					`Invalid period "${entry.period}". Must be one of: ${VALID_MEAL_PERIODS.join(", ")}`,
+				);
+			}
+
+			// Prevent duplicate meal periods (e.g. two "breakfast" entries)
+			const existing = vendor.storeDetails[0].preorderPeriods || [];
+			if (existing.some((p) => p.period === entry.period)) {
+				throw new Error(
+					`A "${entry.period}" period already exists. Update or delete it first.`,
+				);
+			}
+
+			vendor.storeDetails[0].preorderPeriods = [
+				...existing,
+				{
+					orderingTime: entry.orderingTime,
+					preparationTime: entry.preparationTime,
+					period: entry.period,
+				},
+			];
+
+			vendor.markModified("storeDetails");
+			await vendor.save();
+
+			return {
+				success: true,
+				message: "Preorder period added",
+				servicesOffered,
+				preorderPeriods: vendor.storeDetails[0].preorderPeriods,
+			};
+		}
+
+		// ── InstantMeals / hybridMeals ────────────────────────────────────────
+		if (
+			servicesOffered === "InstantMeals" ||
+			servicesOffered === "hybridMeals"
+		) {
+			if (!DAYS_OF_WEEK.includes(entry.day?.toLowerCase())) {
+				throw new Error(
+					`Invalid day "${entry.day}". Must be one of: ${DAYS_OF_WEEK.join(", ")}`,
+				);
+			}
+			if (_parseTime(entry.openingHour) === null) {
+				throw new Error(
+					`Invalid openingHour "${entry.openingHour}". Use "HH:MM" or "H:MM AM/PM"`,
+				);
+			}
+			if (_parseTime(entry.closingHour) === null) {
+				throw new Error(
+					`Invalid closingHour "${entry.closingHour}". Use "HH:MM" or "H:MM AM/PM"`,
+				);
+			}
+
+			// Prevent duplicate day entries
+			const existing = vendor.storeDetails[0].timePeriod || [];
+			if (existing.some((t) => t.day === entry.day.toLowerCase())) {
+				throw new Error(
+					`A period for "${entry.day}" already exists. Update or delete it first.`,
+				);
+			}
+
+			vendor.storeDetails[0].timePeriod = [
+				...existing,
+				{
+					day: entry.day.toLowerCase(),
+					openingHour: entry.openingHour,
+					closingHour: entry.closingHour,
+				},
+			];
+
+			vendor.markModified("storeDetails");
+			await vendor.save();
+
+			return {
+				success: true,
+				message: "Operating period added",
+				servicesOffered,
+				timePeriod: vendor.storeDetails[0].timePeriod,
+			};
+		}
+
+		throw new Error(
+			`Unknown servicesOffered type "${servicesOffered}". Cannot add period.`,
+		);
+	}
+
+	/**
+	 * Remove a single period entry by its array index.
+	 *
+	 * @param {string} userId
+	 * @param {number} index  — zero-based index into the periods array
+	 */
+	async deleteOperatingPeriod(userId, index) {
+		const vendor = await VendorProfile.findOne({ owner: userId });
+		if (!vendor) throw new Error("Vendor not found");
+
+		if (!vendor.storeDetails || vendor.storeDetails.length === 0) {
+			throw new Error("Complete your store registration before managing periods");
+		}
+
+		const servicesOffered = vendor.storeDetails[0].servicesOffered;
+
+		if (servicesOffered === "preOrderMeals") {
+			const periods = vendor.storeDetails[0].preorderPeriods || [];
+			if (index >= periods.length) {
+				throw new Error(`Index ${index} is out of range. Only ${periods.length} period(s) exist.`);
+			}
+			periods.splice(index, 1);
+			vendor.storeDetails[0].preorderPeriods = periods;
+			vendor.markModified("storeDetails");
+			await vendor.save();
+
+			return {
+				success: true,
+				message: "Preorder period removed",
+				servicesOffered,
+				preorderPeriods: vendor.storeDetails[0].preorderPeriods,
+			};
+		}
+
+		if (
+			servicesOffered === "InstantMeals" ||
+			servicesOffered === "hybridMeals"
+		) {
+			const periods = vendor.storeDetails[0].timePeriod || [];
+			if (index >= periods.length) {
+				throw new Error(`Index ${index} is out of range. Only ${periods.length} period(s) exist.`);
+			}
+			periods.splice(index, 1);
+			vendor.storeDetails[0].timePeriod = periods;
+			vendor.markModified("storeDetails");
+			await vendor.save();
+
+			return {
+				success: true,
+				message: "Operating period removed",
+				servicesOffered,
+				timePeriod: vendor.storeDetails[0].timePeriod,
+			};
+		}
+
+		throw new Error(
+			`Unknown servicesOffered type "${servicesOffered}". Cannot delete period.`,
+		);
 	}
 }
 

@@ -5,25 +5,74 @@ const RiderProfile = require("../models/RiderProfile");
 
 /**
  * Get Rider Wallet/Dashboard
+ * GET /api/riders/wallet
  */
 const getRiderWallet = async (req, res) => {
 	try {
-		const riderId = req.user.id;
-		const balance = await ledgerService.getAccountBalance(riderId, "RIDER");
+		const riderProfile = await RiderProfile.findOne({ user: req.user.id }).select("_id");
+		if (!riderProfile) {
+			return res.status(404).json({ success: false, message: "Rider profile not found" });
+		}
+		const riderId = riderProfile._id;
+
+		const [balance, todayEarnings, { transactions }] = await Promise.all([
+			ledgerService.getAccountBalance(riderId, "RIDER"),
+			ledgerService.getDailyEarnings(riderId, "RIDER"),
+			ledgerService.getTransactionHistory(riderId, "RIDER", 20, 0),
+		]);
 
 		res.status(200).json({
+			success: true,
 			wallet: {
 				availableBalance: balance.availableBalance,
 				pendingBalance: balance.pendingBalance,
+				holdBalance: balance.holdBalance,
 				totalBalance: balance.totalBalance,
+				todayEarnings,
 				currency: "NGN",
 			},
+			transactions,
 		});
 	} catch (err) {
 		logger.error(`Get Rider Wallet Error: ${err.message}`);
 		res.status(500).json({
 			success: false,
 			message: "Error fetching wallet info",
+			error: err.message,
+		});
+	}
+};
+
+/**
+ * Get Rider Transaction History (paginated)
+ * GET /api/riders/wallet/transactions?limit=20&offset=0
+ */
+const getRiderWalletTransactions = async (req, res) => {
+	try {
+		const riderProfile = await RiderProfile.findOne({ user: req.user.id }).select("_id");
+		if (!riderProfile) {
+			return res.status(404).json({ success: false, message: "Rider profile not found" });
+		}
+		const riderId = riderProfile._id;
+
+		const limit = Math.min(parseInt(req.query.limit) || 20, 100);
+		const offset = parseInt(req.query.offset) || 0;
+
+		const result = await ledgerService.getTransactionHistory(riderId, "RIDER", limit, offset);
+
+		res.status(200).json({
+			success: true,
+			transactions: result.transactions,
+			total: result.total,
+			hasMore: result.hasMore,
+			limit,
+			offset,
+		});
+	} catch (err) {
+		logger.error(`Get Rider Wallet Transactions Error: ${err.message}`);
+		res.status(500).json({
+			success: false,
+			message: "Error fetching transaction history",
 			error: err.message,
 		});
 	}
@@ -191,6 +240,23 @@ const deactivateRiderAccount = async (req, res) => {
 };
 
 /**
+ * Change Rider Zone (weekly restriction)
+ * PUT /api/riders/profile/zone
+ * Body: { zones: ["Ogba"] }
+ */
+const changeZone = async (req, res) => {
+	try {
+		const riderId = req.user.id;
+		const { zones } = req.body;
+		const result = await riderService.changeZone(riderId, zones);
+		res.status(200).json(result);
+	} catch (err) {
+		logger.error(`Change Zone Error: ${err.message}`);
+		res.status(400).json({ success: false, message: err.message });
+	}
+};
+
+/**
  * Update Notification Preferences
  * PUT /api/riders/notification-preferences
  * Body: { newRequests?: boolean, earnings?: boolean, promotions?: boolean }
@@ -262,6 +328,25 @@ const updatePushToken = async (req, res) => {
 	}
 };
 
+/**
+ * Update rider online/offline status
+ * PUT /api/riders/status
+ * Body: { status: "available" | "offline" }
+ */
+const updateRiderOnlineStatus = async (req, res) => {
+	try {
+		const { status } = req.body;
+		if (!["available", "offline"].includes(status)) {
+			return res.status(400).json({ success: false, message: "Status must be 'available' or 'offline'" });
+		}
+		const result = await riderService.updateRiderStatus(req.user.id, status);
+		res.json(result);
+	} catch (err) {
+		logger.error(`Update rider status error: ${err.message}`);
+		res.status(500).json({ success: false, message: err.message });
+	}
+};
+
 module.exports = {
 	completeRiderRegistration,
 	registerRider,
@@ -269,10 +354,13 @@ module.exports = {
 	riderLeaderBoard,
 	getRiderProfile,
 	getRiderWallet,
+	getRiderWalletTransactions,
 	updateOperatingArea,
 	getOperatingArea,
+	changeZone,
 	deactivateRiderAccount,
 	updatePushToken,
 	uploadProfilePicture,
 	updateNotificationPreferences,
+	updateRiderOnlineStatus,
 };

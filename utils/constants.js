@@ -1,5 +1,6 @@
 const ORDER_STATUS = {
 	CONFIRMING: "confirming",
+	PACKAGING: "packaging",
 	PENDING: "pending",
 	RIDING: "riding",
 	DELIVERED: "delivered",
@@ -9,9 +10,14 @@ const ORDER_STATUS = {
 
 const ORDER_SUB_STATUS = {
 	CONFIRMING: "confirming",
+	CONFIRMED: "confirmed",
+	PACKAGING: "packaging",
+	PACKAGED: "packaged",
 	LOOKING_FOR_RIDER: "looking_for_rider",
+	READY_FOR_PICKUP: "ready_for_pickup",
 	RIDER_ASSIGNED: "rider_assigned",
 	PICKED_UP: "picked_up",
+	ON_THE_WAY: "on_the_way",
 	DELIVERED: "delivered",
 	CANCELLED: "cancelled",
 	DECLINED: "declined",
@@ -36,21 +42,15 @@ const CANCELLATION_REASONS = {
 	CUSTOMER_DELIVERY_ADDRESS_ISSUE: "customer_delivery_address_issue",
 	CUSTOMER_PAYMENT_ISSUE: "customer_payment_issue",
 	CUSTOMER_OTHER: "customer_other",
-
-	// Vendor reasons (after accepting)
 	VENDOR_OUT_OF_STOCK: "vendor_out_of_stock",
 	VENDOR_TOO_BUSY: "vendor_too_busy",
 	VENDOR_CANNOT_FULFILL: "vendor_cannot_fulfill",
 	VENDOR_TECHNICAL_ISSUE: "vendor_technical_issue",
 	VENDOR_OTHER: "vendor_other",
-
-	// Rider reasons
 	RIDER_CANNOT_REACH_VENDOR: "rider_cannot_reach_vendor",
 	RIDER_CANNOT_REACH_CUSTOMER: "rider_cannot_reach_customer",
 	RIDER_VEHICLE_ISSUE: "rider_vehicle_issue",
 	RIDER_OTHER: "rider_other",
-
-	// System reasons
 	SYSTEM_NO_RIDER_AVAILABLE: "system_no_rider_available",
 	SYSTEM_PAYMENT_FAILED: "system_payment_failed",
 	SYSTEM_TIMEOUT: "system_timeout",
@@ -76,7 +76,6 @@ const DECLINE_REASON_LABELS = {
 };
 
 const CANCELLATION_REASON_LABELS = {
-	// Customer
 	customer_changed_mind: "Changed my mind",
 	customer_ordered_by_mistake: "Ordered by mistake",
 	customer_long_wait_time: "Wait time is too long",
@@ -84,25 +83,48 @@ const CANCELLATION_REASON_LABELS = {
 	customer_delivery_address_issue: "Issue with delivery address",
 	customer_payment_issue: "Payment issue",
 	customer_other: "Other (please specify)",
-
 	vendor_out_of_stock: "Items out of stock",
 	vendor_too_busy: "Too busy to fulfill",
 	vendor_cannot_fulfill: "Cannot fulfill order",
 	vendor_technical_issue: "Technical issue",
 	vendor_other: "Other (please specify)",
-
 	rider_cannot_reach_vendor: "Cannot reach restaurant",
 	rider_cannot_reach_customer: "Cannot reach customer",
 	rider_vehicle_issue: "Vehicle issue",
 	rider_other: "Other (please specify)",
-
 	system_no_rider_available: "No rider available",
 	system_payment_failed: "Payment failed",
 	system_timeout: "Order timed out",
 	system_other: "System issue",
 };
 
-// Helper functions
+const AVAILABLE_ZONES = [
+	"Ikeja",
+	"Lekki",
+	"Victoria Island",
+	"Surulere",
+	"Yaba",
+	"Ojota",
+	"Maryland",
+	"Gbagada",
+	"Berger",
+	"Ikorodu",
+	"Ajah",
+	"Sangotedo",
+	"Ogba",
+	"Agege",
+];
+
+const DAYS_OF_WEEK = [
+    "sunday",
+    "monday",
+    "tuesday",
+    "wednesday",
+    "thursday",
+    "friday",
+    "saturday",
+];
+
 const getAllDeclineReasons = () => Object.values(DECLINE_REASONS);
 const getAllCancellationReasons = () => Object.values(CANCELLATION_REASONS);
 
@@ -113,13 +135,6 @@ const getCancellationReasonsByCategory = (category) => {
 	);
 };
 
-const AVAILABLE_ZONES = [
-	{ name: "Ikeja", description: "Lagos State capital area" },
-	{ name: "Surulere", description: "Residential & commercial hub" },
-	{ name: "Yaba", description: "Tech & university district" },
-	{ name: "Berger", description: "Major transport interchange" },
-];
-
 module.exports = {
 	ORDER_STATUS,
 	ORDER_SUB_STATUS,
@@ -128,8 +143,9 @@ module.exports = {
 	CANCELLATION_REASONS,
 	CANCELLATION_CATEGORIES,
 	CANCELLATION_REASON_LABELS,
+	AVAILABLE_ZONES,
+	DAYS_OF_WEEK,
 	getAllDeclineReasons,
 	getAllCancellationReasons,
 	getCancellationReasonsByCategory,
-	AVAILABLE_ZONES,
 };

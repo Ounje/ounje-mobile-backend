@@ -29,6 +29,7 @@ const storeDetailsSchema = new mongoose.Schema(
 				period: String,
 			},
 		],
+		isOpen: { type: Boolean, default: false },
 	},
 	{ _id: false },
 );
@@ -39,7 +40,7 @@ const vendorProfileSchema = new mongoose.Schema(
 			type: mongoose.Schema.Types.ObjectId,
 			ref: "User",
 			required: true,
-			index: false, // explicit: NOT indexed
+			index: true,
 		},
 		name: { type: String, required: true },
 		description: String,
@@ -50,17 +51,24 @@ const vendorProfileSchema = new mongoose.Schema(
 		ratingCount: { type: Number, default: 0 },
 		averageRating: { type: Number, default: 0 },
 		isActive: { type: Boolean, default: true },
+		tier: {
+			type: String,
+			enum: ["basic", "growth", "premium"],
+			default: "basic",
+		},
 		balance: { type: Number, default: 0 },
 		earnings: {
 			today: { type: Number, default: 0 },
 			week: { type: Number, default: 0 },
 			total: { type: Number, default: 0 },
 		},
+		rankingScore: { type: Number, default: 0, index: true },
 		location: {
 			type: { type: String, enum: ["Point"], default: "Point" },
 			coordinates: { type: [Number] },
 			address: String,
 		},
+		zone: { type: String, default: null }, // Explicitly set delivery zone — used for rider dispatch
 		fulfillmentSettings: {
 			type: {
 				type: String,
@@ -74,25 +82,25 @@ const vendorProfileSchema = new mongoose.Schema(
 			minOrderAmount: { type: Number, default: 0 },
 			deliveryPrice: { type: Number, default: 0 },
 		},
-		operatingHours: [
-			{
-				day: {
-					type: String,
-					enum: [
-						"monday",
-						"tuesday",
-						"wednesday",
-						"thursday",
-						"friday",
-						"saturday",
-						"sunday",
-					],
-				},
-				open: String,
-				close: String,
-				isOpen: { type: Boolean, default: false },
-			},
-		],
+		// operatingHours: [
+		// 	{
+		// 		day: {
+		// 			type: String,
+		// 			enum: [
+		// 				"monday",
+		// 				"tuesday",
+		// 				"wednesday",
+		// 				"thursday",
+		// 				"friday",
+		// 				"saturday",
+		// 				"sunday",
+		// 			],
+		// 		},
+		// 		open: String,
+		// 		close: String,
+		// 		isOpen: { type: Boolean, default: false },
+		// 	},
+		// ],
 		bankDetails: {
 			accountNumber: { type: String, select: false },
 			bankCode: { type: String, select: false },
@@ -120,6 +128,7 @@ vendorProfileSchema.index(
 		name: "vendor_search_index",
 	},
 );
+vendorProfileSchema.index({ location: "2dsphere" });
 vendorProfileSchema.plugin(toJSON);
 
 module.exports = mongoose.model("VendorProfile", vendorProfileSchema);

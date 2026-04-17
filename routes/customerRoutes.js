@@ -3,8 +3,11 @@ const {
 	getCustomerProfile,
 	updateCustomerProfile,
 	deleteCustomerProfile,
+	updateCustomerProfileImage,
+	getCustomerWallet,
 } = require("../controllers/customerController");
-const { authMiddleware } = require("../middleware/auth");
+const { authMiddleware, roleGuard } = require("../middleware/auth");
+const { userUpload } = require("../config/cloudinary");
 const router = express.Router();
 
 /**
@@ -54,9 +57,6 @@ const router = express.Router();
  *         accountStatus:
  *           type: string
  *           enum: [active, suspended, deactivated]
- *         fcmToken:
- *           type: string
- *           description: Firebase Cloud Messaging token
  *         createdAt:
  *           type: string
  *           format: date-time
@@ -267,5 +267,145 @@ router.put("/profile", authMiddleware, updateCustomerProfile);
  *                   type: string
  */
 router.delete("/profile", authMiddleware, deleteCustomerProfile);
+
+/**
+ * @swagger
+ * /api/customers/profile/picture:
+ *   post:
+ *     summary: Upload customer profile picture
+ *     description: Upload a profile picture for the authenticated customer. Accepts multipart/form-data.
+ *     tags: [Customers]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         multipart/form-data:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - profilePicture
+ *             properties:
+ *               profilePicture:
+ *                 type: string
+ *                 format: binary
+ *     responses:
+ *       200:
+ *         description: Profile picture uploaded successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 profilePic:
+ *                   type: string
+ *                   example: https://res.cloudinary.com/...
+ *       400:
+ *         description: No file provided
+ *       401:
+ *         description: Unauthorized
+ *       500:
+ *         description: Internal server error
+ */
+router.post(
+	"/profile/picture",
+	authMiddleware,
+	roleGuard(["customer"]),
+	userUpload.single("profilePicture"),
+	updateCustomerProfileImage,
+);
+
+/**
+ * @swagger
+ * /api/customers/wallet:
+ *   get:
+ *     summary: Get customer wallet balance and transactions
+ *     description: Retrieve the wallet balance, pending balance, transaction history, and assigned bank account details (Titan/Paystack DVA) for the authenticated customer.
+ *     tags: [Customers]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Wallet retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 balance:
+ *                   type: number
+ *                   example: 1500
+ *                 pendingBalance:
+ *                   type: number
+ *                   example: 300
+ *                 bankDetails:
+ *                   type: object
+ *                   nullable: true
+ *                   properties:
+ *                     accountNumber:
+ *                       type: string
+ *                       example: "9012345678"
+ *                     accountName:
+ *                       type: string
+ *                       example: "YourApp/John Doe"
+ *                     bankName:
+ *                       type: string
+ *                       example: "Titan Paystack"
+ *                     bankSlug:
+ *                       type: string
+ *                       example: "titan-paystack"
+ *                 transactions:
+ *                   type: array
+ *                   items:
+ *                     type: object
+ *                     properties:
+ *                       _id:
+ *                         type: string
+ *                       amount:
+ *                         type: number
+ *                         example: 500
+ *                       entryType:
+ *                         type: string
+ *                         enum: [CREDIT, DEBIT]
+ *                       reason:
+ *                         type: string
+ *                         example: ORDER_EARNING
+ *                       balanceAfter:
+ *                         type: number
+ *                         example: 1500
+ *                       createdAt:
+ *                         type: string
+ *                         format: date-time
+ *       401:
+ *         description: Unauthorized - Invalid or missing token
+ *       404:
+ *         description: Customer not found
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 error:
+ *                   type: string
+ *                   example: Customer not found
+ *       500:
+ *         description: Internal server error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 error:
+ *                   type: string
+ */
+router.get(
+	"/wallet",
+	authMiddleware,
+	roleGuard(["customer"]),
+	getCustomerWallet,
+);
 
 module.exports = router;
