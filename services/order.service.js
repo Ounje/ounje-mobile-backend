@@ -580,12 +580,6 @@ const createOrder = async (userId, data) => {
 		isPreorder: vendor.storeDetails?.[0]?.servicesOffered === "preOrderMeals",
 		preparationTime:
 			vendor.storeDetails?.[0]?.preorderPeriods?.[0]?.preparationTime,
-		// customer should be notified when the order preparation time
-		// has started, so we set the order's
-		//  preparationStartTime to the current time at order creation.
-		// vendors should get a notification when preparation time has reached and start a countdown with the time to make the food
-		// include a timeToMake for the preorder meals so the customer
-		// has an estimated time for their food arrival
 	});
 	order.orderNumber = await generateOrderNumber(order._id);
 	await order.save();
