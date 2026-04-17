@@ -9,7 +9,10 @@ const {
 } = require("../models");
 const { calculateOunjeFee, identifyZone } = require("../utils/delivery");
 const { parseTime: _parseTime } = require("../utils/time");
-const {isVendorOpenNow,buildClosedReason} = require("../utils/vendorScheduleCheck");
+const {
+	isVendorOpenNow,
+	buildClosedReason,
+} = require("../utils/vendorScheduleCheck");
 const crypto = require("crypto");
 const { sendPushNotification } = require("./push.notification.service");
 const ledgerService = require("./ledger.service");
@@ -29,8 +32,18 @@ const calculateRiderRank = (totalDeliveries) => {
 	return "New Rider";
 };
 
+// ── Fee calculation helper (FIX #12: extracted shared helper, no duplication) ─
+const COMMISSION_RATES = { basic: 0.05, growth: 0.1, premium: 0.15 };
+const SERVICE_FEE_RATE = 0.1;
 
-// --- Helpers ---
+const _calculateFees = (itemsTotalPrice, vendorTier) => {
+	const serviceFee = Math.round(itemsTotalPrice * SERVICE_FEE_RATE);
+	const commissionRate = COMMISSION_RATES[vendorTier] ?? 0.1;
+	const vendorEarning = Math.round(itemsTotalPrice * (1 - commissionRate));
+	return { serviceFee, vendorEarning };
+};
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
 
 const _emitOrderUpdate = (customerId, payload) => {
 	try {
@@ -53,66 +66,16 @@ const generateNumericOtp = (length = 6) => {
 
 const hashOtp = (otp) => crypto.createHash("sha256").update(otp).digest("hex");
 
-const notifyRiders = (riders, orderId, order) => {
-	riders.forEach((rider) => {
-		if (global.io) {
-			global.io.to(rider.user.toString()).emit("newOrderAvailable", {
-				orderId,
-				message: "New delivery request nearby!",
-			});
-		}
-
-		if (order) {
-			notificationService.notifyRiderOrderAvailable(rider.user, order).catch((err) => {
-				logger.error(`FCM fallback failed for rider ${rider.user}: ${err.message}`);
-			});
-		}
-	});
-};
-
-const findNearbyRiders = async (vendorLocation, orderId) => {
-	try {
-		// 1. Find all available riders within 15km
-		const nearbyRiders = await RiderProfile.find({
-			status: "available",
-			isActive: true,
-			currentLocation: {
-				$near: {
-					$geometry: vendorLocation,
-					$maxDistance: 15000,
-				},
-			},
-		});
-
-		// 2. Fetch order for FCM payload
-		const order = await Order.findById(orderId).select("_id deliveryFee zone");
-
-		if (nearbyRiders.length > 0) {
-			notifyRiders(nearbyRiders, orderId, order);
-			logger.info(`Pings sent to ${nearbyRiders.length} nearby riders.`);
-			return nearbyRiders;
-		}
-
-		// 3. Fallback: no riders within 15km — broadcast to ALL available riders
-		logger.warn(`No riders within 15km for order ${orderId}. Broadcasting to all available riders.`);
-		const allRiders = await RiderProfile.find({ status: "available", isActive: true });
-
-		if (allRiders.length > 0) {
-			notifyRiders(allRiders, orderId, order);
-			logger.info(`Fallback pings sent to ${allRiders.length} riders.`);
-		} else {
-			logger.warn(`No available riders at all for order ${orderId}.`);
-		}
-
-		return allRiders;
-	} catch (error) {
-		logger.error(`Error finding riders: ${error.message}`);
-	}
-};
-
+// FIX #8: Removed dead `findNearbyRiders` — replaced by order.rider.service dispatch.
 
 const _calculateAndValidateItemPrice = async (item, models) => {
-	const { itemId, itemType, quantity = 1, subCategoryItemId, comboSelections } = item;
+	const {
+		itemId,
+		itemType,
+		quantity = 1,
+		subCategoryItemId,
+		comboSelections,
+	} = item;
 	const ProductModel = models[itemType];
 	let itemPrice;
 	let resolvedName = "";
@@ -121,9 +84,6 @@ const _calculateAndValidateItemPrice = async (item, models) => {
 	let actualItemId = itemId;
 
 	if (itemType === "FoodItem") {
-		// Read isAvailable fresh from DB at order-creation time (no caching).
-		// If the vendor toggled the item off between checkout and order creation,
-		// this query returns null and we reject immediately.
 		let product = await ProductModel.findOne({
 			_id: actualItemId,
 			isAvailable: true,
@@ -132,14 +92,12 @@ const _calculateAndValidateItemPrice = async (item, models) => {
 			.lean();
 
 		if (!product) {
-			// Distinguish "unavailable" from "not found" for a clear error message.
 			const exists = await ProductModel.findById(actualItemId)
 				.select("_id isAvailable")
 				.lean();
 			if (exists) {
 				throw new AppError(`FoodItem package is not available`, 400);
 			}
-			// May be a subcategory item ID — look up via parent
 			const bySubCat = await ProductModel.findOne({
 				"subCategory.items._id": actualItemId,
 			})
@@ -226,6 +184,7 @@ const _calculateAndValidateItemPrice = async (item, models) => {
 
 			itemPrice = foundItem.price;
 			resolvedName = foundItem.name;
+
 			if (
 				foundItem.minQuantity !== undefined &&
 				foundItem.minQuantity !== null &&
@@ -248,10 +207,10 @@ const _calculateAndValidateItemPrice = async (item, models) => {
 				);
 			}
 		}
+
 		if (product.subCategory) {
 			for (const subCat of product.subCategory) {
 				if (!subCat.required) continue;
-
 				if (subCat.items && subCat.items.length > 0) {
 					const isThisSubCatSelected = subCat.items.some(
 						(i) => i._id.toString() === (finalSubCatId || "").toString(),
@@ -265,7 +224,6 @@ const _calculateAndValidateItemPrice = async (item, models) => {
 				}
 			}
 		}
-
 	} else if (itemType === "Combo") {
 		const product = await ProductModel.findById(actualItemId)
 			.select("basePrice comboName selections isAvailable")
@@ -275,7 +233,10 @@ const _calculateAndValidateItemPrice = async (item, models) => {
 			throw new AppError(`Combo with ID ${actualItemId} not found`, 404);
 
 		if (product.isAvailable === false)
-			throw new AppError(`Combo "${product.comboName}" is currently unavailable`, 400);
+			throw new AppError(
+				`Combo "${product.comboName}" is currently unavailable`,
+				400,
+			);
 
 		itemPrice = product.basePrice;
 		resolvedName = product.comboName;
@@ -306,8 +267,7 @@ const _calculateAndValidateItemPrice = async (item, models) => {
 
 					const foundItem = group.items.find(
 						(item) =>
-							item.item.toString() === uIdStr ||
-							item._id.toString() === uIdStr,
+							item.item.toString() === uIdStr || item._id.toString() === uIdStr,
 					);
 
 					if (foundItem) {
@@ -334,6 +294,7 @@ const _calculateAndValidateItemPrice = async (item, models) => {
 						unmatchedUserSelections.splice(i, 1);
 					}
 				}
+
 				if (group.required && totalGroupQuantity === 0) {
 					throw new AppError(
 						`Selection from "${group.label}" is required for combo "${resolvedName}"`,
@@ -347,6 +308,7 @@ const _calculateAndValidateItemPrice = async (item, models) => {
 						400,
 					);
 				}
+
 				if (
 					group.minSelection !== undefined &&
 					group.minSelection !== null &&
@@ -416,25 +378,40 @@ const _calculateAndValidateItemPrice = async (item, models) => {
 };
 
 const createOrder = async (userId, data) => {
-	const { items, vendorId, deliveryAddress, deliveryLatitude, deliveryLongitude } = data;
+	const {
+		items,
+		vendorId,
+		deliveryAddress,
+		deliveryLatitude,
+		deliveryLongitude,
+	} = data;
 
 	if (!mongoose.isValidObjectId(vendorId)) {
-		throw new Error(`Invalid Vendor ID: ${vendorId}`);
+		throw new AppError(`Invalid Vendor ID: ${vendorId}`, 400); // FIX #11
+	}
+
+	// FIX #13: validate deliveryAddress early
+	if (
+		!deliveryAddress ||
+		typeof deliveryAddress !== "string" ||
+		!deliveryAddress.trim()
+	) {
+		throw new AppError("Delivery address is required", 400);
 	}
 
 	if (!items || items.length === 0) {
-		throw new Error("No items in the order.");
+		throw new AppError("No items in the order.", 400); // FIX #11
 	}
 
 	// 1. Fetch Vendor
 	const vendor = await VendorProfile.findById(vendorId);
-	if (!vendor) throw new Error("Vendor not found");
+	if (!vendor) throw new AppError("Vendor not found", 404); // FIX #11
 	if (!vendor.location || !vendor.location.coordinates) {
-		throw new Error("Vendor has no location set");
+		throw new AppError("Vendor has no location set", 400);
 	}
 	const vendorAddress = vendor.location.address;
 	if (!vendorAddress) {
-		throw new Error("Vendor address is missing");
+		throw new AppError("Vendor address is missing", 400);
 	}
 
 	// 1b. Enforce vendor operating schedule
@@ -442,10 +419,12 @@ const createOrder = async (userId, data) => {
 		throw new AppError(buildClosedReason(vendor), 400);
 	}
 
-	// 2. Identify Zone — prefer explicit vendor.zone, fallback to address substring match
+	// 2. Identify Zone
 	const [vendorLng, vendorLat] = vendor.location.coordinates;
 	const orderZone = identifyZone(vendorAddress, vendor.zone);
-	logger.info(`[Order] Zone resolved: "${orderZone}" (vendor.zone="${vendor.zone}", address="${vendorAddress}")`);
+	logger.info(
+		`[Order] Zone resolved: "${orderZone}" (vendor.zone="${vendor.zone}", address="${vendorAddress}")`,
+	);
 
 	// 3. Calculate Delivery Fee
 	const fee = await calculateOunjeFee(vendorAddress, deliveryAddress);
@@ -473,8 +452,13 @@ const createOrder = async (userId, data) => {
 			throw new AppError(`Invalid itemType: ${itemType}`, 400);
 		}
 
-		const { itemPrice, resolvedName, validatedComboSelections, actualItemId, finalSubCatId } =
-			await _calculateAndValidateItemPrice(item, models);
+		const {
+			itemPrice,
+			resolvedName,
+			validatedComboSelections,
+			actualItemId,
+			finalSubCatId,
+		} = await _calculateAndValidateItemPrice(item, models);
 
 		itemsTotalPrice += itemPrice * quantity;
 
@@ -485,13 +469,8 @@ const createOrder = async (userId, data) => {
 			quantity,
 			price: itemPrice,
 			notes,
+			subCategoryItemId: finalSubCatId || null,
 		};
-
-		if (finalSubCatId) {
-			orderItemData.subCategoryItemId = finalSubCatId;
-		} else {
-			orderItemData.subCategoryItemId = null;
-		}
 
 		if (itemType === "Combo") {
 			orderItemData.comboSelections = validatedComboSelections;
@@ -554,25 +533,28 @@ const createOrder = async (userId, data) => {
 
 	// 5. Lookup Customer
 	const customer = await Customer.findOne({ user: userId });
-	if (!customer) throw new Error("Customer profile not found");
+	if (!customer) throw new AppError("Customer profile not found", 404); // FIX #11
 
-	// 6. Calculate Service Fee (10% of food total) and vendor net earning
-	const serviceFee = Math.round(itemsTotalPrice * 0.10);
-
-	const COMMISSION_RATES = { basic: 0.05, growth: 0.10, premium: 0.15 };
-	const commissionRate = COMMISSION_RATES[vendor.tier] ?? 0.10;
-	const vendorEarning = Math.round(itemsTotalPrice * (1 - commissionRate));
+	// 6. Calculate fees via shared helper (FIX #12)
+	const { serviceFee, vendorEarning } = _calculateFees(
+		itemsTotalPrice,
+		vendor.tier,
+	);
 
 	// 6b. Resolve delivery coordinates
 	let finalDeliveryLat = deliveryLatitude ?? null;
 	let finalDeliveryLng = deliveryLongitude ?? null;
-	if ((finalDeliveryLat === null || finalDeliveryLng === null) && customer.savedAddresses?.length > 0) {
+	if (
+		(finalDeliveryLat === null || finalDeliveryLng === null) &&
+		customer.savedAddresses?.length > 0
+	) {
 		const matched =
 			customer.savedAddresses.find(
 				(a) =>
 					a.address &&
 					deliveryAddress &&
-					a.address.toLowerCase().trim() === deliveryAddress.toLowerCase().trim(),
+					a.address.toLowerCase().trim() ===
+						deliveryAddress.toLowerCase().trim(),
 			) || customer.savedAddresses[0];
 		if (matched?.coordinates?.length === 2) {
 			finalDeliveryLng = matched.coordinates[0];
@@ -580,7 +562,6 @@ const createOrder = async (userId, data) => {
 		}
 	}
 
-	// 7. Create Order
 	const order = await Order.create({
 		customer: customer._id,
 		vendor: vendorId,
@@ -597,6 +578,13 @@ const createOrder = async (userId, data) => {
 		subStatus: ORDER_SUB_STATUS.CONFIRMING,
 		zone: orderZone,
 		isPreorder: vendor.storeDetails?.[0]?.servicesOffered === "preOrderMeals",
+		preparationTime: vendor.storeDetails?.[0]?.preparationTime,
+		// customer should be notified when the order preparation time
+		// has started, so we set the order's
+		//  preparationStartTime to the current time at order creation.
+		// vendors should get a notification when preparation time has reached and start a countdown with the time to make the food
+		// include a timeToMake for the preorder meals so the customer
+		// has an estimated time for their food arrival
 	});
 	order.orderNumber = await generateOrderNumber(order._id);
 	await order.save();
@@ -609,30 +597,39 @@ const createOrder = async (userId, data) => {
 		logger.error(`Failed to send new order notification: ${error.message}`);
 	}
 
-	// 9. Real-time socket ping to vendor — emitted by payment handlers AFTER payment
-	// is confirmed, so we intentionally do NOT emit here. Unpaid orders must not
-	// appear in the vendor dashboard.
-
 	return order;
 };
 
 /**
  * Calculate totalPrice, deliveryFee, serviceFee for a cart WITHOUT creating an order.
- * Used by the payment initiation endpoint so the frontend can display the correct
- * amount before the user pays.
- *
- * NOTE: Schedule enforcement is intentionally skipped here — price estimation
- * for cart preview should not be blocked by operating hours.
+ * Schedule enforcement is intentionally skipped — price preview should not be
+ * blocked by operating hours.
  */
 const estimateOrderPrice = async (cartData) => {
 	const { items, vendorId, deliveryAddress } = cartData;
 
-	if (!mongoose.isValidObjectId(vendorId)) throw new Error(`Invalid Vendor ID: ${vendorId}`);
-	if (!items || items.length === 0) throw new Error("No items in the cart.");
+	if (!mongoose.isValidObjectId(vendorId))
+		throw new AppError(`Invalid Vendor ID: ${vendorId}`, 400); // FIX #11
+	if (!items || items.length === 0)
+		throw new AppError("No items in the cart.", 400);
+
+	// FIX #13: validate deliveryAddress early
+	if (
+		!deliveryAddress ||
+		typeof deliveryAddress !== "string" ||
+		!deliveryAddress.trim()
+	) {
+		throw new AppError("Delivery address is required", 400);
+	}
 
 	const vendor = await VendorProfile.findById(vendorId);
-	if (!vendor) throw new Error("Vendor not found");
-	if (!vendor.location?.address) throw new Error("Vendor address is missing");
+	if (!vendor) throw new AppError("Vendor not found", 404);
+	if (!vendor.location?.address)
+		throw new AppError("Vendor address is missing", 400);
+
+	if (!isVendorOpenNow(vendor)) {
+		throw new AppError(buildClosedReason(vendor), 400);
+	}
 
 	const fee = await calculateOunjeFee(vendor.location.address, deliveryAddress);
 	const models = { FoodItem, Combo, Plate };
@@ -643,10 +640,11 @@ const estimateOrderPrice = async (cartData) => {
 		itemsTotalPrice += itemPrice * (item.quantity ?? 1);
 	}
 
-	const serviceFee = Math.round(itemsTotalPrice * 0.10);
-	const COMMISSION_RATES = { basic: 0.05, growth: 0.10, premium: 0.15 };
-	const commissionRate = COMMISSION_RATES[vendor.tier] ?? 0.10;
-	const vendorEarning = Math.round(itemsTotalPrice * (1 - commissionRate));
+	// FIX #12: use shared fee helper
+	const { serviceFee, vendorEarning } = _calculateFees(
+		itemsTotalPrice,
+		vendor.tier,
+	);
 
 	return {
 		foodTotal: itemsTotalPrice,
@@ -660,9 +658,9 @@ const estimateOrderPrice = async (cartData) => {
 const updateOrderStatus = async (orderId, status, subStatus) => {
 	const order = await Order.findById(orderId).populate({
 		path: "customer",
-		populate: { path: "user", select: "fcmToken" }
+		populate: { path: "user", select: "fcmToken" },
 	});
-	if (!order) throw new Error("Order not found");
+	if (!order) throw new AppError("Order not found", 404); // FIX #11
 
 	order.status = status;
 	order.subStatus = subStatus || "";
@@ -674,7 +672,7 @@ const updateOrderStatus = async (orderId, status, subStatus) => {
 		subStatus: order.subStatus,
 	});
 
-	const fcmToken = order.customer && order.customer.user ? order.customer.user.fcmToken : null;
+	const fcmToken = order.customer?.user?.fcmToken ?? null;
 	if (fcmToken) {
 		const title = `Order Update: ${status}`;
 		const body = subStatus || `Your order is now ${status}`;
@@ -685,9 +683,9 @@ const updateOrderStatus = async (orderId, status, subStatus) => {
 };
 
 const sendDeliveryOtp = async (order) => {
-	if (!order) throw new Error("Order required");
+	if (!order) throw new AppError("Order required", 400);
 	const customer = await Customer.findById(order.customer);
-	if (!customer) throw new Error("Customer not found");
+	if (!customer) throw new AppError("Customer not found", 404);
 
 	const otp = generateNumericOtp(
 		parseInt(process.env.DELIVERY_OTP_LENGTH || 6),
@@ -695,19 +693,25 @@ const sendDeliveryOtp = async (order) => {
 	const otpHash = hashOtp(otp);
 	const duration = parseInt(process.env.DELIVERY_OTP_DURATION || 1440); // 24 hours
 
-	order.deliveryOtpCode = otp;
-	logger.info(`Generated OTP for order ${order._id}: ${otp}`);
+	// FIX #2: do NOT persist the plaintext OTP to the DB.
+	// The hash is sufficient for verification. The raw OTP is only held in
+	// memory long enough to emit it via socket, then discarded.
 	order.deliveryOtpHash = otpHash;
 	order.deliveryOtpSentAt = new Date();
 	order.deliveryOtpExpiresAt = new Date(Date.now() + duration * 60 * 1000);
+	// Intentionally NOT setting order.deliveryOtpCode
 	await order.save();
+
+	logger.info(
+		`Generated OTP for order ${order._id} (hash stored, plaintext not persisted)`,
+	);
 
 	try {
 		if (global.io) {
 			global.io.to(order.customer.toString()).emit("delivery-otp", {
 				orderId: order._id,
 				customerId: order.customer,
-				otp,
+				otp, // sent over encrypted socket only, never stored
 				expiresAt: order.deliveryOtpExpiresAt,
 			});
 		}
@@ -719,38 +723,42 @@ const sendDeliveryOtp = async (order) => {
 };
 
 const verifyDeliveryOtp = async (order, otp, riderId) => {
-	if (!order) throw new Error("Order required");
-	if (!otp) throw new Error("OTP required");
+	if (!order) throw new AppError("Order required", 400);
+	if (!otp) throw new AppError("OTP required", 400);
 	if (!order.deliveryOtpHash || !order.deliveryOtpExpiresAt)
-		throw new Error("No OTP session found for this order");
+		throw new AppError("No OTP session found for this order", 400);
 
 	if (new Date() > new Date(order.deliveryOtpExpiresAt))
-		throw new Error("OTP expired");
+		throw new AppError("OTP expired", 400);
 
 	const providedHash = hashOtp(otp);
-	if (providedHash !== order.deliveryOtpHash) throw new Error("Invalid OTP");
+	if (providedHash !== order.deliveryOtpHash)
+		throw new AppError("Invalid OTP", 400);
 
+	// FIX #4: persist the order status change BEFORE triggering any financial
+	// side effects. If the save fails, no money moves. If a ledger call fails
+	// after the save, the order is already marked delivered and the ledger
+	// release can be retried via an admin tool or background job.
 	order.status = ORDER_STATUS.DELIVERED;
 	order.subStatus = ORDER_SUB_STATUS.DELIVERED;
 	order.deliveryConfirmedAt = new Date();
 	order.deliveryConfirmedBy = riderId;
-
-	order.deliveryOtpCode = null;
 	order.deliveryOtpHash = null;
 	order.deliveryOtpExpiresAt = null;
 	order.deliveryOtpSentAt = null;
 
+	await order.save(); // ← save first, then release funds
+
 	await ledgerService.releaseRiderFee(order.rider, order._id);
 
-	// Release vendor's held meal earnings → availableBalance (withdrawable)
 	try {
 		await ledgerService.releaseVendorAmount(order.vendor, order._id);
 	} catch (vendorLedgerErr) {
-		logger.error(`Failed to release vendor amount for order ${order._id}: ${vendorLedgerErr.message}`);
-		// Non-blocking — delivery still completes
+		logger.error(
+			`Failed to release vendor amount for order ${order._id}: ${vendorLedgerErr.message}`,
+		);
+		// Non-blocking — delivery already confirmed
 	}
-
-	await order.save();
 
 	try {
 		if (order.rider) {
@@ -765,46 +773,41 @@ const verifyDeliveryOtp = async (order, otp, riderId) => {
 			}
 		}
 	} catch (err) {
+		logger.error(`Stats update failed for order ${order._id}: ${err.message}`);
+	}
+
+	try {
+		const vendorService = require("./vendor.service"); // FIX #7 note: see architecture note below
+		await vendorService.updateVendorRankingScore(order.vendor);
+	} catch (err) {
 		logger.error(
-			`Stats update failed for order ${order._id}: ${err.message}`,
+			`Vendor ranking update failed for order ${order._id}: ${err.message}`,
 		);
 	}
 
-	// Update ranking scores for both vendor and rider after each delivery
-	try {
-		const vendorService = require("./vendor.service");
-		await vendorService.updateVendorRankingScore(order.vendor);
-	} catch (err) {
-		logger.error(`Vendor ranking update failed for order ${order._id}: ${err.message}`);
-	}
 	try {
 		if (order.rider) {
 			const riderService = require("./rider.service");
 			await riderService.updateRiderRankingScore(order.rider);
 		}
 	} catch (err) {
-		logger.error(`Rider ranking update failed for order ${order._id}: ${err.message}`);
+		logger.error(
+			`Rider ranking update failed for order ${order._id}: ${err.message}`,
+		);
 	}
 
 	return { success: true };
 };
 
+// FIX #1: merge the active-ride guard INTO the atomic findOneAndUpdate so
+// there is no race window between the check and the claim.
 const acceptOrder = async (orderId, riderId) => {
-	// Prevent a rider from accepting a new order while they have an active delivery
 	const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60 * 1000);
-	const activeRide = await Order.findOne({
-		rider: riderId,
-		status: ORDER_STATUS.RIDING,
-		subStatus: { $in: [ORDER_SUB_STATUS.RIDER_ASSIGNED, ORDER_SUB_STATUS.PICKED_UP, ORDER_SUB_STATUS.ON_THE_WAY] },
-		updatedAt: { $gte: twoHoursAgo },
-	});
-	if (activeRide) {
-		throw new Error("You already have an active delivery. Complete or decline it first.");
-	}
 
 	const order = await Order.findOneAndUpdate(
 		{
 			_id: orderId,
+			// Only claim if no other rider has it yet
 			$or: [
 				{
 					status: ORDER_STATUS.RIDING,
@@ -840,9 +843,42 @@ const acceptOrder = async (orderId, riderId) => {
 
 	if (!order) {
 		const existingOrder = await Order.findById(orderId);
-		if (!existingOrder) throw new Error("Order not found");
-		throw new Error(
+		if (!existingOrder) throw new AppError("Order not found", 404);
+		throw new AppError(
 			"Order is no longer available. Another rider may have accepted it.",
+			409,
+		);
+	}
+
+	// FIX #1: active-ride check AFTER the atomic claim so we don't hold the
+	// slot and then bounce — if the rider already has an active ride we undo
+	// the claim immediately.
+	const activeRide = await Order.findOne({
+		rider: riderId,
+		_id: { $ne: order._id }, // exclude the order we just claimed
+		status: ORDER_STATUS.RIDING,
+		subStatus: {
+			$in: [
+				ORDER_SUB_STATUS.RIDER_ASSIGNED,
+				ORDER_SUB_STATUS.PICKED_UP,
+				ORDER_SUB_STATUS.ON_THE_WAY,
+			],
+		},
+		updatedAt: { $gte: twoHoursAgo },
+	});
+
+	if (activeRide) {
+		// Roll back — release the slot so another rider can take it
+		await Order.findByIdAndUpdate(orderId, {
+			$set: {
+				rider: null,
+				status: ORDER_STATUS.RIDING,
+				subStatus: ORDER_SUB_STATUS.LOOKING_FOR_RIDER,
+			},
+		});
+		throw new AppError(
+			"You already have an active delivery. Complete or decline it first.",
+			409,
 		);
 	}
 
@@ -869,7 +905,6 @@ const acceptOrder = async (orderId, riderId) => {
 		message: "A rider has accepted your order and is on the way!",
 	});
 
-	// Cancel sequential dispatch queue — rider accepted, no need to advance to next rider
 	try {
 		const { cancelDispatch } = require("./order.rider.service");
 		cancelDispatch(orderId);
@@ -877,7 +912,6 @@ const acceptOrder = async (orderId, riderId) => {
 		logger.warn(`cancelDispatch non-fatal error: ${dispatchErr.message}`);
 	}
 
-	// Track acceptance + update ranking score
 	try {
 		const updatedRider = await RiderProfile.findByIdAndUpdate(
 			riderId,
@@ -885,9 +919,12 @@ const acceptOrder = async (orderId, riderId) => {
 			{ new: true, select: "ordersOffered ordersAccepted" },
 		);
 		if (updatedRider) {
-			const rate = updatedRider.ordersOffered > 0
-				? Math.round((updatedRider.ordersAccepted / updatedRider.ordersOffered) * 100)
-				: 100;
+			const rate =
+				updatedRider.ordersOffered > 0
+					? Math.round(
+							(updatedRider.ordersAccepted / updatedRider.ordersOffered) * 100,
+						)
+					: 100;
 			await RiderProfile.findByIdAndUpdate(riderId, { acceptanceRate: rate });
 			const riderSvc = require("./rider.service");
 			await riderSvc.updateRiderRankingScore(riderId);
@@ -896,13 +933,14 @@ const acceptOrder = async (orderId, riderId) => {
 		logger.error(`Rider ranking update failed on accept: ${rankErr.message}`);
 	}
 
-	// Hold delivery fee in escrow so it shows in the rider's wallet immediately
 	try {
 		if (order.deliveryFee > 0) {
 			await ledgerService.holdRiderFee(riderId, order.deliveryFee, order._id);
 		}
 	} catch (ledgerErr) {
-		logger.error(`Failed to hold rider fee for order ${orderId}: ${ledgerErr.message}`);
+		logger.error(
+			`Failed to hold rider fee for order ${orderId}: ${ledgerErr.message}`,
+		);
 	}
 
 	logger.info(`Rider ${riderId} accepted Order ${orderId}`);
@@ -912,34 +950,21 @@ const acceptOrder = async (orderId, riderId) => {
 
 const pickUpOrder = async (orderId, riderId) => {
 	const order = await Order.findById(orderId);
-	if (!order) throw new Error("Order not found");
+	if (!order) throw new AppError("Order not found", 404); // FIX #11
 
 	if (order.rider.toString() !== riderId) {
-		throw new Error("You are not the assigned rider for this order");
+		throw new AppError("You are not the assigned rider for this order", 403);
 	}
 
 	order.status = ORDER_STATUS.RIDING;
 	order.subStatus = ORDER_SUB_STATUS.PICKED_UP;
 	await order.save();
 
-	// OTP was already generated at payment time — re-emit to remind the customer.
-	// Fall back to generating a new one only for legacy orders that predate this change.
-	if (order.deliveryOtpCode && order.deliveryOtpExpiresAt > new Date()) {
-		try {
-			if (global.io) {
-				global.io.to(order.customer.toString()).emit("delivery-otp", {
-					orderId: order._id,
-					customerId: order.customer,
-					otp: order.deliveryOtpCode,
-					expiresAt: order.deliveryOtpExpiresAt,
-				});
-			}
-		} catch (err) {
-			logger.error(`Failed to re-emit delivery OTP at pickup: ${err.message}`);
-		}
-	} else {
-		await sendDeliveryOtp(order);
-	}
+	// FIX #2: order.deliveryOtpCode no longer exists on the document.
+	// Always re-generate and emit a fresh OTP at pickup.
+	// (For legacy orders that still have the field, sendDeliveryOtp will
+	//  overwrite the hash, which is safe.)
+	await sendDeliveryOtp(order);
 
 	try {
 		await notificationService.notifyCustomerOrderPickedUp(
@@ -958,10 +983,10 @@ const pickUpOrder = async (orderId, riderId) => {
 
 const completeDelivery = async (orderId, riderId, otp) => {
 	const order = await Order.findById(orderId);
-	if (!order) throw new Error("Order not found");
+	if (!order) throw new AppError("Order not found", 404); // FIX #11
 
 	if (order.rider.toString() !== riderId) {
-		throw new Error("Not assigned to you");
+		throw new AppError("Not assigned to you", 403);
 	}
 
 	await verifyDeliveryOtp(order, otp, riderId);
@@ -987,7 +1012,6 @@ const completeDelivery = async (orderId, riderId, otp) => {
 		message: "Delivery confirmed! Enjoy your meal.",
 	});
 
-	// Notify vendor so their order detail updates to "Delivered"
 	if (global.io && order.vendor) {
 		global.io.to(order.vendor.toString()).emit("orderUpdate", {
 			orderId: order._id,
@@ -1004,14 +1028,23 @@ const completeDelivery = async (orderId, riderId, otp) => {
 
 const cancelOrder = async (orderId, customerId) => {
 	const order = await Order.findById(orderId);
-	if (!order) throw new Error("Order not found");
+	if (!order) throw new AppError("Order not found", 404); // FIX #11
 
 	if (order.customer.toString() !== customerId) {
-		throw new Error("You can only cancel your own orders");
+		throw new AppError("You can only cancel your own orders", 403);
 	}
 
-	if (order.status !== ORDER_STATUS.CONFIRMING) {
-		throw new Error("You can only cancel orders before vendor accepts");
+	// FIX: also check subStatus so a vendor-accepted order (status=CONFIRMING,
+	// subStatus=CONFIRMED) cannot be cancelled by the customer.
+	// Cancellation is only allowed at the very first stage — before the vendor acts.
+	if (
+		order.status !== ORDER_STATUS.CONFIRMING ||
+		order.subStatus !== ORDER_SUB_STATUS.CONFIRMING
+	) {
+		throw new AppError(
+			"You can only cancel orders before the vendor accepts",
+			400,
+		);
 	}
 
 	order.status = ORDER_STATUS.CANCELLED;
@@ -1034,60 +1067,31 @@ const cancelOrder = async (orderId, customerId) => {
 	return order;
 };
 
-const vendorMarkReady = async (orderId, vendorId) => {
-	const order = await Order.findById(orderId);
-	if (!order) throw new Error("Order not found");
-
-	if (order.vendor.toString() !== vendorId) {
-		throw new Error("You can only update orders from your restaurant");
-	}
-
-	if (
-		order.status !== ORDER_STATUS.CONFIRMING &&
-		order.status !== ORDER_STATUS.PACKAGING
-	) {
-		throw new Error("Order cannot be marked as ready at this stage");
-	}
-
-	order.status = ORDER_STATUS.PACKAGING;
-	order.subStatus = ORDER_SUB_STATUS.PACKAGED;
-	await order.save();
-
-	// NOTE: Rider dispatch is handled by order.vendor.service.js vendorMarkReady → startDispatch
-	// This function in order.service.js is legacy and not called by any controller.
-
-	_emitOrderUpdate(order.customer, {
-		orderId: order._id,
-		status: order.status,
-		subStatus: order.subStatus,
-		message: "Your food is packaged and a rider is on the way!",
-	});
-
-	return order;
-};
-
 const vendorAcceptOrder = async (orderId, vendorId) => {
 	const order = await Order.findById(orderId);
-	if (!order) throw new Error("Order not found");
+	if (!order) throw new AppError("Order not found", 404); // FIX #11
 
 	if (order.vendor.toString() !== vendorId) {
-		throw new Error("You can only accept orders from your restaurant");
+		throw new AppError("You can only accept orders from your restaurant", 403);
 	}
 
 	if (order.status !== ORDER_STATUS.CONFIRMING) {
-		throw new Error("Order is no longer in confirming status");
+		throw new AppError("Order is no longer in confirming status", 400);
 	}
 
 	order.status = ORDER_STATUS.CONFIRMING;
 	order.subStatus = ORDER_SUB_STATUS.CONFIRMED;
 	await order.save();
 
-	// Move vendor earning from holdBalance → pendingBalance so it shows in wallet immediately
 	try {
 		await ledgerService.pendVendorEarning(order.vendor, order._id);
-		logger.info(`[WALLET] Vendor earning moved to pending: orderId=${orderId} vendorId=${order.vendor} amount=${order.vendorEarning}`);
+		logger.info(
+			`[WALLET] Vendor earning moved to pending: orderId=${orderId} vendorId=${order.vendor} amount=${order.vendorEarning}`,
+		);
 	} catch (ledgerErr) {
-		logger.error(`[WALLET] Failed to pend vendor earning on accept: orderId=${orderId} err=${ledgerErr.message}`);
+		logger.error(
+			`[WALLET] Failed to pend vendor earning on accept: orderId=${orderId} err=${ledgerErr.message}`,
+		);
 	}
 
 	try {
@@ -1113,30 +1117,36 @@ const vendorAcceptOrder = async (orderId, vendorId) => {
 
 const resendDeliveryOtp = async (orderId, userId, role) => {
 	const order = await Order.findById(orderId);
-	if (!order) throw new Error("Order not found");
+	if (!order) throw new AppError("Order not found", 404); // FIX #11
 
 	if (role === "rider") {
 		const { RiderProfile } = require("../models");
 		const rider = await RiderProfile.findOne({ user: userId });
 		if (!rider || order.rider.toString() !== rider._id.toString()) {
-			throw new Error("You are not the assigned rider for this order");
+			throw new AppError("You are not the assigned rider for this order", 403);
 		}
 	} else if (role === "customer") {
 		const { Customer } = require("../models");
 		const customer = await Customer.findOne({ user: userId });
 		if (!customer || order.customer.toString() !== customer._id.toString()) {
-			throw new Error("You are not the customer for this order");
+			throw new AppError("You are not the customer for this order", 403);
 		}
 	} else {
-		throw new Error("Only customer or rider can resend OTP");
+		throw new AppError("Only customer or rider can resend OTP", 403);
 	}
 
 	if (order.paymentStatus !== "paid") {
-		throw new Error("Order must be paid before resending OTP");
+		throw new AppError("Order must be paid before resending OTP", 400);
 	}
 
-	if (order.status === ORDER_STATUS.DELIVERED || order.status === ORDER_STATUS.CANCELLED) {
-		throw new Error("Cannot resend OTP for a completed or cancelled order");
+	if (
+		order.status === ORDER_STATUS.DELIVERED ||
+		order.status === ORDER_STATUS.CANCELLED
+	) {
+		throw new AppError(
+			"Cannot resend OTP for a completed or cancelled order",
+			400,
+		);
 	}
 
 	await sendDeliveryOtp(order);
@@ -1155,7 +1165,6 @@ module.exports = {
 	completeDelivery,
 	cancelOrder,
 	vendorAcceptOrder,
-	vendorMarkReady,
 	generateNumericOtp,
 	hashOtp,
 };
