@@ -562,13 +562,6 @@ const createOrder = async (userId, data) => {
 		}
 	}
 
-	// FIX #10: generate orderNumber before create so the document is always complete
-	// We derive a temporary id to pass into generateOrderNumber, then assign it on create.
-	// The cleanest approach is a pre-save hook on the model; as a service-layer fix we
-	// generate the number after create but inside a single save — same as before — but
-	// we add a note recommending the hook approach for a future refactor.
-	// TODO: move generateOrderNumber into an Order pre-save hook to eliminate the
-	//       window between Order.create and the subsequent save.
 	const order = await Order.create({
 		customer: customer._id,
 		vendor: vendorId,
@@ -585,6 +578,13 @@ const createOrder = async (userId, data) => {
 		subStatus: ORDER_SUB_STATUS.CONFIRMING,
 		zone: orderZone,
 		isPreorder: vendor.storeDetails?.[0]?.servicesOffered === "preOrderMeals",
+		preparationTime: vendor.storeDetails?.[0]?.preparationTime,
+		// customer should be notified when the order preparation time
+		// has started, so we set the order's
+		//  preparationStartTime to the current time at order creation.
+		// vendors should get a notification when preparation time has reached and start a countdown with the time to make the food
+		// include a timeToMake for the preorder meals so the customer
+		// has an estimated time for their food arrival
 	});
 	order.orderNumber = await generateOrderNumber(order._id);
 	await order.save();
