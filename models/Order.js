@@ -81,9 +81,9 @@ const orderSchema = new mongoose.Schema(
 		},
 		serviceFee: {
 			type: Number,
-			default: 0
+			default: 0,
 		},
-		foodTotal: { type: Number, default: 0 },     // gross food subtotal (sum of items)
+		foodTotal: { type: Number, default: 0 }, // gross food subtotal (sum of items)
 		vendorEarning: { type: Number, default: 0 }, // net to vendor after platform commission
 		zone: {
 			type: String,
@@ -130,7 +130,8 @@ const orderSchema = new mongoose.Schema(
 			enum: ["paystack", "wallet"],
 		},
 
-		isPreorder:   { type: Boolean, default: false },
+		isPreorder: { type: Boolean, default: false },
+		preparationTime: { type: String },
 		scheduledFor: { type: Date }, // null = immediate order; set = scheduled delivery time
 
 		// Vendor decline fields (happens during confirmation stage)

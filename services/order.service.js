@@ -578,7 +578,8 @@ const createOrder = async (userId, data) => {
 		subStatus: ORDER_SUB_STATUS.CONFIRMING,
 		zone: orderZone,
 		isPreorder: vendor.storeDetails?.[0]?.servicesOffered === "preOrderMeals",
-		preparationTime: vendor.storeDetails?.[0]?.preparationTime,
+		preparationTime:
+			vendor.storeDetails?.[0]?.preorderPeriods?.[0]?.preparationTime,
 		// customer should be notified when the order preparation time
 		// has started, so we set the order's
 		//  preparationStartTime to the current time at order creation.
