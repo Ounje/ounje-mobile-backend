@@ -7,7 +7,9 @@ class ResendProvider extends EmailProvider {
 		super();
 
 		if (!process.env.RESEND_API_KEY) {
-			logger.warn("⚠️ RESEND_API_KEY not found. Email sending will be disabled.");
+			logger.warn(
+				"⚠️ RESEND_API_KEY not found. Email sending will be disabled.",
+			);
 			this.resend = null;
 		} else {
 			this.resend = new Resend(process.env.RESEND_API_KEY);
@@ -15,7 +17,8 @@ class ResendProvider extends EmailProvider {
 		}
 
 		// Default sender email
-		this.fromEmail = process.env.EMAIL_FROM || "OunjeFood <hello@ounjefood.com>";
+		this.fromEmail =
+			process.env.EMAIL_FROM || "OunjeFood <hello@ounjefood.com>";
 	}
 
 	async sendEmail(to, subject, html) {
@@ -71,7 +74,9 @@ class ResendProvider extends EmailProvider {
 			logger.info(`✅ Email with attachments sent to ${to} (ID: ${data.id})`);
 			return true;
 		} catch (error) {
-			logger.error(`Error sending email with attachments to ${to}: ${error.message}`);
+			logger.error(
+				`Error sending email with attachments to ${to}: ${error.message}`,
+			);
 			return false;
 		}
 	}

@@ -131,7 +131,10 @@ class EmailService {
 			date,
 		};
 
-		const html = await this.loadTemplate("payout-notification.html", replacements);
+		const html = await this.loadTemplate(
+			"payout-notification.html",
+			replacements,
+		);
 		return this.provider.sendEmail(
 			email,
 			`Payout Processed - ₦${amount}`,

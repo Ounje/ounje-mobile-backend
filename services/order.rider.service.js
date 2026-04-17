@@ -47,12 +47,18 @@ const _buildCandidateList = async (vendorLocation, orderZone) => {
 			operatingArea: orderZone,
 		}).select("user currentLocation");
 		if (zone.length > 0) {
-			logger.info(`[Dispatch] Zone "${orderZone}" tier: ${zone.length} rider(s) found`);
+			logger.info(
+				`[Dispatch] Zone "${orderZone}" tier: ${zone.length} rider(s) found`,
+			);
 			return zone;
 		}
-		logger.warn(`[Dispatch] Zone "${orderZone}" tier: 0 riders — falling back to GPS`);
+		logger.warn(
+			`[Dispatch] Zone "${orderZone}" tier: 0 riders — falling back to GPS`,
+		);
 	} else {
-		logger.warn(`[Dispatch] order.zone="${orderZone}" (unresolved) — skipping zone tier, trying GPS`);
+		logger.warn(
+			`[Dispatch] order.zone="${orderZone}" (unresolved) — skipping zone tier, trying GPS`,
+		);
 	}
 
 	// Tier 2: GPS within 5km
@@ -73,19 +79,27 @@ const _buildCandidateList = async (vendorLocation, orderZone) => {
 				logger.info(`[Dispatch] GPS tier: ${gps.length} rider(s) within 3km`);
 				return gps;
 			}
-			logger.warn(`[Dispatch] GPS tier: 0 riders within 3km — falling back to all-available`);
+			logger.warn(
+				`[Dispatch] GPS tier: 0 riders within 3km — falling back to all-available`,
+			);
 		} catch (gpsErr) {
-			logger.warn(`[Dispatch] GPS tier failed (no 2dsphere index?): ${gpsErr.message}`);
+			logger.warn(
+				`[Dispatch] GPS tier failed (no 2dsphere index?): ${gpsErr.message}`,
+			);
 		}
 	} else {
-		logger.warn(`[Dispatch] Vendor has no valid GPS coords — skipping GPS tier`);
+		logger.warn(
+			`[Dispatch] Vendor has no valid GPS coords — skipping GPS tier`,
+		);
 	}
 
 	// Tier 3: All available riders (capped at 15)
 	const all = await RiderProfile.find({
 		status: "available",
 		isActive: true,
-	}).select("user currentLocation").limit(15);
+	})
+		.select("user currentLocation")
+		.limit(15);
 	logger.warn(`[Dispatch] All-available tier: ${all.length} rider(s) online`);
 	return all;
 };
@@ -95,7 +109,9 @@ const startDispatch = async (orderId, vendorLocation, orderZone) => {
 	const orderIdStr = orderId.toString();
 
 	if (dispatchQueues.has(orderIdStr)) {
-		logger.warn(`[Dispatch] Queue already running for order ${orderIdStr} — skipping duplicate start`);
+		logger.warn(
+			`[Dispatch] Queue already running for order ${orderIdStr} — skipping duplicate start`,
+		);
 		return;
 	}
 
@@ -106,13 +122,20 @@ const startDispatch = async (orderId, vendorLocation, orderZone) => {
 	try {
 		// Debug: count ALL riders in DB so we can spot status/isActive issues
 		const totalRiders = await RiderProfile.countDocuments({});
-		const availableRiders = await RiderProfile.countDocuments({ status: "available", isActive: true });
-		logger.info(`[Dispatch] DB snapshot — total riders: ${totalRiders} | available+active: ${availableRiders}`);
+		const availableRiders = await RiderProfile.countDocuments({
+			status: "available",
+			isActive: true,
+		});
+		logger.info(
+			`[Dispatch] DB snapshot — total riders: ${totalRiders} | available+active: ${availableRiders}`,
+		);
 
 		const candidates = await _buildCandidateList(vendorLocation, orderZone);
 
 		if (!candidates.length) {
-			logger.warn(`[Dispatch] No available riders found across all tiers for order ${orderIdStr} | zone="${orderZone}" | totalRiders=${totalRiders} | availableRiders=${availableRiders}`);
+			logger.warn(
+				`[Dispatch] No available riders found across all tiers for order ${orderIdStr} | zone="${orderZone}" | totalRiders=${totalRiders} | availableRiders=${availableRiders}`,
+			);
 			await _notifyNoRiders(orderIdStr);
 			return;
 		}
@@ -123,8 +146,9 @@ const startDispatch = async (orderId, vendorLocation, orderZone) => {
 
 		// Re-fetch candidates with rankingScore included
 		const candidateIds = candidates.map((r) => r._id);
-		const withScore = await RiderProfile.find({ _id: { $in: candidateIds } })
-			.select("user currentLocation rankingScore");
+		const withScore = await RiderProfile.find({
+			_id: { $in: candidateIds },
+		}).select("user currentLocation rankingScore");
 
 		const sorted = withScore.slice().sort((a, b) => {
 			const aC = a.currentLocation?.coordinates;
@@ -132,7 +156,8 @@ const startDispatch = async (orderId, vendorLocation, orderZone) => {
 			const aValid = hasValidGPS(aC);
 			const bValid = hasValidGPS(bC);
 			// Riders without valid GPS always go last
-			if (!aValid && !bValid) return (b.rankingScore || 0) - (a.rankingScore || 0);
+			if (!aValid && !bValid)
+				return (b.rankingScore || 0) - (a.rankingScore || 0);
 			if (!aValid) return 1;
 			if (!bValid) return -1;
 			// Both have GPS — primary sort by rankingScore, secondary by distance
@@ -150,7 +175,9 @@ const startDispatch = async (orderId, vendorLocation, orderZone) => {
 
 		await _sendNextDispatch(orderIdStr);
 	} catch (err) {
-		logger.error(`[Dispatch] startDispatch crashed for order ${orderIdStr}: ${err.message}`);
+		logger.error(
+			`[Dispatch] startDispatch crashed for order ${orderIdStr}: ${err.message}`,
+		);
 	}
 };
 
@@ -198,9 +225,10 @@ const _sendNextDispatch = async (orderIdStr) => {
 			{ new: true, select: "ordersOffered ordersAccepted" },
 		);
 		if (updated) {
-			const rate = updated.ordersOffered > 0
-				? Math.round((updated.ordersAccepted / updated.ordersOffered) * 100)
-				: 100;
+			const rate =
+				updated.ordersOffered > 0
+					? Math.round((updated.ordersAccepted / updated.ordersOffered) * 100)
+					: 100;
 			await RiderProfile.findByIdAndUpdate(rider._id, { acceptanceRate: rate });
 			// Update ranking score non-blocking
 			const riderSvc = require("./rider.service");
@@ -210,7 +238,9 @@ const _sendNextDispatch = async (orderIdStr) => {
 		logger.warn(`[Dispatch] ordersOffered track failed: ${trackErr.message}`);
 	}
 
-	logger.info(`[Dispatch] Sending riderDispatch to userId=${riderUserId} for order ${orderIdStr} | global.io=${!!global.io}`);
+	logger.info(
+		`[Dispatch] Sending riderDispatch to userId=${riderUserId} for order ${orderIdStr} | global.io=${!!global.io}`,
+	);
 	if (global.io) {
 		global.io.to(riderUserId).emit("riderDispatch", {
 			orderId: orderIdStr,
@@ -220,8 +250,7 @@ const _sendNextDispatch = async (orderIdStr) => {
 				? {
 						id: orderDetails._id,
 						vendorName: orderDetails.vendor?.name ?? "Vendor",
-						vendorAddress:
-							orderDetails.vendor?.location?.address ?? null,
+						vendorAddress: orderDetails.vendor?.location?.address ?? null,
 						deliveryAddress: orderDetails.deliveryAddress ?? null,
 						deliveryFee: orderDetails.deliveryFee ?? 0,
 						totalPrice: orderDetails.totalPrice ?? 0,
@@ -242,7 +271,9 @@ const _sendNextDispatch = async (orderIdStr) => {
 			zone: orderDetails?.zone ?? null,
 		});
 	} catch (pushErr) {
-		logger.warn(`[Dispatch] Push to rider ${riderUserId} failed: ${pushErr.message}`);
+		logger.warn(
+			`[Dispatch] Push to rider ${riderUserId} failed: ${pushErr.message}`,
+		);
 	}
 
 	// Set 60s timeout — advance to next rider if no response
@@ -311,7 +342,10 @@ const getRiderDeclineReasonText = (reason) => {
 };
 
 const riderDeclineOrder = async (orderId, riderId, declineData = {}) => {
-	const order = await Order.findById(orderId).populate("vendor", "name location");
+	const order = await Order.findById(orderId).populate(
+		"vendor",
+		"name location",
+	);
 	if (!order) throw new Error("Order not found");
 
 	if (order.rider && order.rider.toString() !== riderId) {
@@ -352,7 +386,9 @@ const riderDeclineOrder = async (orderId, riderId, declineData = {}) => {
 	try {
 		await reverseRiderFeeHold(riderId, orderId);
 	} catch (error) {
-		logger.error(`Failed to reverse rider fee hold on decline: ${error.message}`);
+		logger.error(
+			`Failed to reverse rider fee hold on decline: ${error.message}`,
+		);
 	}
 
 	try {
@@ -447,7 +483,6 @@ const getCurrentRiderOrder = async (riderId) => {
 };
 
 const getRiderCompletedOrdersToday = async (riderProfileId) => {
-
 	const startOfDay = new Date();
 	startOfDay.setHours(0, 0, 0, 0);
 
@@ -474,6 +509,13 @@ const getRiderOrders = async (riderId, statusFilter) => {
 		// Orders currently being delivered (assigned, in transit, or picked up)
 		filter.status = ORDER_STATUS.RIDING;
 		filter.subStatus = { $in: [ORDER_SUB_STATUS.RIDER_ASSIGNED, ORDER_SUB_STATUS.PICKED_UP, ORDER_SUB_STATUS.ON_THE_WAY] };
+		filter.subStatus = {
+			$in: [
+				ORDER_SUB_STATUS.RIDER_ASSIGNED,
+				ORDER_SUB_STATUS.PICKED_UP,
+				ORDER_SUB_STATUS.ON_THE_WAY,
+			],
+		};
 	} else if (statusFilter === "completed") {
 		// Delivered orders
 		filter.status = ORDER_STATUS.DELIVERED;

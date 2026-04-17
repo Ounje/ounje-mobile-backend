@@ -25,24 +25,16 @@ const plateSchema = new mongoose.Schema(
 		likes: { type: Number, default: 0 },
 		commentsCount: { type: Number, default: 0 },
 		comments: String,
-		items: [{ type: mongoose.Schema.Types.ObjectId, ref: "FoodItem" }],
+		// Flat array of subCategory.items._id values
+		items: [{ type: mongoose.Schema.Types.ObjectId }],
 		combos: [{ type: mongoose.Schema.Types.ObjectId, ref: "Combo" }],
 	},
 	{ timestamps: true },
 );
 
 plateSchema.index(
-	{
-		name: "text",
-		description: "text",
-	},
-	{
-		weights: {
-			name: 10,
-			description: 5,
-		},
-		name: "plate_search_index",
-	},
+	{ name: "text", description: "text" },
+	{ weights: { name: 10, description: 5 }, name: "plate_search_index" },
 );
 
 plateSchema.virtual("itemType").get(function () {

@@ -55,7 +55,7 @@ const router = express.Router();
 router.post(
 	"/build-plate",
 	authMiddleware,
-	plateUpload.single("file"),
+	plateUpload.fields([{ name: "file", maxCount: 1 }]),
 	buildPlate,
 );
 

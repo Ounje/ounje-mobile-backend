@@ -11,7 +11,9 @@ const getFoodByCategory = async (req, res) => {
 	try {
 		const { category, page = 1, limit = 20 } = req.query;
 		if (!category)
-			return res.status(400).json({ success: false, message: "category is required" });
+			return res
+				.status(400)
+				.json({ success: false, message: "category is required" });
 
 		const pageNum = parseInt(page);
 		const limitNum = parseInt(limit);
@@ -552,6 +554,8 @@ const getAllFoodItems = async (req, res) => {
 		const populate = {
 			path: "vendor",
 			select: "storeDetails name img profileImage bannerUrl logoUrl description averageRating totalOrders",
+			select:
+				"storeDetails name img profileImage bannerUrl logoUrl description averageRating totalOrders",
 		};
 
 		const result = await paginate(FoodItem, req.query, populate, filter);
@@ -798,6 +802,10 @@ const getAllCombos = async (req, res) => {
 				{
 					$geoNear: {
 						near: { type: "Point", coordinates: [parseFloat(lng), parseFloat(lat)] },
+						near: {
+							type: "Point",
+							coordinates: [parseFloat(lng), parseFloat(lat)],
+						},
 						distanceField: "distanceMeters",
 						maxDistance: 10000,
 						query: vendorFilter,
@@ -809,11 +817,16 @@ const getAllCombos = async (req, res) => {
 			onlineVendorIds = nearbyVendors.map((v) => v._id);
 		} else {
 			const onlineVendors = await VendorProfile.find(vendorFilter).select("_id");
+			const onlineVendors =
+				await VendorProfile.find(vendorFilter).select("_id");
 			onlineVendorIds = onlineVendors.map((v) => v._id);
 		}
 
 		const populateOptions = [
-			{ path: "vendor", select: "name img description averageRating totalOrders storeDetails" },
+			{
+				path: "vendor",
+				select: "name img description averageRating totalOrders storeDetails",
+			},
 			{ path: "selections.items.item", select: "name img description price" },
 			{ path: "comboGroup", select: "name description" },
 		];
@@ -855,7 +868,10 @@ const getMyCombos = async (req, res) => {
 const getComboById = async (req, res) => {
 	try {
 		const combo = await Combo.findById(req.params.comboId)
-			.populate("vendor", "name img description averageRating totalOrders location storeDetails isActive")
+			.populate(
+				"vendor",
+				"name img description averageRating totalOrders location storeDetails isActive",
+			)
 			.populate({
 				path: "selections.items.item",
 				select: "name img description price",
@@ -874,7 +890,10 @@ const getVendorCombos = async (req, res) => {
 	try {
 		const filter = { vendor: req.params.vendorId };
 		const populateOptions = [
-			{ path: "vendor", select: "name img description averageRating totalOrders" },
+			{
+				path: "vendor",
+				select: "name img description averageRating totalOrders",
+			},
 			{
 				path: "selections.items.item",
 				select: "name img description price",
@@ -978,7 +997,9 @@ const getVendorsByCategory = async (req, res) => {
 	try {
 		const { category, page = 1, limit = 20 } = req.query;
 		if (!category)
-			return res.status(400).json({ success: false, message: "category is required" });
+			return res
+				.status(400)
+				.json({ success: false, message: "category is required" });
 
 		const pageNum = parseInt(page);
 		const limitNum = parseInt(limit);
@@ -1003,7 +1024,14 @@ const getVendorsByCategory = async (req, res) => {
 					type: { $literal: "vendor" },
 					id: "$vendor._id",
 					name: "$vendor.name",
-					image: { $ifNull: ["$vendor.logoUrl", "$vendor.profileImage", "$vendor.bannerUrl", null] },
+					image: {
+						$ifNull: [
+							"$vendor.logoUrl",
+							"$vendor.profileImage",
+							"$vendor.bannerUrl",
+							null,
+						],
+					},
 					isOpen: {
 						$eq: [
 							{ $arrayElemAt: ["$vendor.storeDetails.status", 0] },
@@ -1012,7 +1040,9 @@ const getVendorsByCategory = async (req, res) => {
 					},
 					averageRating: { $ifNull: ["$vendor.averageRating", 0] },
 					totalRating: { $ifNull: ["$vendor.ratingCount", 0] },
-					deliveryFee: { $ifNull: ["$vendor.fulfillmentSettings.deliveryPrice", 0] },
+					deliveryFee: {
+						$ifNull: ["$vendor.fulfillmentSettings.deliveryPrice", 0],
+					},
 					location: "$vendor.location",
 				},
 			},
@@ -1024,7 +1054,11 @@ const getVendorsByCategory = async (req, res) => {
 		res.json({
 			success: true,
 			data,
-			pagination: { page: pageNum, limit: limitNum, hasNextPage: data.length === limitNum },
+			pagination: {
+				page: pageNum,
+				limit: limitNum,
+				hasNextPage: data.length === limitNum,
+			},
 		});
 	} catch (err) {
 		res.status(500).json({ success: false, message: err.message });
@@ -1038,11 +1072,15 @@ const toggleComboAvailability = async (req, res) => {
 
 		const vendor = await VendorProfile.findOne({ owner: vendorId }).lean();
 		if (!vendor)
-			return res.status(404).json({ success: false, message: "Vendor not found" });
+			return res
+				.status(404)
+				.json({ success: false, message: "Vendor not found" });
 
 		const combo = await Combo.findOne({ _id: comboId, vendor: vendor._id });
 		if (!combo)
-			return res.status(404).json({ success: false, message: "Combo not found" });
+			return res
+				.status(404)
+				.json({ success: false, message: "Combo not found" });
 
 		combo.isAvailable = !combo.isAvailable;
 		await combo.save();
@@ -1066,11 +1104,18 @@ const toggleSubItemAvailability = async (req, res) => {
 
 		const vendor = await VendorProfile.findOne({ owner: vendorId }).lean();
 		if (!vendor)
-			return res.status(404).json({ success: false, message: "Vendor not found" });
+			return res
+				.status(404)
+				.json({ success: false, message: "Vendor not found" });
 
-		const foodItem = await FoodItem.findOne({ _id: foodItemId, vendor: vendor._id });
+		const foodItem = await FoodItem.findOne({
+			_id: foodItemId,
+			vendor: vendor._id,
+		});
 		if (!foodItem)
-			return res.status(404).json({ success: false, message: "Food item not found" });
+			return res
+				.status(404)
+				.json({ success: false, message: "Food item not found" });
 
 		// Find the sub-item across all subcategory groups
 		let found = false;
@@ -1084,7 +1129,9 @@ const toggleSubItemAvailability = async (req, res) => {
 		}
 
 		if (!found)
-			return res.status(404).json({ success: false, message: "Sub-item not found" });
+			return res
+				.status(404)
+				.json({ success: false, message: "Sub-item not found" });
 
 		await foodItem.save();
 
@@ -1092,7 +1139,10 @@ const toggleSubItemAvailability = async (req, res) => {
 		let updatedItem = null;
 		for (const group of foodItem.subCategory) {
 			const subItem = group.items.id(subItemId);
-			if (subItem) { updatedItem = subItem; break; }
+			if (subItem) {
+				updatedItem = subItem;
+				break;
+			}
 		}
 
 		return res.json({
