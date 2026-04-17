@@ -327,7 +327,7 @@ const requestEmailOtp = asyncHandler(async (req, res) => {
 	const otp = generateOtp();
 	await OtpVerification.deleteMany({ email, isEmail: true });
 	await OtpVerification.create({ email, otp, isEmail: true });
-
+	console.log("Resend instance:", !!emailService?.provider?.resend);
 	await emailService.sendOtpEmail(
 		email,
 		otp,
@@ -626,7 +626,7 @@ const logOut = asyncHandler(async (req, res) => {
 		if (user?.role === "vendor") {
 			await VendorProfile.updateOne(
 				{ owner: tokenRecord.user, "storeDetails.0": { $exists: true } },
-				{ $set: { "storeDetails.0.status": "inactive" } }
+				{ $set: { "storeDetails.0.status": "inactive" } },
 			);
 		}
 	}
