@@ -49,3 +49,23 @@ services/test.js
 
 add-search-index.js
 routes/test route.js
+config/paystack.config.js
+controllers/Untitled-1.json
+test/announcement.test.js
+test/combo.test.js
+test/comment.test.js
+test/customer.test.js
+test/food.test.js
+test/like.test.js
+test/order.test.js
+test/otp.test.js
+test/ounje_db_schema_v2.docx
+test/payment.test.js
+test/payout.test.js
+test/plate.test.js
+test/promotion.test.js
+test/rating.test.js
+test/rider.test.js
+test/support.test.js
+test/user.test.js
+test/vendor.test.js

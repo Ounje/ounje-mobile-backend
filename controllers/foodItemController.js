@@ -5,6 +5,86 @@ const {
 } = require("../utils/foodEnums");
 const { paginate } = require("../utils/paginate");
 
+// GET /api/food-items/by-category?category=rice&page=1&limit=20
+// Returns flat list of individual food items for a category, with vendor info.
+const getFoodByCategory = async (req, res) => {
+	try {
+		const { category, page = 1, limit = 20 } = req.query;
+		if (!category)
+			return res
+				.status(400)
+				.json({ success: false, message: "category is required" });
+
+		const pageNum = parseInt(page);
+		const limitNum = parseInt(limit);
+		const skip = (pageNum - 1) * limitNum;
+
+		const pipeline = [
+			{ $match: { category: category.toLowerCase(), isAvailable: true } },
+			{ $unwind: "$subCategory" },
+			{ $unwind: "$subCategory.items" },
+			{ $match: { "subCategory.items.isAvailable": { $ne: false } } },
+			{
+				$lookup: {
+					from: "vendorprofiles",
+					localField: "vendor",
+					foreignField: "_id",
+					as: "vendorInfo",
+				},
+			},
+			{ $unwind: "$vendorInfo" },
+			{ $match: { "vendorInfo.isActive": true } },
+			{
+				$project: {
+					_id: 0,
+					foodItemId: "$_id",
+					itemId: "$subCategory.items._id",
+					name: "$subCategory.items.name",
+					price: "$subCategory.items.price",
+					img: "$subCategory.items.img",
+					description: "$subCategory.items.description",
+					category: 1,
+					vendor: {
+						_id: "$vendorInfo._id",
+						name: "$vendorInfo.name",
+						img: {
+							$ifNull: [
+								"$vendorInfo.logoUrl",
+								"$vendorInfo.profileImage",
+								"$vendorInfo.bannerUrl",
+								null,
+							],
+						},
+						location: "$vendorInfo.location",
+						isOnline: {
+							$eq: [
+								{ $arrayElemAt: ["$vendorInfo.storeDetails.status", 0] },
+								"active",
+							],
+						},
+					},
+				},
+			},
+			{ $skip: skip },
+			{ $limit: limitNum },
+		];
+
+		const data = await FoodItem.aggregate(pipeline).allowDiskUse(true);
+
+		res.json({
+			success: true,
+			data,
+			pagination: {
+				page: pageNum,
+				limit: limitNum,
+				hasNextPage: data.length === limitNum,
+			},
+		});
+	} catch (err) {
+		res.status(500).json({ success: false, message: err.message });
+	}
+};
+
 const createFoodItem = async (req, res) => {
 	try {
 		let { category, isCompulsory, subCategories } = req.body;
@@ -16,13 +96,6 @@ const createFoodItem = async (req, res) => {
 			return res
 				.status(404)
 				.json({ success: false, message: "Vendor profile not found." });
-
-		if (!vendor.isActive)
-			return res.status(403).json({
-				success: false,
-				message:
-					"Please complete your vendor profile before creating food items.",
-			});
 
 		if (!category)
 			return res
@@ -41,9 +114,10 @@ const createFoodItem = async (req, res) => {
 			try {
 				subCategories = JSON.parse(subCategories);
 			} catch {
-				return res
-					.status(400)
-					.json({ success: false, message: "Invalid subCategories format." });
+				return res.status(400).json({
+					success: false,
+					message: "Invalid subCategories format.",
+				});
 			}
 		}
 
@@ -57,10 +131,9 @@ const createFoodItem = async (req, res) => {
 				message: "At least one subcategory is required.",
 			});
 
-		const totalItems = subCategories.reduce(
-			(acc, subCat) => acc + (subCat.items?.length || 0),
-			0,
-		);
+		const totalItems = subCategories.reduce((acc, subCat) => {
+			return acc + (subCat.items?.length || 0);
+		}, 0);
 
 		if (totalItems > 20)
 			return res.status(400).json({
@@ -74,8 +147,6 @@ const createFoodItem = async (req, res) => {
 
 		const images = req.files?.img || [];
 		let imageIndex = 0;
-
-		// ── Validate all subCategories + build items first ────────
 		const builtSubCategories = [];
 
 		for (const subCat of subCategories) {
@@ -113,9 +184,10 @@ const createFoodItem = async (req, res) => {
 					});
 
 				if (item.price <= 0)
-					return res
-						.status(400)
-						.json({ success: false, message: "Price must be greater than 0." });
+					return res.status(400).json({
+						success: false,
+						message: "Price must be greater than 0.",
+					});
 
 				if (serviceType.includes("preOrderMeals") && !item.preparationTime)
 					return res.status(400).json({
@@ -148,47 +220,16 @@ const createFoodItem = async (req, res) => {
 			});
 		}
 
-		// ── Check if a FoodItem for this vendor + category exists ─
-		let foodItem = await FoodItem.findOne({ vendor: vendor._id, category });
-
-		if (foodItem) {
-			// Category exists — merge subcategories
-			for (const builtSubCat of builtSubCategories) {
-				const existingSubCat = foodItem.subCategory.find(
-					(s) => s.name === builtSubCat.name,
-				);
-
-				if (existingSubCat) {
-					// Subcategory exists — append items
-					existingSubCat.items.push(...builtSubCat.items);
-				} else {
-					// New subcategory — push the whole group
-					foodItem.subCategory.push(builtSubCat);
-				}
-			}
-
-			if (typeof isCompulsory === "boolean")
-				foodItem.isCompulsory = isCompulsory;
-
-			await foodItem.save();
-
-			return res.status(200).json({
-				success: true,
-				message: "Food item updated — new data merged into existing category.",
-				data: foodItem,
-			});
-		}
-
-		foodItem = await FoodItem.create({
+		const foodItem = await FoodItem.create({
 			category,
 			vendor: vendor._id,
-			isCompulsory: !!isCompulsory,
+			isCompulsory: isCompulsory === true || isCompulsory === "true",
 			subCategory: builtSubCategories,
 		});
 
-		return res.status(201).json({
+		res.status(201).json({
 			success: true,
-			message: "Food item created successfully.",
+			message: "Food item created successfully",
 			data: foodItem,
 		});
 	} catch (err) {
@@ -216,13 +257,6 @@ const addSubCategories = async (req, res) => {
 			return res
 				.status(404)
 				.json({ success: false, message: "Vendor profile not found." });
-
-		if (!vendor.isActive)
-			return res.status(403).json({
-				success: false,
-				message:
-					"Please complete your vendor profile before updating food items.",
-			});
 
 		const foodItem = await FoodItem.findOne({
 			_id: foodItemId,
@@ -262,9 +296,6 @@ const addSubCategories = async (req, res) => {
 		const serviceType = Array.isArray(vendor.servicesOffered)
 			? vendor.servicesOffered
 			: [vendor.servicesOffered];
-
-		console.log("servicesOffered:", vendor.servicesOffered);
-		console.log("serviceType array:", serviceType);
 
 		if (serviceType.includes("preOrderMeals") && !preparationTime)
 			return res.status(400).json({
@@ -319,8 +350,8 @@ const addSubCategories = async (req, res) => {
 			});
 		}
 
-		if (typeof isCompulsory === "boolean") {
-			foodItem.isCompulsory = isCompulsory;
+		if (isCompulsory !== undefined) {
+			foodItem.isCompulsory = isCompulsory === true || isCompulsory === "true";
 		}
 
 		await foodItem.save();
@@ -446,7 +477,9 @@ const updateFoodItem = async (req, res) => {
 		allowedFields.forEach((field) => {
 			if (req.body[field] !== undefined) {
 				foodItem[field] =
-					field === "isCompulsory" ? !!req.body[field] : req.body[field];
+					field === "isCompulsory"
+						? req.body[field] === true || req.body[field] === "true"
+						: req.body[field];
 			}
 		});
 
@@ -515,11 +548,13 @@ const deleteFoodItem = async (req, res) => {
 const getAllFoodItems = async (req, res) => {
 	try {
 		const filter = { isAvailable: true };
+		if (req.query.category) filter.category = req.query.category;
 
 		// Define what we want to "join" from the Vendor model
 		const populate = {
 			path: "vendor",
-			select: "storeDetails img description averageRating totalOrders",
+			select:
+				"storeDetails name img profileImage bannerUrl logoUrl description averageRating totalOrders",
 		};
 
 		const result = await paginate(FoodItem, req.query, populate, filter);
@@ -618,6 +653,7 @@ const processSelections = async (selections, vendorId) => {
 					populatedItems.push({
 						item: foundItem._id,
 						name: foundItem.name,
+						img: foundItem.img || "",
 						price: foundItem.price,
 						isAvailable: foundItem.isAvailable,
 					});
@@ -629,6 +665,7 @@ const processSelections = async (selections, vendorId) => {
 		return { ...group, items: populatedItems };
 	});
 };
+
 const createCombo = async (req, res) => {
 	try {
 		const {
@@ -646,11 +683,6 @@ const createCombo = async (req, res) => {
 			return res
 				.status(404)
 				.json({ success: false, message: "Vendor profile not found." });
-		if (!vendor.isActive)
-			return res.status(403).json({
-				success: false,
-				message: "Please complete your vendor profile before creating combos.",
-			});
 		if (!comboName || !basePrice || !req.file || !time)
 			return res.status(400).json({
 				success: false,
@@ -665,6 +697,7 @@ const createCombo = async (req, res) => {
 			selections,
 			vendor._id, // Pass VendorProfile ID
 		);
+
 		const combo = await Combo.create({
 			comboName,
 			description,
@@ -755,16 +788,48 @@ const deleteCombo = async (req, res) => {
 
 const getAllCombos = async (req, res) => {
 	try {
+		const { lat, lng } = req.query;
+		const vendorFilter = {
+			isActive: true,
+			"storeDetails.0.status": "active",
+		};
+
+		let onlineVendorIds;
+		if (lat && lng) {
+			// Return combos only from vendors within 10km of customer
+			const nearbyVendors = await VendorProfile.aggregate([
+				{
+					$geoNear: {
+						near: {
+							type: "Point",
+							coordinates: [parseFloat(lng), parseFloat(lat)],
+						},
+						distanceField: "distanceMeters",
+						maxDistance: 10000,
+						query: vendorFilter,
+						spherical: true,
+					},
+				},
+				{ $project: { _id: 1 } },
+			]);
+			onlineVendorIds = nearbyVendors.map((v) => v._id);
+		} else {
+			const onlineVendors =
+				await VendorProfile.find(vendorFilter).select("_id");
+			onlineVendorIds = onlineVendors.map((v) => v._id);
+		}
+
 		const populateOptions = [
-			{ path: "vendor", select: "img description averageRating totalOrders" },
 			{
-				path: "selections.items.item",
-				select: "name img description price",
+				path: "vendor",
+				select: "name img description averageRating totalOrders storeDetails",
 			},
-			{ path: "comboGroup", select: "name description" }, // Populate comboGroup
+			{ path: "selections.items.item", select: "name img description price" },
+			{ path: "comboGroup", select: "name description" },
 		];
 
-		const result = await paginate(Combo, req.query, populateOptions);
+		const filter = { vendor: { $in: onlineVendorIds } };
+		const result = await paginate(Combo, req.query, populateOptions, filter);
 		res.status(200).json(result);
 	} catch (error) {
 		res.status(500).json({ success: false, message: error.message });
@@ -800,7 +865,10 @@ const getMyCombos = async (req, res) => {
 const getComboById = async (req, res) => {
 	try {
 		const combo = await Combo.findById(req.params.comboId)
-			.populate("vendor", " img description averageRating totalOrders location")
+			.populate(
+				"vendor",
+				"name img description averageRating totalOrders location storeDetails isActive",
+			)
 			.populate({
 				path: "selections.items.item",
 				select: "name img description price",
@@ -819,7 +887,10 @@ const getVendorCombos = async (req, res) => {
 	try {
 		const filter = { vendor: req.params.vendorId };
 		const populateOptions = [
-			{ path: "vendor", select: "img description averageRating totalOrders" },
+			{
+				path: "vendor",
+				select: "name img description averageRating totalOrders",
+			},
 			{
 				path: "selections.items.item",
 				select: "name img description price",
@@ -884,6 +955,203 @@ const getVendorCombosGrouped = async (req, res) => {
 		res.status(500).json({ success: false, message: error.message });
 	}
 };
+const toggleFoodItemAvailability = async (req, res) => {
+	try {
+		const { foodItemId } = req.params;
+		const vendorId = req.user.id;
+
+		const vendor = await VendorProfile.findOne({ owner: vendorId }).lean();
+		if (!vendor)
+			return res
+				.status(404)
+				.json({ success: false, message: "Vendor not found" });
+
+		const item = await FoodItem.findOne({
+			_id: foodItemId,
+			vendor: vendor._id,
+		});
+		if (!item)
+			return res
+				.status(404)
+				.json({ success: false, message: "Food item not found" });
+
+		item.isAvailable = !item.isAvailable;
+		await item.save();
+
+		return res.json({
+			success: true,
+			isAvailable: item.isAvailable,
+			message: `Item is now ${item.isAvailable ? "available" : "unavailable"}`,
+		});
+	} catch (error) {
+		return res.status(500).json({ success: false, message: error.message });
+	}
+};
+
+// GET /api/food-items/vendors-by-category?category=rice&page=1&limit=20
+// Returns vendors that have food items in the given category.
+const getVendorsByCategory = async (req, res) => {
+	try {
+		const { category, page = 1, limit = 20 } = req.query;
+		if (!category)
+			return res
+				.status(400)
+				.json({ success: false, message: "category is required" });
+
+		const pageNum = parseInt(page);
+		const limitNum = parseInt(limit);
+		const skip = (pageNum - 1) * limitNum;
+
+		const pipeline = [
+			{ $match: { category: category.toLowerCase(), isAvailable: true } },
+			{ $group: { _id: "$vendor" } },
+			{
+				$lookup: {
+					from: "vendorprofiles",
+					localField: "_id",
+					foreignField: "_id",
+					as: "vendor",
+				},
+			},
+			{ $unwind: "$vendor" },
+			{ $match: { "vendor.isActive": true } },
+			{
+				$project: {
+					_id: 0,
+					type: { $literal: "vendor" },
+					id: "$vendor._id",
+					name: "$vendor.name",
+					image: {
+						$ifNull: [
+							"$vendor.logoUrl",
+							"$vendor.profileImage",
+							"$vendor.bannerUrl",
+							null,
+						],
+					},
+					isOpen: {
+						$eq: [
+							{ $arrayElemAt: ["$vendor.storeDetails.status", 0] },
+							"active",
+						],
+					},
+					averageRating: { $ifNull: ["$vendor.averageRating", 0] },
+					totalRating: { $ifNull: ["$vendor.ratingCount", 0] },
+					deliveryFee: {
+						$ifNull: ["$vendor.fulfillmentSettings.deliveryPrice", 0],
+					},
+					location: "$vendor.location",
+				},
+			},
+			{ $skip: skip },
+			{ $limit: limitNum },
+		];
+
+		const data = await FoodItem.aggregate(pipeline).allowDiskUse(true);
+		res.json({
+			success: true,
+			data,
+			pagination: {
+				page: pageNum,
+				limit: limitNum,
+				hasNextPage: data.length === limitNum,
+			},
+		});
+	} catch (err) {
+		res.status(500).json({ success: false, message: err.message });
+	}
+};
+
+const toggleComboAvailability = async (req, res) => {
+	try {
+		const { comboId } = req.params;
+		const vendorId = req.user.id;
+
+		const vendor = await VendorProfile.findOne({ owner: vendorId }).lean();
+		if (!vendor)
+			return res
+				.status(404)
+				.json({ success: false, message: "Vendor not found" });
+
+		const combo = await Combo.findOne({ _id: comboId, vendor: vendor._id });
+		if (!combo)
+			return res
+				.status(404)
+				.json({ success: false, message: "Combo not found" });
+
+		combo.isAvailable = !combo.isAvailable;
+		await combo.save();
+
+		return res.json({
+			success: true,
+			isAvailable: combo.isAvailable,
+			message: `Combo is now ${combo.isAvailable ? "available" : "unavailable"}`,
+		});
+	} catch (error) {
+		return res.status(500).json({ success: false, message: error.message });
+	}
+};
+
+// PATCH /api/food-items/:foodItemId/subcategory/:subItemId/availability
+// Toggles the isAvailable flag on a single sub-category item
+const toggleSubItemAvailability = async (req, res) => {
+	try {
+		const { foodItemId, subItemId } = req.params;
+		const vendorId = req.user.id;
+
+		const vendor = await VendorProfile.findOne({ owner: vendorId }).lean();
+		if (!vendor)
+			return res
+				.status(404)
+				.json({ success: false, message: "Vendor not found" });
+
+		const foodItem = await FoodItem.findOne({
+			_id: foodItemId,
+			vendor: vendor._id,
+		});
+		if (!foodItem)
+			return res
+				.status(404)
+				.json({ success: false, message: "Food item not found" });
+
+		// Find the sub-item across all subcategory groups
+		let found = false;
+		for (const group of foodItem.subCategory) {
+			const subItem = group.items.id(subItemId);
+			if (subItem) {
+				subItem.isAvailable = !subItem.isAvailable;
+				found = true;
+				break;
+			}
+		}
+
+		if (!found)
+			return res
+				.status(404)
+				.json({ success: false, message: "Sub-item not found" });
+
+		await foodItem.save();
+
+		// Return the updated state of the toggled sub-item
+		let updatedItem = null;
+		for (const group of foodItem.subCategory) {
+			const subItem = group.items.id(subItemId);
+			if (subItem) {
+				updatedItem = subItem;
+				break;
+			}
+		}
+
+		return res.json({
+			success: true,
+			isAvailable: updatedItem.isAvailable,
+			message: `Item is now ${updatedItem.isAvailable ? "available" : "unavailable"}`,
+		});
+	} catch (error) {
+		return res.status(500).json({ success: false, message: error.message });
+	}
+};
+
 module.exports = {
 	createFoodItem,
 	updateFoodItem,
@@ -893,13 +1161,17 @@ module.exports = {
 	getAllFoodItems,
 	getFoodItemById,
 	getMyFoodItems,
+	getFoodByCategory,
+	getVendorsByCategory,
 	createCombo,
 	updateCombo,
 	deleteCombo,
 	getAllCombos,
 	getComboById,
 	getMyCombos,
-	getMyCombos,
 	getVendorCombos,
 	getVendorCombosGrouped,
+	toggleFoodItemAvailability,
+	toggleSubItemAvailability,
+	toggleComboAvailability,
 };
