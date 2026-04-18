@@ -8,6 +8,7 @@ const TYPES = [
 	"newsflash",
 	"account_suspended",
 	"vendor_accepted_order",
+	"vendor_declined_order",
 	"order_preparing",
 	"ready_for_pickup",
 	"order_delivered",
