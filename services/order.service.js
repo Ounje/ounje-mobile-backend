@@ -688,7 +688,7 @@ const sendDeliveryOtp = async (order) => {
 	const otpHash = hashOtp(otp);
 	const duration = parseInt(process.env.DELIVERY_OTP_DURATION || 1440); // 24 hours
 
-	order.deliveryOtp = otp;
+	order.deliveryOtpCode = otp;
 	order.deliveryOtpHash = otpHash;
 	order.deliveryOtpSentAt = new Date();
 	order.deliveryOtpExpiresAt = new Date(Date.now() + duration * 60 * 1000);
