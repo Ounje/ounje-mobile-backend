@@ -203,8 +203,8 @@ class NotificationService {
 		return this.createNotification({
 			recipient: customerId,
 			recipientModel: "customer",
-			type: "vendor_accepted_order",
-			title: "Vendor has accepted your order!",
+			type: "vendor_declined_order",
+			title: "Vendor has declined your order!",
 			message: `${vendorName} declined your order`,
 			data: {
 				orderId: order._id,
@@ -237,7 +237,7 @@ class NotificationService {
 			priority: "high",
 		});
 	}
-	async notifyCustomerRiderDeclined(customerId,order){
+	async notifyCustomerRiderDeclined(customerId, order) {
 		return this.createNotification({
 			recipient: customerId,
 			recipientModel: "customer",
@@ -247,7 +247,6 @@ class NotificationService {
 			data: { orderId: order._id },
 			priority: "high",
 		});
-
 	}
 
 	// ============ RIDER NOTIFICATIONS ============
@@ -295,20 +294,25 @@ class NotificationService {
 			if (recipientModel === "vendor") {
 				const { VendorProfile } = require("../models");
 				const profile = await VendorProfile.findById(profileId).select("owner");
-				if (profile?.owner) user = await User.findById(profile.owner).select("fcmToken");
+				if (profile?.owner)
+					user = await User.findById(profile.owner).select("fcmToken");
 			} else if (recipientModel === "rider") {
 				const { RiderProfile } = require("../models");
 				const profile = await RiderProfile.findById(profileId).select("user");
-				if (profile?.user) user = await User.findById(profile.user).select("fcmToken");
+				if (profile?.user)
+					user = await User.findById(profile.user).select("fcmToken");
 			} else {
 				// Customer — recipient IS the customer profile ID; look up by user field
 				const { Customer } = require("../models");
 				const profile = await Customer.findById(profileId).select("user");
-				if (profile?.user) user = await User.findById(profile.user).select("fcmToken");
+				if (profile?.user)
+					user = await User.findById(profile.user).select("fcmToken");
 			}
 
 			if (!user) {
-				logger.warn(`User not found for ${recipientModel} profile ${profileId}`);
+				logger.warn(
+					`User not found for ${recipientModel} profile ${profileId}`,
+				);
 				return;
 			}
 
@@ -317,10 +321,16 @@ class NotificationService {
 				return;
 			}
 
-			await sendPushNotification(user.fcmToken, title, body, { channelId: "orders" });
-			logger.info(`Push notification sent to ${recipientModel} ${profileId}: ${title}`);
+			await sendPushNotification(user.fcmToken, title, body, {
+				channelId: "orders",
+			});
+			logger.info(
+				`Push notification sent to ${recipientModel} ${profileId}: ${title}`,
+			);
 		} catch (error) {
-			logger.error(`Failed to send push notification to ${profileId}: ${error.message}`);
+			logger.error(
+				`Failed to send push notification to ${profileId}: ${error.message}`,
+			);
 		}
 	}
 }

@@ -1,22 +1,34 @@
 const admin = require("firebase-admin");
-let serviceAccount;
+const logger = require("./logger");
 
 function initFirebase() {
 	try {
+		let serviceAccount;
+
 		if (process.env.FIREBASE_SERVICE_ACCOUNT_JSON) {
 			serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_JSON);
+			if (serviceAccount.private_key) {
+				serviceAccount.private_key = serviceAccount.private_key.replace(
+					/\\n/g,
+					"\n",
+				);
+			}
 		} else {
 			serviceAccount = require("../config/serviceAccountKey.json");
 		}
-		admin.initializeApp({
-			credential: admin.credential.cert(serviceAccount),
-		});
-		console.log("✅ Firebase Admin Initialized");
+
+		if (!admin.apps.length) {
+			admin.initializeApp({
+				credential: admin.credential.cert(serviceAccount),
+			});
+		}
+
+		logger.info("✅ Firebase Admin Initialized");
 	} catch (error) {
-		console.warn(
+		logger.warn(
 			"⚠️ Firebase configuration missing or invalid. Push notifications will be disabled.",
 		);
-		console.warn("Firebase init error:", error.message);
+		logger.warn(`Firebase init error: ${error.message}`);
 	}
 	return admin;
 }
