@@ -6,18 +6,33 @@ function initFirebase() {
 	try {
 		let serviceAccount;
 
+		const secretPath = "/etc/secrets/.serviceAccountKey.json";
+
 		if (process.env.FIREBASE_SERVICE_ACCOUNT_JSON) {
+			logger.info("🔑 Firebase: loading from env var");
 			serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_JSON);
 			if (serviceAccount.private_key) {
 				serviceAccount.private_key = serviceAccount.private_key
 					.replace(/\\\\n/g, "\n")
 					.replace(/\\n/g, "\n");
 			}
-		} else if (fs.existsSync("/etc/secrets/.serviceAccountKey.json")) {
-			serviceAccount = require("/etc/secrets/.serviceAccountKey.json");
+		} else if (fs.existsSync(secretPath)) {
+			logger.info("🔑 Firebase: loading from secret file");
+			serviceAccount = JSON.parse(fs.readFileSync(secretPath, "utf8"));
 		} else {
+			logger.info("🔑 Firebase: loading from local config");
 			serviceAccount = require("../config/serviceAccountKey.json");
 		}
+
+		// Log enough to confirm the credential is intact
+		logger.info(`🔑 Firebase project_id: ${serviceAccount.project_id}`);
+		logger.info(`🔑 Firebase client_email: ${serviceAccount.client_email}`);
+		logger.info(
+			`🔑 Firebase private_key starts: ${serviceAccount.private_key?.slice(0, 50)}`,
+		);
+		logger.info(
+			`🔑 Firebase private_key ends: ${serviceAccount.private_key?.slice(-50)}`,
+		);
 
 		if (!admin.apps.length) {
 			admin.initializeApp({
