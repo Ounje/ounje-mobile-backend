@@ -3,6 +3,7 @@ const mongoose = require("mongoose");
 const cors = require("cors");
 const http = require("http"); // Standard Node.js module
 require("dotenv").config();
+console.log("Resend Key present:", !!process.env.RESEND_API_KEY);
 const httpLogger = require("./middleware/httpLogger");
 const logger = require("./utils/logger");
 
@@ -108,7 +109,9 @@ io.on("connection", async (socket) => {
 			const [customer, vendor, rider] = await Promise.all([
 				Customer.findOne({ user: userId }).select("_id").lean(),
 				VendorProfile.findOne({ owner: userId }).select("_id").lean(),
-				RiderProfile.findOne({ user: userId }).select("_id status isActive operatingArea").lean(),
+				RiderProfile.findOne({ user: userId })
+					.select("_id status isActive operatingArea")
+					.lean(),
 			]);
 
 			if (customer) {
@@ -141,19 +144,25 @@ io.on("connection", async (socket) => {
 		try {
 			const { Customer, VendorProfile, RiderProfile } = require("./models");
 
-			const customer = await Customer.findOne({ user: userId }).select("_id").lean();
+			const customer = await Customer.findOne({ user: userId })
+				.select("_id")
+				.lean();
 			if (customer) {
 				socket.join(customer._id.toString());
 				logger.info(`Socket auto-joined customerProfile room: ${customer._id}`);
 			}
 
-			const vendor = await VendorProfile.findOne({ owner: userId }).select("_id").lean();
+			const vendor = await VendorProfile.findOne({ owner: userId })
+				.select("_id")
+				.lean();
 			if (vendor) {
 				socket.join(vendor._id.toString());
 				logger.info(`Socket auto-joined vendorProfile room: ${vendor._id}`);
 			}
 
-			const rider = await RiderProfile.findOne({ user: userId }).select("_id").lean();
+			const rider = await RiderProfile.findOne({ user: userId })
+				.select("_id")
+				.lean();
 			if (rider) {
 				socket.join(rider._id.toString());
 				logger.info(`Socket auto-joined riderProfile room: ${rider._id}`);

@@ -626,7 +626,7 @@ const logOut = asyncHandler(async (req, res) => {
 		if (user?.role === "vendor") {
 			await VendorProfile.updateOne(
 				{ owner: tokenRecord.user, "storeDetails.0": { $exists: true } },
-				{ $set: { "storeDetails.0.status": "inactive" } }
+				{ $set: { "storeDetails.0.status": "inactive" } },
 			);
 		}
 	}

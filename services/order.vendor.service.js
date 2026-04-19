@@ -139,7 +139,9 @@ const vendorAcceptOrder = async (orderId, vendorId) => {
 	try {
 		await ledgerService.pendVendorEarning(order.vendor, order._id);
 	} catch (ledgerErr) {
-		logger.error(`[WALLET] pendVendorEarning failed on accept: orderId=${orderId} err=${ledgerErr.message}`);
+		logger.error(
+			`[WALLET] pendVendorEarning failed on accept: orderId=${orderId} err=${ledgerErr.message}`,
+		);
 	}
 
 	try {
@@ -166,7 +168,10 @@ const vendorAcceptOrder = async (orderId, vendorId) => {
 };
 
 const vendorStartPreparing = async (orderId, vendorId) => {
-	const order = await Order.findById(orderId).populate("vendor", "name location");
+	const order = await Order.findById(orderId).populate(
+		"vendor",
+		"name location",
+	);
 	if (!order) throw new Error("Order not found");
 
 	if (order.vendor._id.toString() !== vendorId) {
@@ -197,7 +202,10 @@ const vendorStartPreparing = async (orderId, vendorId) => {
 };
 
 const vendorMarkReady = async (orderId, vendorId) => {
-	const order = await Order.findById(orderId).populate("vendor", "name location zone");
+	const order = await Order.findById(orderId).populate(
+		"vendor",
+		"name location zone",
+	);
 	if (!order) throw new Error("Order not found");
 
 	if (order.vendor._id.toString() !== vendorId) {
@@ -223,13 +231,7 @@ const vendorMarkReady = async (orderId, vendorId) => {
 	}
 
 	try {
-		await notificationService.sendNotification({
-			userId: order.customer,
-			title: "Order Ready for Pickup!",
-			body: "Your order has been packed and is ready for pickup by a rider.",
-			type: "order_ready",
-			data: { orderId: order._id },
-		});
+		await notificationService.notifyCustomerFoodReady(order.customer, order);
 		logger.info(`Order ${orderId} marked ready by vendor ${vendorId}`);
 	} catch (error) {
 		logger.error(`Failed to send ready notification: ${error.message}`);
@@ -246,7 +248,9 @@ const vendorMarkReady = async (orderId, vendorId) => {
 			ORDER_STATUS.RIDING,
 			ORDER_SUB_STATUS.LOOKING_FOR_RIDER,
 		);
-		logger.info(`[vendorMarkReady] Status set to RIDING/LOOKING_FOR_RIDER for order ${orderId}`);
+		logger.info(
+			`[vendorMarkReady] Status set to RIDING/LOOKING_FOR_RIDER for order ${orderId}`,
+		);
 		if (global.io) {
 			global.io.to(order.customer.toString()).emit("orderUpdate", {
 				orderId: order._id,
@@ -255,7 +259,9 @@ const vendorMarkReady = async (orderId, vendorId) => {
 			});
 		}
 	} catch (statusError) {
-		logger.error(`Failed to set LOOKING_FOR_RIDER status: ${statusError.message}`);
+		logger.error(
+			`Failed to set LOOKING_FOR_RIDER status: ${statusError.message}`,
+		);
 	}
 
 	// Step 2: Start sequential dispatch — one rider at a time, 60s per rider (non-blocking)
@@ -270,10 +276,14 @@ const vendorMarkReady = async (orderId, vendorId) => {
 			const { identifyZone } = require("../utils/delivery");
 			const vendorAddress = order.vendor?.location?.address || "";
 			dispatchZone = identifyZone(vendorAddress, order.vendor?.zone);
-			logger.info(`[vendorMarkReady] Zone re-resolved: "${dispatchZone}" (was "${order.zone}") for order ${orderId}`);
+			logger.info(
+				`[vendorMarkReady] Zone re-resolved: "${dispatchZone}" (was "${order.zone}") for order ${orderId}`,
+			);
 		}
 
-		logger.info(`[vendorMarkReady] Triggering startDispatch for order ${orderId} zone="${dispatchZone}"`);
+		logger.info(
+			`[vendorMarkReady] Triggering startDispatch for order ${orderId} zone="${dispatchZone}"`,
+		);
 		await startDispatch(order._id, vendorLocation, dispatchZone);
 	} catch (error) {
 		logger.error(`Dispatch start failed (non-blocking): ${error.message}`);
@@ -342,7 +352,12 @@ const getVendorOrders = async (vendorProfileId, query = {}) => {
 				],
 			};
 			// Exclude unaccepted orders (status=confirming + subStatus=confirming = still in new tab)
-			filter.$nor = [{ status: ORDER_STATUS.CONFIRMING, subStatus: ORDER_SUB_STATUS.CONFIRMING }];
+			filter.$nor = [
+				{
+					status: ORDER_STATUS.CONFIRMING,
+					subStatus: ORDER_SUB_STATUS.CONFIRMING,
+				},
+			];
 		} else if (status === "completed") {
 			filter.status = ORDER_STATUS.DELIVERED;
 		} else if (status === "cancelled") {
@@ -354,7 +369,11 @@ const getVendorOrders = async (vendorProfileId, query = {}) => {
 
 	const orders = await Order.find(filter)
 		.populate("customer", "firstName lastName phone -_id")
-		.populate({ path: "rider", select: "user", populate: { path: "user", select: "name phone" } })
+		.populate({
+			path: "rider",
+			select: "user",
+			populate: { path: "user", select: "name phone" },
+		})
 		.populate({ path: "items.item", select: "name comboName img imageUrl" })
 		.sort({ createdAt: -1 });
 
@@ -376,7 +395,11 @@ const vendorGetCustomerOrderDetails = async (orderId, vendorProfileId) => {
 		vendor: vendorProfileId,
 	})
 		.populate("customer", "firstName lastName phone -_id")
-		.populate({ path: "rider", select: "user", populate: { path: "user", select: "name phone" } })
+		.populate({
+			path: "rider",
+			select: "user",
+			populate: { path: "user", select: "name phone" },
+		})
 		.populate({
 			path: "items.item",
 			select: "category subCategory name comboName plateName basePrice price",

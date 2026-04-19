@@ -2,8 +2,7 @@ const { VendorProfile, Customer } = require("../models");
 const { deleteImage } = require("../config/cloudinary");
 const payoutService = require("./payout.service");
 const { parseTime: _parseTime } = require("../utils/time");
-const {DAYS_OF_WEEK} = require("../utils/constants");
-
+const { DAYS_OF_WEEK } = require("../utils/constants");
 
 class VendorService {
 	/**
@@ -86,7 +85,11 @@ class VendorService {
 		}
 		// online vendors first, then highest ranking score
 		return VendorProfile.find(filter)
-			.sort({ "storeDetails.0.status": -1, rankingScore: -1, averageRating: -1 })
+			.sort({
+				"storeDetails.0.status": -1,
+				rankingScore: -1,
+				averageRating: -1,
+			})
 			.limit(20);
 	}
 
@@ -97,16 +100,23 @@ class VendorService {
 	async updateVendorRankingScore(vendorId) {
 		try {
 			const Order = require("../models/Order");
-			const vendor = await VendorProfile.findById(vendorId).select("averageRating rankingScore");
+			const vendor = await VendorProfile.findById(vendorId).select(
+				"averageRating rankingScore",
+			);
 			if (!vendor) return;
 
-			const totalOrders = await Order.countDocuments({ vendor: vendorId, status: "delivered" });
-			const score = (totalOrders * 0.5) + ((vendor.averageRating || 0) * 10 * 0.5);
+			const totalOrders = await Order.countDocuments({
+				vendor: vendorId,
+				status: "delivered",
+			});
+			const score = totalOrders * 0.5 + (vendor.averageRating || 0) * 10 * 0.5;
 
 			await VendorProfile.findByIdAndUpdate(vendorId, { rankingScore: score });
 		} catch (err) {
 			// non-blocking — ranking update shouldn't break anything
-			require("../utils/logger").error(`updateVendorRankingScore failed: ${err.message}`);
+			require("../utils/logger").error(
+				`updateVendorRankingScore failed: ${err.message}`,
+			);
 		}
 	}
 
@@ -148,7 +158,12 @@ class VendorService {
 		}
 
 		const data = vendor.toJSON();
-		return { ...data, img: data.profileImage ?? null, totalOrders, ordersToday };
+		return {
+			...data,
+			img: data.profileImage ?? null,
+			totalOrders,
+			ordersToday,
+		};
 	}
 
 	/**
@@ -607,7 +622,9 @@ class VendorService {
 		if (!vendor) throw new Error("Vendor not found");
 
 		if (!vendor.storeDetails || vendor.storeDetails.length === 0) {
-			throw new Error("Complete your store registration before updating periods");
+			throw new Error(
+				"Complete your store registration before updating periods",
+			);
 		}
 
 		const servicesOffered = vendor.storeDetails[0].servicesOffered;
@@ -629,9 +646,7 @@ class VendorService {
 						);
 					}
 					if (!entry.period) {
-						throw new Error(
-							`preorderPeriods[${index}]: period is required`,
-						);
+						throw new Error(`preorderPeriods[${index}]: period is required`);
 					}
 					if (!VALID_MEAL_PERIODS.includes(entry.period)) {
 						throw new Error(
@@ -728,7 +743,8 @@ class VendorService {
 			const VALID_MEAL_PERIODS = ["breakfast", "lunch", "dinner"];
 
 			if (!entry.orderingTime) throw new Error("orderingTime is required");
-			if (!entry.preparationTime) throw new Error("preparationTime is required");
+			if (!entry.preparationTime)
+				throw new Error("preparationTime is required");
 			if (!entry.period) throw new Error("period is required");
 			if (!VALID_MEAL_PERIODS.includes(entry.period)) {
 				throw new Error(
@@ -829,7 +845,9 @@ class VendorService {
 		if (!vendor) throw new Error("Vendor not found");
 
 		if (!vendor.storeDetails || vendor.storeDetails.length === 0) {
-			throw new Error("Complete your store registration before managing periods");
+			throw new Error(
+				"Complete your store registration before managing periods",
+			);
 		}
 
 		const servicesOffered = vendor.storeDetails[0].servicesOffered;
@@ -837,7 +855,9 @@ class VendorService {
 		if (servicesOffered === "preOrderMeals") {
 			const periods = vendor.storeDetails[0].preorderPeriods || [];
 			if (index >= periods.length) {
-				throw new Error(`Index ${index} is out of range. Only ${periods.length} period(s) exist.`);
+				throw new Error(
+					`Index ${index} is out of range. Only ${periods.length} period(s) exist.`,
+				);
 			}
 			periods.splice(index, 1);
 			vendor.storeDetails[0].preorderPeriods = periods;
@@ -858,7 +878,9 @@ class VendorService {
 		) {
 			const periods = vendor.storeDetails[0].timePeriod || [];
 			if (index >= periods.length) {
-				throw new Error(`Index ${index} is out of range. Only ${periods.length} period(s) exist.`);
+				throw new Error(
+					`Index ${index} is out of range. Only ${periods.length} period(s) exist.`,
+				);
 			}
 			periods.splice(index, 1);
 			vendor.storeDetails[0].timePeriod = periods;

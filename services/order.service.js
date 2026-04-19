@@ -688,9 +688,7 @@ const sendDeliveryOtp = async (order) => {
 	const otpHash = hashOtp(otp);
 	const duration = parseInt(process.env.DELIVERY_OTP_DURATION || 1440); // 24 hours
 
-	// FIX #2: do NOT persist the plaintext OTP to the DB.
-	// The hash is sufficient for verification. The raw OTP is only held in
-	// memory long enough to emit it via socket, then discarded.
+	order.deliveryOtpCode = otp;
 	order.deliveryOtpHash = otpHash;
 	order.deliveryOtpSentAt = new Date();
 	order.deliveryOtpExpiresAt = new Date(Date.now() + duration * 60 * 1000);

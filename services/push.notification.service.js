@@ -12,7 +12,14 @@ const logger = require("../utils/logger");
  */
 const sendPushNotification = async (token, title, body, options = {}) => {
 	try {
-		if (!token) return;
+		if (!token) {
+			logger.warn("⚠️ Push skipped — no FCM token provided");
+			return;
+		}
+
+		logger.info(
+			`📱 Attempting push — token: ${token.slice(0, 20)}... | title: "${title}"`,
+		);
 
 		const messaging = admin.messaging?.();
 		if (!messaging) {
@@ -48,9 +55,22 @@ const sendPushNotification = async (token, title, body, options = {}) => {
 		};
 
 		await messaging.send(message);
-		logger.info(`✅ Push notification sent via Firebase: ${title}`);
+		logger.info(`✅ Push notification sent via Firebase: "${title}"`);
 	} catch (error) {
-		logger.error(`❌ Firebase push error: ${error.message}`);
+		// Token is invalid or expired — log the token so it can be identified and cleared
+		if (
+			error.code === "messaging/invalid-registration-token" ||
+			error.code === "messaging/registration-token-not-registered"
+		) {
+			logger.warn(
+				`⚠️ Stale or invalid FCM token (first 20): ${token?.slice(0, 20)}... — device may need to re-register`,
+			);
+			return;
+		}
+
+		logger.error(
+			`❌ Firebase push error: ${error.message} | token: ${token?.slice(0, 20)}...`,
+		);
 	}
 };
 
