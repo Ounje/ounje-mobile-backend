@@ -10,6 +10,7 @@ const TYPES = [
 	"vendor_accepted_order",
 	"vendor_declined_order",
 	"order_preparing",
+	"food_ready",
 	"ready_for_pickup",
 	"order_delivered",
 	"rider_assigned",
