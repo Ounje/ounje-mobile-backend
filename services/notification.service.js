@@ -185,6 +185,18 @@ class NotificationService {
 			priority: "high",
 		});
 	}
+	async notifyCustomerFoodReady(customerId, order) {
+		return this.createNotification({
+			recipient: customerId,
+			recipientModel: "customer",
+			type: "food_ready",
+			title: "🍽️ Food Ready for Pickup!",
+			message: "Your food is ready and waiting for the rider to pick it up",
+			data: { orderId: order._id },
+			priority: "high",
+		});
+	}
+
 	async notifyCustomerOrderAccepted(customerId, order, vendorName) {
 		return this.createNotification({
 			recipient: customerId,

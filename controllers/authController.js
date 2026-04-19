@@ -327,7 +327,7 @@ const requestEmailOtp = asyncHandler(async (req, res) => {
 	const otp = generateOtp();
 	await OtpVerification.deleteMany({ email, isEmail: true });
 	await OtpVerification.create({ email, otp, isEmail: true });
-	console.log("Resend instance:", !!emailService?.provider?.resend);
+
 	await emailService.sendOtpEmail(
 		email,
 		otp,
