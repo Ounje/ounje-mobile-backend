@@ -1,8 +1,9 @@
 const mongoose = require("mongoose");
-const { Order, VendorProfile } = require("../models");
+const { Order, VendorProfile, Payment } = require("../models");
 const orderService = require("./order.service");
 const notificationService = require("./notification.service");
 const ledgerService = require("./ledger.service");
+const { refundTransaction } = require("./dva.service");
 const { ORDER_STATUS, ORDER_SUB_STATUS } = require("../utils/constants");
 const logger = require("../utils/logger");
 
@@ -58,6 +59,37 @@ const declineOrder = async (orderId, vendorId, declineData = {}) => {
 	order.declinedBy = vendorId;
 	order.declineReason = reason;
 	order.declineNote = note || null;
+
+	if (order.paymentStatus === "paid") {
+		if (order.paymentMethod === "wallet") {
+			await ledgerService.creditAccount(
+				order.customer,
+				"CUSTOMER",
+				order.totalPrice,
+				"REFUND",
+				order._id,
+				{ reason: "vendor_declined" },
+			);
+			order.paymentStatus = "refunded";
+		} else if (order.paymentMethod === "paystack") {
+			const payment = await Payment.findOne({ orderId: order._id, status: "success" });
+			if (payment) {
+				try {
+					await refundTransaction(payment.reference, order.totalPrice * 100);
+					order.paymentStatus = "refunded";
+					logger.info(`[REFUND] Paystack refund issued for order ${order._id} ref ${payment.reference}`);
+				} catch (err) {
+					logger.error(`[REFUND] Paystack refund failed for order ${order._id}: ${err.message}`);
+				}
+			}
+		}
+
+		await ledgerService.reverseVendorHold(order.vendor, order._id);
+
+		if (order.rider) {
+			await ledgerService.reverseRiderFeeHold(order.rider, order._id);
+		}
+	}
 
 	await order.save();
 
