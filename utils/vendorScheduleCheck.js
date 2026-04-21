@@ -13,6 +13,9 @@ const isVendorOpenNow = (vendor) => {
     const storeDetails = vendor.storeDetails?.[0];
     if (!storeDetails) return false;
 
+    // Vendor must be actively online — logged-out or manually closed vendors cannot accept orders
+    if (storeDetails.status !== "active") return false;
+
     const { servicesOffered } = storeDetails;
 
     // Shift current time to WAT (UTC+1)
@@ -60,6 +63,11 @@ const isVendorOpenNow = (vendor) => {
  */
 const buildClosedReason = (vendor) => {
     const storeDetails = vendor.storeDetails?.[0];
+
+    if (!storeDetails || storeDetails.status !== "active") {
+        return "This vendor is currently offline and not accepting orders.";
+    }
+
     const { servicesOffered } = storeDetails;
 
     if (servicesOffered === "preOrderMeals") {

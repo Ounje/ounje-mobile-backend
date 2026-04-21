@@ -150,9 +150,24 @@ async function provisionCustomerDVA(customer) {
 	};
 }
 
+async function refundTransaction(reference, amountKobo) {
+	try {
+		const { data } = await paystack.post("/refund", {
+			transaction: reference,
+			amount: amountKobo,
+		});
+		return data.data;
+	} catch (err) {
+		throw new Error(
+			err.response?.data?.message || "Failed to issue Paystack refund",
+		);
+	}
+}
+
 module.exports = {
 	createPaystackCustomer,
 	createTitanVirtualAccount,
 	fetchCustomerDVA,
 	provisionCustomerDVA,
+	refundTransaction,
 };

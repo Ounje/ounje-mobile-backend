@@ -87,23 +87,17 @@ exports.customer = {
 };
 
 exports.dedicatedAccount = {
-	assign: async ({
-		customer,
-		first_name,
-		last_name,
-		phone,
-		preferred_bank = "titan-paystack",
-	}) =>
-		safeRequest(
-			paystack.post("/dedicated_account/assign", {
-				customer,
-				first_name,
-				last_name,
-				phone,
-				preferred_bank,
-				country: "NG",
-			}),
-		),
+  assign: async ({ customer, first_name, last_name, phone, preferred_bank = "titan-paystack" }) =>
+    safeRequest(
+      paystack.post("/dedicated_account/assign", {
+        customer,
+        first_name,
+        last_name,
+        phone,
+        preferred_bank,
+        country: "NG",
+      })
+    ),
 
 	fetch: async (accountNumber) =>
 		safeRequest(paystack.get(`/dedicated_account/${accountNumber}`)),

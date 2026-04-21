@@ -852,6 +852,60 @@ const releaseVendorAmount = async (vendorId, orderId) => {
 };
 
 /**
+ * Reverse a vendor earning hold — called when a vendor declines an order.
+ */
+const reverseVendorHold = async (vendorId, orderId) => {
+	const session = await mongoose.startSession();
+	session.startTransaction();
+	try {
+		const account = await ensureAccount(vendorId, "VENDOR", session);
+
+		const holdEntry = await LedgerEntry.findOne({
+			orderId,
+			accountId: account._id,
+			reason: "VENDOR_EARNING_HOLD",
+		});
+
+		if (!holdEntry) {
+			await session.commitTransaction();
+			return;
+		}
+
+		const amount = holdEntry.amount;
+
+		await LedgerAccount.findOneAndUpdate(
+			{ _id: account._id },
+			{ $inc: { holdBalance: -amount } },
+			{ session },
+		);
+
+		await LedgerEntry.create(
+			[
+				{
+					accountId: account._id,
+					amount,
+					entryType: "DEBIT",
+					reason: "REVERSAL",
+					orderId,
+					meta: { action: "vendor_earning_hold_reversed", reason: "vendor_declined" },
+					balanceAfter: account.availableBalance,
+				},
+			],
+			{ session },
+		);
+
+		await session.commitTransaction();
+		logger.info(`[WALLET] reverseVendorHold: orderId=${orderId} vendorId=${vendorId} amount=${amount}`);
+	} catch (error) {
+		await session.abortTransaction();
+		logger.error(`[WALLET] reverseVendorHold failed: orderId=${orderId} err=${error.message}`);
+		throw error;
+	} finally {
+		session.endSession();
+	}
+};
+
+/**
  * Reverse a delivery fee hold — called when a rider declines after accepting.
  *  FIX #1: atomic update
  */
@@ -923,6 +977,7 @@ module.exports = {
 	holdRiderFee,
 	releaseRiderFee,
 	reverseRiderFeeHold,
+	reverseVendorHold,
 	holdVendorAmount,
 	pendVendorEarning,
 	releaseVendorAmount,
