@@ -120,6 +120,7 @@ const getAllPlates = async (req, res) => {
 				{ $limit: limit },
 				{
 					$project: {
+						id: { $toString: "$_id" },
 						name: 1,
 						description: 1,
 						price: 1,
@@ -218,6 +219,7 @@ const getPopularPlates = async (req, res) => {
 			{ $unwind: { path: "$vendorInfo", preserveNullAndEmptyArrays: true } },
 			{
 				$project: {
+					id: { $toString: "$_id" },
 					name: 1,
 					description: 1,
 					price: 1,
