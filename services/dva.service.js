@@ -24,6 +24,8 @@ function normalizePhone(phone) {
 
 	if (typeof phone === "string") return phone;
 
+	if (typeof phone === "number") return phone.toString();
+
 	if (typeof phone === "object") {
 		return phone.number || phone.phone || "";
 	}
@@ -127,7 +129,7 @@ async function provisionCustomerDVA(customer) {
 			email: user.email,
 			firstName,
 			lastName,
-			phone: user.phone,
+			phone: customer.phone || user.phone,
 		});
 
 		customerCode = paystackCustomer.customer_code;
