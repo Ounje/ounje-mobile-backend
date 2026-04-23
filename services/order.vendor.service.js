@@ -107,12 +107,10 @@ const declineOrder = async (orderId, vendorId, declineData = {}) => {
 	}
 
 	if (global.io) {
-		global.io.to(order.customer.toString()).emit("orderDeclined", {
+		global.io.to(order.customer.toString()).emit("orderUpdate", {
 			orderId: order._id,
-			vendorName: order.vendor.name,
-			reason: getDeclineReasonText(reason),
-			note,
-			timestamp: order.declinedAt,
+			status: order.status,
+			subStatus: order.subStatus,
 		});
 	}
 

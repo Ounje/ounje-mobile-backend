@@ -26,7 +26,7 @@ const plateSchema = new mongoose.Schema(
 		commentsCount: { type: Number, default: 0 },
 		comments: String,
 		// Flat array of subCategory.items._id values
-		items: [{ type: mongoose.Schema.Types.ObjectId }],
+		items: [{ type: mongoose.Schema.Types.ObjectId, ref: "FoodItem" }],
 		combos: [{ type: mongoose.Schema.Types.ObjectId, ref: "Combo" }],
 	},
 	{ timestamps: true },
