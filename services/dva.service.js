@@ -50,22 +50,33 @@ function extractNameParts(user) {
  */
 
 async function createPaystackCustomer({ email, firstName, lastName, phone }) {
-	try {
-		if (!email) throw new Error("Email is required for Paystack customer");
+	if (!email) throw new Error("Email is required for Paystack customer");
 
+	try {
 		const { data } = await paystack.post("/customer", {
 			email,
 			first_name: firstName,
 			last_name: lastName,
-			phone: normalizePhone(phone),
+			phone,
 		});
 
 		return data.data;
 	} catch (err) {
-		// If customer already exists, fetch instead
 		if (err.response?.status === 422) {
+			// Customer already exists — fetch their record then ensure phone is set
 			const { data } = await paystack.get(`/customer/${email}`);
-			return data.data;
+			const existing = data.data;
+
+			await paystack
+				.put(`/customer/${existing.customer_code}`, { phone })
+				.catch((patchErr) => {
+					console.error(
+						"[DVA] phone patch failed:",
+						patchErr.response?.data?.message || patchErr.message,
+					);
+				});
+
+			return existing;
 		}
 
 		throw new Error(
@@ -131,27 +142,19 @@ async function provisionCustomerDVA(customer) {
 		? localPhone
 		: `+234${localPhone.replace(/^0+/, "")}`;
 
-	// 1. Ensure Paystack customer exists
-	let customerCode = customer.paystackCustomerCode;
+	// 1. Ensure Paystack customer exists and has phone set.
+	// Always go through createPaystackCustomer so the 422 handler runs
+	// and patches the phone on any pre-existing customer record.
+	const { firstName, lastName } = extractNameParts(user);
 
-	if (!customerCode) {
-		const { firstName, lastName } = extractNameParts(user);
+	const paystackCustomer = await createPaystackCustomer({
+		email: user.email,
+		firstName,
+		lastName,
+		phone,
+	});
 
-		const paystackCustomer = await createPaystackCustomer({
-			email: user.email,
-			firstName,
-			lastName,
-			phone,
-		});
-
-		customerCode = paystackCustomer.customer_code;
-	} else {
-		// Customer already exists on Paystack but may have been created without a phone.
-		// Patch the phone so DVA creation doesn't fail with "phone number is required".
-		await paystack
-			.put(`/customer/${customerCode}`, { phone })
-			.catch(() => {});
-	}
+	const customerCode = paystackCustomer.customer_code;
 
 	// 2. Create virtual account
 	const dva = await createTitanVirtualAccount(customerCode);
