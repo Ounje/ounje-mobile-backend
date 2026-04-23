@@ -37,10 +37,7 @@ const searchVendors = async (query, limit, includeUnavailable) => {
 					name: 1,
 					image: { $ifNull: ["$logoUrl", "$profileImage", "$bannerUrl"] },
 					isOpen: {
-						$eq: [
-							{ $arrayElemAt: ["$storeDetails.status", 0] },
-							"active",
-						],
+						$eq: [{ $arrayElemAt: ["$storeDetails.status", 0] }, "active"],
 					},
 					averageRating: { $ifNull: ["$averageRating", 0] },
 					totalRating: { $ifNull: ["$ratingCount", 0] },
@@ -93,7 +90,14 @@ const searchFoodItems = async (query, limit, includeUnavailable) => {
 					vendor: {
 						id: "$vendorInfo._id",
 						name: "$vendorInfo.name",
-						image: { $ifNull: ["$vendorInfo.bannerUrl", "$vendorInfo.profileImage", "$vendorInfo.logoUrl", null] },
+						image: {
+							$ifNull: [
+								"$vendorInfo.bannerUrl",
+								"$vendorInfo.profileImage",
+								"$vendorInfo.logoUrl",
+								null,
+							],
+						},
 					},
 					_id: 0,
 				},
@@ -215,20 +219,32 @@ const universalSearch = async (query, options = {}) => {
 };
 const getSearchSuggestions = async (query, limit = 10) => {
 	if (!query || query.length < 2) return [];
-	const regex = new RegExp(query, "i"); // matches anywhere in the string
+	const regex = new RegExp(query, "i");
 
 	const [vendors, combos, plates, items] = await Promise.all([
 		VendorProfile.find({ name: regex, isActive: true }, { name: 1 }).limit(
 			limit,
 		),
 
-		Combo.find({ comboName: regex, isAvailable: true }, { comboName: 1 }).limit(
-			limit,
-		),
+		Combo.aggregate([
+			{ $match: { comboName: regex, isAvailable: true } },
+			{
+				$group: {
+					_id: { $toLower: "$comboName" },
+					name: { $first: "$comboName" },
+				},
+			},
+			{ $project: { name: 1, _id: 0 } },
+			{ $limit: limit },
+		]),
 
-		Plate.find({ name: regex }, { name: 1 }).limit(limit),
+		Plate.aggregate([
+			{ $match: { name: regex } },
+			{ $group: { _id: { $toLower: "$name" }, name: { $first: "$name" } } },
+			{ $project: { name: 1, _id: 0 } },
+			{ $limit: limit },
+		]),
 
-		// FoodItem name is now inside subCategory.items.name
 		FoodItem.aggregate([
 			{ $unwind: "$subCategory" },
 			{ $unwind: "$subCategory.items" },
@@ -238,14 +254,20 @@ const getSearchSuggestions = async (query, limit = 10) => {
 					"subCategory.items.isAvailable": true,
 				},
 			},
-			{ $project: { name: "$subCategory.items.name", _id: 0 } },
+			{
+				$group: {
+					_id: { $toLower: "$subCategory.items.name" },
+					name: { $first: "$subCategory.items.name" },
+				},
+			},
+			{ $project: { name: 1, _id: 0 } },
 			{ $limit: limit },
 		]),
 	]);
 
 	return [
 		...vendors.map((v) => ({ text: v.name, type: "vendor" })),
-		...combos.map((c) => ({ text: c.comboName, type: "combo" })),
+		...combos.map((c) => ({ text: c.name, type: "combo" })),
 		...plates.map((p) => ({ text: p.name, type: "plate" })),
 		...items.map((i) => ({ text: i.name, type: "fooditems" })),
 	].slice(0, limit);

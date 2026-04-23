@@ -62,7 +62,30 @@ class EmailService {
 
 		return this.provider.sendEmail(email, subject, html);
 	}
+	async sendProfileChangeConfirmationEmailOtp(
+		email,
+		otp,
+		purpose = "verification",
+	) {
+		const otpDigits = otp.split("");
+		const replacements = {
+			otp_1: otpDigits[0] || "0",
+			otp_2: otpDigits[1] || "0",
+			otp_3: otpDigits[2] || "0",
+			otp_4: otpDigits[3] || "0",
+		};
 
+		const html = await this.loadTemplate(
+			"profile-change-otp.html",
+			replacements,
+		);
+		const subject =
+			purpose === "Verification"
+				? "Your OunjeFood Profile Change Code"
+				: "Verify Your OunjeFood Profile Change";
+
+		return this.provider.sendEmail(email, subject, html);
+	}
 	/**
 	 * Send order confirmation email
 	 */
@@ -175,4 +198,3 @@ class EmailService {
 }
 
 module.exports = new EmailService();
-
