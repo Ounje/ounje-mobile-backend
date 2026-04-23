@@ -119,24 +119,23 @@ async function provisionCustomerDVA(customer) {
 		throw new Error("Customer user not populated");
 	}
 
+	// Resolve and validate phone upfront — needed for both new and existing customers
+	const rawPhone = customer.phone || user.phone;
+	const localPhone = normalizePhone(rawPhone);
+
+	if (!localPhone) {
+		throw new Error("PHONE_REQUIRED");
+	}
+
+	const phone = localPhone.startsWith("+")
+		? localPhone
+		: `+234${localPhone.replace(/^0+/, "")}`;
+
 	// 1. Ensure Paystack customer exists
 	let customerCode = customer.paystackCustomerCode;
 
 	if (!customerCode) {
 		const { firstName, lastName } = extractNameParts(user);
-
-		// Prefer customer.phone (String), fall back to user.phone (Number)
-		const rawPhone = customer.phone || user.phone;
-		const localPhone = normalizePhone(rawPhone);
-
-		if (!localPhone) {
-			throw new Error("PHONE_REQUIRED");
-		}
-
-		// Paystack expects international format — prepend +234 if needed
-		const phone = localPhone.startsWith("+")
-			? localPhone
-			: `+234${localPhone.replace(/^0+/, "")}`;
 
 		const paystackCustomer = await createPaystackCustomer({
 			email: user.email,
@@ -146,6 +145,12 @@ async function provisionCustomerDVA(customer) {
 		});
 
 		customerCode = paystackCustomer.customer_code;
+	} else {
+		// Customer already exists on Paystack but may have been created without a phone.
+		// Patch the phone so DVA creation doesn't fail with "phone number is required".
+		await paystack
+			.put(`/customer/${customerCode}`, { phone })
+			.catch(() => {});
 	}
 
 	// 2. Create virtual account
