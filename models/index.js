@@ -23,6 +23,7 @@ const RiderProfile = require("./RiderProfile");
 const SupportTicket = require("./SupportTicket");
 const User = require("./User");
 const VendorProfile = require("./VendorProfile");
+const PendingProfileChange = require("./pendingProfileChange");
 
 module.exports = {
 	Admin,
@@ -50,4 +51,5 @@ module.exports = {
 	SupportTicket,
 	User,
 	VendorProfile,
+	PendingProfileChange,
 };

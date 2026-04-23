@@ -1,31 +1,30 @@
-const { Customer, User } = require("../models");
+const { Customer, User, PendingProfileChange } = require("../models");
+const EmailService = require("../services/email/EmailService");
 const { getCoordsFromAddress } = require("../utils/delivery");
+const { requestSmsOtp, verifySmsOtp } = require("../utils/kudiSmsHelper");
 
-// Helper to format customer profile
+const generateOtp = () => Math.floor(1000 + Math.random() * 9000).toString();
+
 const formatCustomerProfile = (customer) => {
 	if (!customer || !customer.user) return null;
 
-	// Merge user and customer data
 	const user = customer.user.toJSON ? customer.user.toJSON() : customer.user;
 	const customerData = customer.toJSON ? customer.toJSON() : customer;
-	delete customerData.user; // Remove the nested user object
+	delete customerData.user;
 
-	// Prioritize Customer fields if they exist, otherwise use User fields
 	return {
 		...user,
 		...customerData,
-		// Ensure essential fields are present even if they are in User
 		email: user.email ?? null,
 		name:
 			customer.firstName && customer.lastName
 				? `${customer.firstName} ${customer.lastName}`
 				: user.name,
-		phone: customer.phone || user.phone,
+		phone: Number(customer.phone || user.phone) || null,
 		address:
 			customer.savedAddresses && customer.savedAddresses.length > 0
 				? customer.savedAddresses[0].address
 				: user.address,
-		// Location preferences
 		totalOrders: customer.orderCount || 0,
 		location:
 			customer.savedAddresses && customer.savedAddresses.length > 0
@@ -34,14 +33,13 @@ const formatCustomerProfile = (customer) => {
 						coordinates: customer.savedAddresses[0].coordinates,
 					}
 				: user.location,
-		wallet: 0, // Placeholder for wallet balance if implemented later
+		wallet: 0,
 	};
 };
 
 const getCustomerProfile = async (req, res) => {
-	const userId = req.user.id; // This is the User ID from JWT
+	const userId = req.user.id;
 	try {
-		// Find Customer by user reference, not by ID
 		const customer = await Customer.findOne({ user: userId })
 			.populate("user")
 			.populate("orderCount");
@@ -50,8 +48,175 @@ const getCustomerProfile = async (req, res) => {
 			return res.status(404).json({ error: "Customer not found" });
 		}
 
-		const profile = formatCustomerProfile(customer);
-		res.json(profile);
+		res.json(formatCustomerProfile(customer));
+	} catch (err) {
+		console.error(err);
+		res.status(500).json({ error: err.message });
+	}
+};
+
+const requestProfileChange = async (req, res) => {
+	const userId = req.user.id;
+	const { email, phone } = req.body;
+
+	try {
+		if (email !== undefined && phone !== undefined) {
+			return res
+				.status(400)
+				.json({ error: "Change email and phone separately" });
+		}
+
+		if (email === undefined && phone === undefined) {
+			return res.status(400).json({ error: "No sensitive fields to verify" });
+		}
+
+		const user = await User.findById(userId);
+		if (!user) return res.status(404).json({ error: "User not found" });
+
+		const customer = await Customer.findOne({ user: userId });
+		if (!customer) return res.status(404).json({ error: "Customer not found" });
+
+		const existingPhone = customer.phone || user.phone;
+		const existingEmail = user.email;
+
+		if (email !== undefined) {
+			const emailTaken = await User.findOne({ email, _id: { $ne: userId } });
+			if (emailTaken) {
+				return res.status(400).json({ error: "Email is already in use" });
+			}
+
+			if (!existingPhone) {
+				return res
+					.status(400)
+					.json({ error: "No phone number on record to verify with" });
+			}
+
+			await requestSmsOtp(existingPhone);
+
+			return res.json({
+				success: true,
+				message: "OTP sent to your registered phone number",
+			});
+		}
+
+		if (phone !== undefined) {
+			const phoneTaken = await User.findOne({
+				phone: Number(phone),
+				_id: { $ne: userId },
+			});
+			if (phoneTaken) {
+				return res
+					.status(400)
+					.json({ error: "Phone number is already in use" });
+			}
+
+			if (!existingEmail) {
+				return res
+					.status(400)
+					.json({ error: "No email on record to verify with" });
+			}
+
+			const otp = generateOtp();
+			const otpExpiresAt = new Date(Date.now() + 10 * 60 * 1000);
+
+			await PendingProfileChange.findOneAndUpdate(
+				{ user: userId },
+				{
+					user: userId,
+					otp,
+					otpExpiresAt,
+					pendingPhone: Number(phone),
+					verified: false,
+				},
+				{ upsert: true, new: true },
+			);
+
+			await EmailService.sendProfileChangeConfirmationEmailOtp(
+				existingEmail,
+				otp,
+			);
+
+			return res.json({
+				success: true,
+				message: "OTP sent to your registered email",
+			});
+		}
+	} catch (err) {
+		console.error(err);
+		res.status(500).json({ error: err.message });
+	}
+};
+
+const verifyProfileChangeOtp = async (req, res) => {
+	const userId = req.user.id;
+	const { otp, email, phone } = req.body;
+
+	try {
+		if (email !== undefined && phone !== undefined) {
+			return res
+				.status(400)
+				.json({ error: "Verify email and phone changes separately" });
+		}
+		if (email === undefined && phone === undefined) {
+			return res
+				.status(400)
+				.json({ error: "Specify which field you are verifying" });
+		}
+
+		const user = await User.findById(userId);
+		if (!user) return res.status(404).json({ error: "User not found" });
+
+		const customer = await Customer.findOne({ user: userId });
+		if (!customer) return res.status(404).json({ error: "Customer not found" });
+
+		if (email !== undefined) {
+			const existingPhone = customer.phone || user.phone;
+			if (!existingPhone) {
+				return res.status(400).json({ error: "No phone number on record" });
+			}
+
+			const isValid = await verifySmsOtp(existingPhone, otp);
+			if (!isValid) {
+				return res.status(400).json({ error: "Invalid or expired OTP" });
+			}
+
+			await PendingProfileChange.findOneAndUpdate(
+				{ user: userId },
+				{
+					user: userId,
+					otp: "sms-verified",
+					otpExpiresAt: new Date(Date.now() + 10 * 60 * 1000),
+					pendingEmail: email,
+					pendingPhone: undefined,
+					verified: true,
+				},
+				{ upsert: true, new: true },
+			);
+		}
+
+		if (phone !== undefined) {
+			const pending = await PendingProfileChange.findOne({
+				user: userId,
+				verified: false,
+			});
+
+			if (!pending)
+				return res
+					.status(400)
+					.json({ error: "No pending change request found" });
+			if (pending.otpExpiresAt < new Date())
+				return res.status(400).json({ error: "OTP has expired" });
+			if (pending.otp !== otp)
+				return res.status(400).json({ error: "Invalid OTP" });
+
+			pending.verified = true;
+			await pending.save();
+		}
+
+		res.json({
+			success: true,
+			message: "OTP verified. You may now update your profile.",
+		});
 	} catch (err) {
 		console.error(err);
 		res.status(500).json({ error: err.message });
@@ -63,23 +228,62 @@ const updateCustomerProfile = async (req, res) => {
 	const { firstName, lastName, phone, location, email } = req.body;
 
 	try {
+		const isSensitiveChange = email !== undefined || phone !== undefined;
+
+		if (isSensitiveChange) {
+			const user = await User.findById(userId);
+			const customer = await Customer.findOne({ user: userId });
+
+			const hasExistingEmail = !!user?.email;
+			const hasExistingPhone = !!(customer?.phone || user?.phone);
+
+			const changingExistingEmail = email !== undefined && hasExistingEmail;
+			const changingExistingPhone = phone !== undefined && hasExistingPhone;
+
+			if (changingExistingEmail || changingExistingPhone) {
+				const pending = await PendingProfileChange.findOne({
+					user: userId,
+					verified: true,
+				});
+
+				if (!pending) {
+					return res.status(403).json({
+						error: "Email or phone changes require OTP verification first.",
+					});
+				}
+
+				if (email !== undefined && pending.pendingEmail !== email) {
+					return res
+						.status(403)
+						.json({ error: "Email does not match verified request" });
+				}
+				if (
+					phone !== undefined &&
+					Number(pending.pendingPhone) !== Number(phone)
+				) {
+					return res
+						.status(403)
+						.json({ error: "Phone does not match verified request" });
+				}
+
+				await PendingProfileChange.deleteOne({ user: userId });
+			}
+		}
+
 		const updateData = {};
 		const userUpdate = {};
 
-		// Add fields to update only if they are provided
 		if (firstName) updateData.firstName = firstName;
 		if (lastName) updateData.lastName = lastName;
-		if (phone) updateData.phone = phone;
+		if (phone) userUpdate.phone = Number(phone);
 		if (email !== undefined) userUpdate.email = email;
 
-		// If location is provided, add it to savedAddresses
 		if (location) {
 			const geo = await getCoordsFromAddress(location);
 			if (!geo) {
 				return res.status(400).json({ error: "Invalid address" });
 			}
 
-			// Get existing profile to update addresses
 			const existingProfile = await Customer.findOne({ user: userId });
 			if (existingProfile) {
 				const newAddress = {
@@ -87,11 +291,7 @@ const updateCustomerProfile = async (req, res) => {
 					address: location,
 					coordinates: [geo.lng, geo.lat],
 				};
-				// Replace or add the first address
-				if (
-					existingProfile.savedAddresses &&
-					existingProfile.savedAddresses.length > 0
-				) {
+				if (existingProfile.savedAddresses?.length > 0) {
 					existingProfile.savedAddresses[0] = newAddress;
 				} else {
 					existingProfile.savedAddresses = [newAddress];
@@ -114,12 +314,10 @@ const updateCustomerProfile = async (req, res) => {
 			return res.status(404).json({ error: "Customer not found" });
 		}
 
-		const profile = formatCustomerProfile(customer);
-
 		res.json({
 			success: true,
 			message: "Profile updated successfully",
-			customer: profile,
+			customer: formatCustomerProfile(customer),
 		});
 	} catch (err) {
 		console.error(err);
@@ -131,7 +329,6 @@ const deleteCustomerProfile = async (req, res) => {
 	const userId = req.user.id;
 
 	try {
-		// Soft delete by setting isActive to false on the profile
 		const customer = await Customer.findOneAndUpdate(
 			{ user: userId },
 			{ isActive: false },
@@ -158,14 +355,12 @@ const updateCustomerProfileImage = async (req, res) => {
 		const userId = req.user.id;
 
 		if (!req.file) {
-			return res.status(400).json({
-				success: false,
-				message: "Profile image file is required",
-			});
+			return res
+				.status(400)
+				.json({ success: false, message: "Profile image file is required" });
 		}
 
 		const profilePic = req.file.path;
-
 		await User.findByIdAndUpdate(userId, { img: profilePic });
 
 		return res.status(200).json({ success: true, profilePic });
@@ -178,11 +373,6 @@ const updateCustomerProfileImage = async (req, res) => {
 	}
 };
 
-/**
- * GET /api/customers/wallet
- * Returns the customer's O-Credit balance and transaction history.
- * Customers currently earn credit only via refunds; the default is zero.
- */
 const getCustomerWallet = async (req, res) => {
 	try {
 		const userId = req.user.id;
@@ -218,12 +408,10 @@ const getCustomerWallet = async (req, res) => {
 		return res.json({
 			balance: balanceInfo.availableBalance ?? 0,
 			pendingBalance: balanceInfo.pendingBalance ?? 0,
-
 			bankDetails: customer.titanAccount || {
 				status: "processing",
 				message: "Your account is being prepared. Please check back shortly.",
 			},
-
 			transactions,
 		});
 	} catch (err) {
@@ -234,6 +422,8 @@ const getCustomerWallet = async (req, res) => {
 
 module.exports = {
 	getCustomerProfile,
+	requestProfileChange,
+	verifyProfileChangeOtp,
 	updateCustomerProfile,
 	deleteCustomerProfile,
 	updateCustomerProfileImage,
