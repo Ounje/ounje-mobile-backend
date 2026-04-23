@@ -10,6 +10,7 @@ const {
 } = require("../controllers/customerController");
 const { authMiddleware, roleGuard } = require("../middleware/auth");
 const { userUpload } = require("../config/cloudinary");
+const { otpRequestLimiter, otpVerifyLimiter } = require("../utils/rateLimiter");
 const router = express.Router();
 
 /**
@@ -191,7 +192,12 @@ router.get("/profile", authMiddleware, getCustomerProfile);
  *       500:
  *         description: Internal server error
  */
-router.post("/profile/request-change", authMiddleware, requestProfileChange);
+router.post(
+	"/profile/request-change",
+	authMiddleware,
+	otpRequestLimiter,
+	requestProfileChange,
+);
 
 /**
  * @swagger
@@ -256,7 +262,12 @@ router.post("/profile/request-change", authMiddleware, requestProfileChange);
  *       500:
  *         description: Internal server error
  */
-router.post("/profile/verify-change", authMiddleware, verifyProfileChangeOtp);
+router.post(
+	"/profile/verify-change",
+	authMiddleware,
+	otpVerifyLimiter,
+	verifyProfileChangeOtp,
+);
 
 /**
  * @swagger
