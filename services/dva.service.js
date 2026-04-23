@@ -22,6 +22,8 @@ const PREFERRED_BANK =
 function normalizePhone(phone) {
 	if (!phone) return "";
 
+	if (typeof phone === "number") return String(phone);
+
 	if (typeof phone === "string") return phone;
 
 	if (typeof phone === "object") {
@@ -122,11 +124,19 @@ async function provisionCustomerDVA(customer) {
 
 	if (!customerCode) {
 		const { firstName, lastName } = extractNameParts(user);
-		const phone = normalizePhone(user.phone);
 
-		if (!phone) {
+		// Prefer customer.phone (String), fall back to user.phone (Number)
+		const rawPhone = customer.phone || user.phone;
+		const localPhone = normalizePhone(rawPhone);
+
+		if (!localPhone) {
 			throw new Error("PHONE_REQUIRED");
 		}
+
+		// Paystack expects international format — prepend +234 if needed
+		const phone = localPhone.startsWith("+")
+			? localPhone
+			: `+234${localPhone.replace(/^0+/, "")}`;
 
 		const paystackCustomer = await createPaystackCustomer({
 			email: user.email,
