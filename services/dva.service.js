@@ -122,12 +122,17 @@ async function provisionCustomerDVA(customer) {
 
 	if (!customerCode) {
 		const { firstName, lastName } = extractNameParts(user);
+		const phone = normalizePhone(user.phone);
+
+		if (!phone) {
+			throw new Error("PHONE_REQUIRED");
+		}
 
 		const paystackCustomer = await createPaystackCustomer({
 			email: user.email,
 			firstName,
 			lastName,
-			phone: user.phone,
+			phone,
 		});
 
 		customerCode = paystackCustomer.customer_code;
