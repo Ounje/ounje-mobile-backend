@@ -33,7 +33,14 @@ router.post("/paystack", express.json({ type: "*/*" }), async (req, res) => {
 
 	const event = req.body;
 
-	if (event.event === "charge.success" && event.data?.channel === "dedicated_nuban") {
+	console.log(
+		`[Webhook] event=${event.event} channel=${event.data?.channel} amount=${event.data?.amount} customer_code=${event.data?.customer?.customer_code} ref=${event.data?.reference}`,
+	);
+
+	if (
+		event.event === "charge.success" &&
+		event.data?.channel === "dedicated_nuban"
+	) {
 		const data = event.data;
 		const customerCode = data.customer?.customer_code;
 		const reference = data.reference;
@@ -44,20 +51,34 @@ router.post("/paystack", express.json({ type: "*/*" }), async (req, res) => {
 			const ledgerService = require("../services/ledger.service");
 			const notificationService = require("../services/notification.service");
 
-			const customer = await Customer.findOne({ paystackCustomerCode: customerCode });
+			const customer = await Customer.findOne({
+				paystackCustomerCode: customerCode,
+			});
+			console.log(
+				`[Webhook] customer lookup: code=${customerCode} found=${!!customer} id=${customer?._id}`,
+			);
+
 			if (!customer) {
 				console.error(`[Webhook] no customer matched paystackCustomerCode=${customerCode}`);
 				return;
 			}
 
 			// Idempotency: skip if we already credited this Paystack reference
-			const account = await LedgerAccount.findOne({ userId: customer._id, type: "CUSTOMER" });
+			const account = await LedgerAccount.findOne({
+				userId: customer._id,
+				type: "CUSTOMER",
+			});
+			console.log(`[Webhook] ledger account found=${!!account}`);
+
 			if (account) {
 				const already = await LedgerEntry.findOne({
 					accountId: account._id,
 					"meta.paystackReference": reference,
 				});
-				if (already) return;
+				if (already) {
+					console.log(`[Webhook] already processed reference=${reference} — skipping`);
+					return;
+				}
 			}
 
 			await ledgerService.creditAccount(
@@ -69,7 +90,25 @@ router.post("/paystack", express.json({ type: "*/*" }), async (req, res) => {
 				{ paystackReference: reference, channel: data.channel },
 			);
 
-			console.log(`[PushDebug] ledger credited, calling notifyCustomerWalletTopup for customer=${customer._id}`);
+			console.log(`[Webhook] credited ₦${amountNaira} to customer=${customer._id}`);
+
+			try {
+				const emailService = require("../services/email/EmailService");
+				const populatedCustomer = await customer.populate("user");
+
+				if (populatedCustomer.user?.email) {
+					await emailService.transferSuccessEmail(
+						populatedCustomer.user.email,
+						populatedCustomer.firstName,
+						`₦${amountNaira.toLocaleString()}`,
+						populatedCustomer.titanAccount?.accountNumber,
+					);
+				}
+			} catch (emailErr) {
+				console.error(`[Webhook] Transfer success email failed: ${emailErr.message}`);
+			}
+
+			console.log(`[PushDebug] calling notifyCustomerWalletTopup for customer=${customer._id}`);
 			await notificationService.notifyCustomerWalletTopup(customer._id, amountNaira);
 			console.log(`[PushDebug] notifyCustomerWalletTopup returned`);
 		} catch (err) {

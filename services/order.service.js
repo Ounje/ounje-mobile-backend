@@ -13,6 +13,7 @@ const {
 	isVendorOpenNow,
 	buildClosedReason,
 } = require("../utils/vendorScheduleCheck");
+const calculateCustomerRank = require("../utils/calculateCustomerRank");
 const crypto = require("crypto");
 const { sendPushNotification } = require("./push.notification.service");
 const ledgerService = require("./ledger.service");
@@ -775,6 +776,19 @@ const verifyDeliveryOtp = async (order, otp, riderId) => {
 	} catch (err) {
 		logger.error(
 			`Vendor ranking update failed for order ${order._id}: ${err.message}`,
+		);
+	}
+	try {
+		const customer = await Customer.findById(order.customer).populate(
+			"orderCount",
+		);
+		if (customer) {
+			customer.rank = calculateCustomerRank(customer.orderCount);
+			await customer.save();
+		}
+	} catch (err) {
+		logger.error(
+			`Customer rank update failed for order ${order._id}: ${err.message}`,
 		);
 	}
 

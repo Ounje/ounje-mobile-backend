@@ -28,6 +28,10 @@ const customerSchema = new mongoose.Schema(
 		firstName: { type: String },
 		lastName: { type: String },
 		phone: { type: String },
+		rank: {
+			type: String,
+			default: "Bronze Bite",
+		},
 		isActive: { type: Boolean, default: true },
 		savedAddresses: [
 			{
