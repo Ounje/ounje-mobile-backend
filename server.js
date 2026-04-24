@@ -1,7 +1,7 @@
 const express = require("express");
 const mongoose = require("mongoose");
 const cors = require("cors");
-const http = require("http"); // Standard Node.js module
+const http = require("http");
 require("dotenv").config();
 console.log("Resend Key present:", !!process.env.RESEND_API_KEY);
 const httpLogger = require("./middleware/httpLogger");
@@ -32,25 +32,26 @@ const notificationRouter = require("./routes/notification.router");
 const promoRouter = require("./routes/promo.routes");
 
 const app = express();
-
-// This is the "server" variable that was missing!
 const server = http.createServer(app);
 
-// Initialize Socket.io using that server
+// Initialize Socket.io
 const io = require("socket.io")(server, {
-	cors: { origin: "*" }, // Allows connections from your frontend
+	cors: { origin: "*" },
 });
 
-// ✅ FIX: Set global.io OUTSIDE the connection handler
-// This makes it available to all services (notification, order, etc.)
 global.io = io;
 logger.info("✅ Socket.IO initialized and available globally");
 
-app.use(httpLogger); // HTTP Request Logging
+app.use(httpLogger);
 app.use(cors());
-app.use(express.json({
-	verify: (req, _res, buf) => { req.rawBody = buf.toString("utf8"); },
-}));
+
+// ── Webhook route MUST be before express.json() ───────────────────────────────
+// express.raw() captures the raw buffer Paystack needs for signature verification.
+// If express.json() runs first, the raw body is gone and the sig check fails.
+app.use("/api/webhooks", require("./routes/webhookRoutes"));
+
+// ── Global JSON parser (all other routes) ────────────────────────────────────
+app.use(express.json());
 app.set("trust proxy", 1);
 
 // Swagger Documentation
@@ -58,15 +59,10 @@ const swaggerUi = require("swagger-ui-express");
 const swaggerSpecs = require("./config/swagger");
 app.use("/api-docs", swaggerUi.serve, swaggerUi.setup(swaggerSpecs));
 
-//api routes
+// API Routes
 app.use("/api/auth", authRoutes);
-// Standardized routes
 app.use("/api/food-items", foodItemRoutes);
 app.use("/api/combos", comboRoutes);
-// Legacy route support (Redirect /api/dishes/xxx to the appropriate new route if we wanted, but simple mounting is okay)
-// For legacy /api/dishes/food-items -> it won't work easily with standard mounting unless we duplicate logic.
-// But verified legacy use cases: /api/dishes/food-items -> now /api/food-items
-// /api/dishes/combos -> now /api/combos
 app.use("/api/newsflash", newflashRouter);
 app.use("/api/orders", orderRoutes);
 app.use("/api/payments", paymentRoutes);
@@ -84,8 +80,6 @@ app.use("/api/promo", promoRouter);
 app.use("/api/announcements", require("./routes/announcementRoutes"));
 app.use("/api/finance", require("./routes/financeRoutes"));
 app.use("/api/dva", require("./routes/dvaRoutes"));
-app.use("/api/webhooks", require("./routes/webhookRoutes"));
-// app.use("/api/test", require("./tests/test01"));
 
 logger.info(`Frontend URL: ${process.env.FRONTEND_URL}`);
 
@@ -93,8 +87,6 @@ logger.info(`Frontend URL: ${process.env.FRONTEND_URL}`);
 io.on("connection", async (socket) => {
 	logger.info(`A user connected: ${socket.id}`);
 
-	// Auto-join rooms on connect using the auth token so emits reach the right socket
-	// regardless of whether the client sends a manual "join" event.
 	try {
 		const jwt = require("jsonwebtoken");
 		const decoded = jwt.verify(
@@ -106,7 +98,6 @@ io.on("connection", async (socket) => {
 			socket.join(userId);
 			logger.info(`Socket auto-joined userId room: ${userId}`);
 
-			// Join Customer, VendorProfile and RiderProfile rooms so backend can emit to profile IDs
 			const { Customer, VendorProfile, RiderProfile } = require("./models");
 
 			const [customer, vendor, rider] = await Promise.all([
@@ -121,12 +112,10 @@ io.on("connection", async (socket) => {
 				socket.join(customer._id.toString());
 				logger.info(`Socket auto-joined customerProfile room: ${customer._id}`);
 			}
-
 			if (vendor) {
 				socket.join(vendor._id.toString());
 				logger.info(`Socket auto-joined vendorProfile room: ${vendor._id}`);
 			}
-
 			if (rider) {
 				socket.join(rider._id.toString());
 				logger.info(
@@ -135,15 +124,13 @@ io.on("connection", async (socket) => {
 			}
 		}
 	} catch {
-		// Unauthenticated socket — fine, public connection
+		// Unauthenticated socket — fine
 	}
 
-	// Keep manual join handler for backward compatibility
 	socket.on("join", async (userId) => {
 		socket.join(userId);
 		logger.info(`User ${userId} joined their private room`);
 
-		// Auto-join Customer profile room
 		try {
 			const { Customer, VendorProfile, RiderProfile } = require("./models");
 
@@ -175,19 +162,16 @@ io.on("connection", async (socket) => {
 		}
 	});
 
-	// 1. Listen for the 'update-location' signal from the Rider's App
 	socket.on("update-location", async (data) => {
 		try {
 			const { RiderProfile } = require("./models");
 
-			// 2. SAVE to Database: Update rider location
-			// Note: data.riderId should be the rider's user ID, not the profile ID
 			await RiderProfile.findOneAndUpdate(
 				{ user: data.riderId },
 				{
 					currentLocation: {
 						type: "Point",
-						coordinates: [data.lng, data.lat], // GeoJSON format: [longitude, latitude]
+						coordinates: [data.lng, data.lat],
 					},
 				},
 			);
@@ -196,7 +180,6 @@ io.on("connection", async (socket) => {
 				`Rider ${data.riderId} location updated: [${data.lng}, ${data.lat}]`,
 			);
 
-			// 3. BROADCAST: Send this same data to the Operations Dashboard
 			io.emit("rider-moved", {
 				riderId: data.riderId,
 				lat: data.lat,
@@ -212,7 +195,6 @@ io.on("connection", async (socket) => {
 	});
 });
 
-// Middleware
 const errorHandler = require("./middleware/errorHandler");
 app.use(errorHandler);
 
@@ -226,7 +208,6 @@ mongoose.connect(process.env.MONGO_DB_URI).then(() => {
 	server.listen(PORT, () => {
 		logger.info(`🚀 Server running on port ${PORT}`);
 
-		// Keep Render instance awake by pinging itself every 14 minutes
 		if (process.env.NODE_ENV === "production" || process.env.RENDER) {
 			keepAlive("https://ounje-mobile-backend.onrender.com/");
 		}
