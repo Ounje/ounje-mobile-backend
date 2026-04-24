@@ -29,14 +29,9 @@ router.post("/paystack", express.json({ type: "*/*" }), async (req, res) => {
 	// Always respond 200 immediately so Paystack doesn't retry
 	res.sendStatus(200);
 
-	const sigOk = hash === req.headers["x-paystack-signature"];
-	console.log(`[Webhook] received event="${req.body?.event}" sig_ok=${sigOk}`);
-
-	if (!sigOk) return;
+	if (hash !== req.headers["x-paystack-signature"]) return;
 
 	const event = req.body;
-
-	console.log(`[Webhook] event=${event.event} channel=${event.data?.channel} amount=${event.data?.amount} customer_code=${event.data?.customer?.customer_code} ref=${event.data?.reference}`);
 
 	if (event.event === "charge.success" && event.data?.channel === "dedicated_nuban") {
 		const data = event.data;
@@ -50,8 +45,6 @@ router.post("/paystack", express.json({ type: "*/*" }), async (req, res) => {
 			const notificationService = require("../services/notification.service");
 
 			const customer = await Customer.findOne({ paystackCustomerCode: customerCode });
-			console.log(`[Webhook] customer lookup: code=${customerCode} found=${!!customer} id=${customer?._id}`);
-
 			if (!customer) {
 				console.error(`[Webhook] no customer matched paystackCustomerCode=${customerCode}`);
 				return;
@@ -59,20 +52,15 @@ router.post("/paystack", express.json({ type: "*/*" }), async (req, res) => {
 
 			// Idempotency: skip if we already credited this Paystack reference
 			const account = await LedgerAccount.findOne({ userId: customer._id, type: "CUSTOMER" });
-			console.log(`[Webhook] ledger account found=${!!account}`);
-
 			if (account) {
 				const already = await LedgerEntry.findOne({
 					accountId: account._id,
 					"meta.paystackReference": reference,
 				});
-				if (already) {
-					console.log(`[Webhook] already processed reference=${reference} — skipping`);
-					return;
-				}
+				if (already) return;
 			}
 
-			const result = await ledgerService.creditAccount(
+			await ledgerService.creditAccount(
 				customer._id,
 				"CUSTOMER",
 				amountNaira,
@@ -81,11 +69,11 @@ router.post("/paystack", express.json({ type: "*/*" }), async (req, res) => {
 				{ paystackReference: reference, channel: data.channel },
 			);
 
-			console.log(`[Webhook] credited ₦${amountNaira} — newBalance=${result?.newBalance}`);
-
+			console.log(`[PushDebug] ledger credited, calling notifyCustomerWalletTopup for customer=${customer._id}`);
 			await notificationService.notifyCustomerWalletTopup(customer._id, amountNaira);
+			console.log(`[PushDebug] notifyCustomerWalletTopup returned`);
 		} catch (err) {
-			console.error("[Webhook] DVA top-up error:", err.message, err.stack);
+			console.error("[Webhook] DVA top-up error:", err.message);
 		}
 	}
 });
