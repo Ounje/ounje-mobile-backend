@@ -62,6 +62,10 @@ class EmailService {
 
 		return this.provider.sendEmail(email, subject, html);
 	}
+
+	/**
+	 * Send Profile Change confirmation OTP verification email
+	 */
 	async sendProfileChangeConfirmationEmailOtp(
 		email,
 		otp,
@@ -85,6 +89,31 @@ class EmailService {
 				: "Verify Your OunjeFood Profile Change";
 
 		return this.provider.sendEmail(email, subject, html);
+	}
+	/**
+	 * Send transfer success email to a customer
+	 * @param {string} email
+	 * @param {string} name       - customer.firstName
+	 * @param {string|number} amount     - formatted transfer amount e.g. "₦5,000"
+	 * @param {string} accountNumber     - titan virtual account number
+	 */
+	async transferSuccessEmail(email, name, amount, accountNumber) {
+		const replacements = {
+			name,
+			amount,
+			accountNumber,
+		};
+
+		const html = await this.loadTemplate(
+			"customer-transfer.html",
+			replacements,
+		);
+
+		return this.provider.sendEmail(
+			email,
+			"Your OunjeFood Wallet Has Been Credited – Transfer Successful",
+			html,
+		);
 	}
 	/**
 	 * Send order confirmation email
