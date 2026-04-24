@@ -351,6 +351,16 @@ const webhookHandler = async (req, res) => {
 							message: `₦${naira.toLocaleString()} added to your wallet`,
 						});
 					}
+
+					// Push notification
+					try {
+						const notificationService = require("../services/notification.service");
+						logger.info(`[PushDebug] calling notifyCustomerWalletTopup for customer=${customer._id}`);
+						await notificationService.notifyCustomerWalletTopup(customer._id, naira);
+						logger.info(`[PushDebug] notifyCustomerWalletTopup returned`);
+					} catch (pushErr) {
+						logger.error(`[Webhook] Push notification failed: ${pushErr.message}`);
+					}
 				} catch (err) {
 					logger.error(`[Webhook] DVA error: ${err.message}`);
 				}
