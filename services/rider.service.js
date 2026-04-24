@@ -371,7 +371,6 @@ const updateBankDetails = async (userId, bankDetails) => {
 		retryResults,
 	};
 };
-
 /**
  * Leaderboard — sorted by rankingScore DESC.
  * Falls back to totalDeliveries if no scores are computed yet.

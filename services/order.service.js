@@ -13,7 +13,7 @@ const {
 	isVendorOpenNow,
 	buildClosedReason,
 } = require("../utils/vendorScheduleCheck");
-const calculateCustomerRank = require("../utils/calculateCustomerRank");
+const calculateCustomerRank = require("../utils/customerRank");
 const crypto = require("crypto");
 const { sendPushNotification } = require("./push.notification.service");
 const ledgerService = require("./ledger.service");
