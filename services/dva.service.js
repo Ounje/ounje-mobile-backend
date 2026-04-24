@@ -62,8 +62,19 @@ async function createPaystackCustomer({ email, firstName, lastName, phone }) {
 			phone,
 		});
 
-		console.log("[DVA] customer created — code:", data.data?.customer_code, "phone on record:", data.data?.phone);
-		return data.data;
+		const created = data.data;
+		console.log("[DVA] customer created — code:", created?.customer_code, "phone on record:", created?.phone);
+
+		// Paystack silently drops the phone on customer creation — patch it explicitly.
+		const patched = await paystack
+			.put(`/customer/${created.customer_code}`, { phone })
+			.catch((err) => {
+				console.error("[DVA] post-create phone patch failed:", err.response?.data?.message || err.message);
+				return null;
+			});
+
+		console.log("[DVA] post-create patch phone:", patched?.data?.data?.phone);
+		return created;
 	} catch (err) {
 		if (err.response?.status === 422) {
 			// Customer already exists — fetch their record then ensure phone is set
