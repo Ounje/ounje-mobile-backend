@@ -29,10 +29,7 @@ router.post("/paystack", express.json({ type: "*/*" }), async (req, res) => {
 	// Always respond 200 immediately so Paystack doesn't retry
 	res.sendStatus(200);
 
-	const sigOk = hash === req.headers["x-paystack-signature"];
-	console.log(`[Webhook] received event="${req.body?.event}" sig_ok=${sigOk}`);
-
-	if (!sigOk) return;
+	if (hash !== req.headers["x-paystack-signature"]) return;
 
 	const event = req.body;
 
@@ -62,9 +59,7 @@ router.post("/paystack", express.json({ type: "*/*" }), async (req, res) => {
 			);
 
 			if (!customer) {
-				console.error(
-					`[Webhook] no customer matched paystackCustomerCode=${customerCode}`,
-				);
+				console.error(`[Webhook] no customer matched paystackCustomerCode=${customerCode}`);
 				return;
 			}
 
@@ -81,14 +76,12 @@ router.post("/paystack", express.json({ type: "*/*" }), async (req, res) => {
 					"meta.paystackReference": reference,
 				});
 				if (already) {
-					console.log(
-						`[Webhook] already processed reference=${reference} — skipping`,
-					);
+					console.log(`[Webhook] already processed reference=${reference} — skipping`);
 					return;
 				}
 			}
 
-			const result = await ledgerService.creditAccount(
+			await ledgerService.creditAccount(
 				customer._id,
 				"CUSTOMER",
 				amountNaira,
@@ -97,9 +90,8 @@ router.post("/paystack", express.json({ type: "*/*" }), async (req, res) => {
 				{ paystackReference: reference, channel: data.channel },
 			);
 
-			console.log(
-				`[Webhook] credited ₦${amountNaira} — newBalance=${result?.newBalance}`,
-			);
+			console.log(`[Webhook] credited ₦${amountNaira} to customer=${customer._id}`);
+
 			try {
 				const emailService = require("../services/email/EmailService");
 				const populatedCustomer = await customer.populate("user");
@@ -113,17 +105,14 @@ router.post("/paystack", express.json({ type: "*/*" }), async (req, res) => {
 					);
 				}
 			} catch (emailErr) {
-				console.error(
-					`[Webhook] Transfer success email failed: ${emailErr.message}`,
-				);
+				console.error(`[Webhook] Transfer success email failed: ${emailErr.message}`);
 			}
 
-			await notificationService.notifyCustomerWalletTopup(
-				customer._id,
-				amountNaira,
-			);
+			console.log(`[PushDebug] calling notifyCustomerWalletTopup for customer=${customer._id}`);
+			await notificationService.notifyCustomerWalletTopup(customer._id, amountNaira);
+			console.log(`[PushDebug] notifyCustomerWalletTopup returned`);
 		} catch (err) {
-			console.error("[Webhook] DVA top-up error:", err.message, err.stack);
+			console.error("[Webhook] DVA top-up error:", err.message);
 		}
 	}
 });
