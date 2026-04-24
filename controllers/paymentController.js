@@ -4,6 +4,7 @@ const crypto = require("crypto");
 const ledgerService = require("../services/ledger.service");
 const orderService = require("../services/order.service");
 const payoutService = require("../services/payout.service");
+const emailService = require("../services/email/EmailService");
 const logger = require("../utils/logger");
 
 const paystack = axios.create({
@@ -186,33 +187,35 @@ const verifyPayment = async (req, res) => {
 const webhookHandler = async (req, res) => {
 	const secret = process.env.PAYSTACK_SECRET_KEY;
 
-	// req.body is a raw Buffer from express.raw()
 	const hash = crypto
 		.createHmac("sha512", secret)
 		.update(req.body)
 		.digest("hex");
 
-	logger.info(
-		`[Webhook] received | sig_ok=${hash === req.headers["x-paystack-signature"]}`,
-	);
+	const sigOk = hash === req.headers["x-paystack-signature"];
 
-	if (hash !== req.headers["x-paystack-signature"]) {
-		return res.status(400).send("Invalid signature");
-	}
-
-	// Parse body AFTER signature verification
+	// Parse body first so we can log the event name regardless of sig result
 	let event;
 	try {
 		event = JSON.parse(req.body.toString());
 	} catch {
+		logger.warn("[Webhook] invalid JSON body");
 		return res.status(400).send("Invalid JSON");
 	}
 
+	logger.info(`[Webhook] received event="${event.event}" sig_ok=${sigOk}`);
+
+	if (!sigOk) {
+		logger.warn(
+			`[Webhook] signature mismatch | body_is_buffer=${Buffer.isBuffer(req.body)} | body_length=${req.body?.length}`,
+		);
+		return res.status(400).send("Invalid signature");
+	}
+
 	logger.info(
-		`[Webhook] event=${event.event} channel=${event.data?.channel} ref=${event.data?.reference}`,
+		`[Webhook] processing | channel=${event.data?.channel} ref=${event.data?.reference}`,
 	);
 
-	// Always return 200 — Paystack retries on non-2xx
 	try {
 		// ── transfer.success ──────────────────────────────────────────────────
 		if (event.event === "transfer.success") {
@@ -272,7 +275,7 @@ const webhookHandler = async (req, res) => {
 				customer: paystackCustomer,
 			} = event.data;
 
-			// DVA top-up via virtual account
+			// ── DVA top-up via virtual account ────────────────────────────────
 			if (event.data.channel === "dedicated_nuban") {
 				const naira = amount / 100;
 				try {
@@ -318,6 +321,29 @@ const webhookHandler = async (req, res) => {
 						`[Webhook] DVA credited ₦${naira} to customer ${customer._id} | newBalance=${result?.newBalance}`,
 					);
 
+					// Send wallet credit email — fire and forget
+					Customer.findById(customer._id)
+						.populate("user")
+						.then((populated) => {
+							if (populated?.user?.email) {
+								emailService
+									.transferSuccessEmail(
+										populated.user.email,
+										populated.firstName || populated.user.name,
+										`₦${naira.toLocaleString()}`,
+										populated.titanAccount?.accountNumber,
+									)
+									.catch((err) =>
+										logger.error(
+											`[Webhook] Transfer email failed: ${err.message}`,
+										),
+									);
+							}
+						})
+						.catch((err) =>
+							logger.error(`[Webhook] Email populate failed: ${err.message}`),
+						);
+
 					if (global.io) {
 						global.io.to(customer._id.toString()).emit("walletCredited", {
 							amount: naira,
@@ -331,7 +357,7 @@ const webhookHandler = async (req, res) => {
 				return res.status(200).send("DVA processed");
 			}
 
-			// PendingCheckout flow
+			// ── PendingCheckout flow ───────────────────────────────────────────
 			const pendingCheckout = await PendingCheckout.findOne({ reference });
 			if (pendingCheckout) {
 				const { cartData, customerId } = pendingCheckout;
@@ -401,7 +427,7 @@ const webhookHandler = async (req, res) => {
 				return res.status(200).send("Webhook processed");
 			}
 
-			// Legacy flow
+			// ── Legacy flow ───────────────────────────────────────────────────
 			const order = await Order.findById(metadata?.orderId).populate("items");
 			if (!order) return res.status(200).send("Order not found");
 			if (order.paymentStatus === "paid")
