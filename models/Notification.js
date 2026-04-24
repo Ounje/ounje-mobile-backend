@@ -16,6 +16,7 @@ const TYPES = [
 	"rider_assigned",
 	"order_picked_up",
 	"promo_applied",
+	"wallet_topup",
 ];
 
 const notificationSchema = new mongoose.Schema(
