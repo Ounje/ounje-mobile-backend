@@ -36,9 +36,14 @@ router.post("/paystack", express.json({ type: "*/*" }), async (req, res) => {
 
 	const event = req.body;
 
-	console.log(`[Webhook] event=${event.event} channel=${event.data?.channel} amount=${event.data?.amount} customer_code=${event.data?.customer?.customer_code} ref=${event.data?.reference}`);
+	console.log(
+		`[Webhook] event=${event.event} channel=${event.data?.channel} amount=${event.data?.amount} customer_code=${event.data?.customer?.customer_code} ref=${event.data?.reference}`,
+	);
 
-	if (event.event === "charge.success" && event.data?.channel === "dedicated_nuban") {
+	if (
+		event.event === "charge.success" &&
+		event.data?.channel === "dedicated_nuban"
+	) {
 		const data = event.data;
 		const customerCode = data.customer?.customer_code;
 		const reference = data.reference;
@@ -49,16 +54,25 @@ router.post("/paystack", express.json({ type: "*/*" }), async (req, res) => {
 			const ledgerService = require("../services/ledger.service");
 			const notificationService = require("../services/notification.service");
 
-			const customer = await Customer.findOne({ paystackCustomerCode: customerCode });
-			console.log(`[Webhook] customer lookup: code=${customerCode} found=${!!customer} id=${customer?._id}`);
+			const customer = await Customer.findOne({
+				paystackCustomerCode: customerCode,
+			});
+			console.log(
+				`[Webhook] customer lookup: code=${customerCode} found=${!!customer} id=${customer?._id}`,
+			);
 
 			if (!customer) {
-				console.error(`[Webhook] no customer matched paystackCustomerCode=${customerCode}`);
+				console.error(
+					`[Webhook] no customer matched paystackCustomerCode=${customerCode}`,
+				);
 				return;
 			}
 
 			// Idempotency: skip if we already credited this Paystack reference
-			const account = await LedgerAccount.findOne({ userId: customer._id, type: "CUSTOMER" });
+			const account = await LedgerAccount.findOne({
+				userId: customer._id,
+				type: "CUSTOMER",
+			});
 			console.log(`[Webhook] ledger account found=${!!account}`);
 
 			if (account) {
@@ -67,7 +81,9 @@ router.post("/paystack", express.json({ type: "*/*" }), async (req, res) => {
 					"meta.paystackReference": reference,
 				});
 				if (already) {
-					console.log(`[Webhook] already processed reference=${reference} — skipping`);
+					console.log(
+						`[Webhook] already processed reference=${reference} — skipping`,
+					);
 					return;
 				}
 			}
@@ -81,9 +97,31 @@ router.post("/paystack", express.json({ type: "*/*" }), async (req, res) => {
 				{ paystackReference: reference, channel: data.channel },
 			);
 
-			console.log(`[Webhook] credited ₦${amountNaira} — newBalance=${result?.newBalance}`);
+			console.log(
+				`[Webhook] credited ₦${amountNaira} — newBalance=${result?.newBalance}`,
+			);
+			try {
+				const emailService = require("../services/email/EmailService");
+				const populatedCustomer = await customer.populate("user");
 
-			await notificationService.notifyCustomerWalletTopup(customer._id, amountNaira);
+				if (populatedCustomer.user?.email) {
+					await emailService.transferSuccessEmail(
+						populatedCustomer.user.email,
+						populatedCustomer.firstName,
+						`₦${amountNaira.toLocaleString()}`,
+						populatedCustomer.titanAccount?.accountNumber,
+					);
+				}
+			} catch (emailErr) {
+				console.error(
+					`[Webhook] Transfer success email failed: ${emailErr.message}`,
+				);
+			}
+
+			await notificationService.notifyCustomerWalletTopup(
+				customer._id,
+				amountNaira,
+			);
 		} catch (err) {
 			console.error("[Webhook] DVA top-up error:", err.message, err.stack);
 		}
