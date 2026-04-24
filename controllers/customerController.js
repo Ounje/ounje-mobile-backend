@@ -25,6 +25,7 @@ const formatCustomerProfile = (customer) => {
 			customer.savedAddresses && customer.savedAddresses.length > 0
 				? customer.savedAddresses[0].address
 				: user.address,
+		profilePic: user.img || null,
 		totalOrders: customer.orderCount || 0,
 		location:
 			customer.savedAddresses && customer.savedAddresses.length > 0

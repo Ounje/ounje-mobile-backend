@@ -261,6 +261,18 @@ class NotificationService {
 		});
 	}
 
+	async notifyCustomerWalletTopup(customerId, amountNaira) {
+		return this.createNotification({
+			recipient: customerId,
+			recipientModel: "customer",
+			type: "wallet_topup",
+			title: "💰 Wallet Credited!",
+			message: `₦${Number(amountNaira).toLocaleString()} has been added to your O-Credit wallet`,
+			data: { amount: amountNaira },
+			priority: "high",
+		});
+	}
+
 	// ============ RIDER NOTIFICATIONS ============
 
 	async notifyRiderOrderAvailable(riderId, order) {
