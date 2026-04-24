@@ -52,8 +52,6 @@ function extractNameParts(user) {
 async function createPaystackCustomer({ email, firstName, lastName, phone }) {
 	if (!email) throw new Error("Email is required for Paystack customer");
 
-	console.log("[DVA] createPaystackCustomer — phone sent to Paystack:", phone);
-
 	try {
 		const { data } = await paystack.post("/customer", {
 			email,
@@ -62,7 +60,6 @@ async function createPaystackCustomer({ email, firstName, lastName, phone }) {
 			phone,
 		});
 
-		console.log("[DVA] Paystack customer created — phone on record:", data.data?.phone);
 		return data.data;
 	} catch (err) {
 		if (err.response?.status === 422) {
@@ -70,19 +67,14 @@ async function createPaystackCustomer({ email, firstName, lastName, phone }) {
 			const { data } = await paystack.get(`/customer/${email}`);
 			const existing = data.data;
 
-			console.log("[DVA] Existing customer phone before patch:", existing.phone);
-
-			const patchRes = await paystack
+			await paystack
 				.put(`/customer/${existing.customer_code}`, { phone })
 				.catch((patchErr) => {
 					console.error(
 						"[DVA] phone patch failed:",
 						patchErr.response?.data?.message || patchErr.message,
 					);
-					return null;
 				});
-
-			console.log("[DVA] Patch response phone:", patchRes?.data?.data?.phone);
 
 			return existing;
 		}
@@ -142,17 +134,14 @@ async function provisionCustomerDVA(customer) {
 	const rawPhone = customer.phone || user.phone;
 	const localPhone = normalizePhone(rawPhone);
 
-	console.log("[DVA] rawPhone:", rawPhone, "| type:", typeof rawPhone, "| localPhone:", localPhone);
-
 	if (!localPhone) {
 		throw new Error("PHONE_REQUIRED");
 	}
 
-	const phone = localPhone.startsWith("+")
-		? localPhone
-		: `+234${localPhone.replace(/^0+/, "")}`;
-
-	console.log("[DVA] formatted phone for Paystack:", phone);
+	// Paystack stores and validates phone most reliably in local Nigerian format (0XXXXXXXXXX).
+	// Strip any leading zeros or +234 prefix, then re-add a single leading 0.
+	const digits = localPhone.replace(/^\+?234/, "").replace(/^0+/, "");
+	const phone = `0${digits}`;
 
 	// 1. Ensure Paystack customer exists and has phone set.
 	// Always go through createPaystackCustomer so the 422 handler runs
