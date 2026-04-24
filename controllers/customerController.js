@@ -2,10 +2,13 @@ const { Customer, User, PendingProfileChange } = require("../models");
 const EmailService = require("../services/email/EmailService");
 const { getCoordsFromAddress } = require("../utils/delivery");
 const { requestSmsOtp, verifySmsOtp } = require("../utils/kudiSmsHelper");
+const ledgerService = require("../services/ledger.service");
+const asyncHandler = require("../utils/asyncHandler");
+const AppError = require("../utils/AppError");
 
 const generateOtp = () => Math.floor(1000 + Math.random() * 9000).toString();
 
-const formatCustomerProfile = (customer) => {
+const formatCustomerProfile = (customer, walletBalance = 0) => {
 	if (!customer || !customer.user) return null;
 
 	const user = customer.user.toJSON ? customer.user.toJSON() : customer.user;
@@ -25,7 +28,6 @@ const formatCustomerProfile = (customer) => {
 			customer.savedAddresses && customer.savedAddresses.length > 0
 				? customer.savedAddresses[0].address
 				: user.address,
-		profilePic: user.img || null,
 		totalOrders: customer.orderCount || 0,
 		location:
 			customer.savedAddresses && customer.savedAddresses.length > 0
@@ -34,27 +36,35 @@ const formatCustomerProfile = (customer) => {
 						coordinates: customer.savedAddresses[0].coordinates,
 					}
 				: user.location,
-		wallet: 0,
+		wallet: walletBalance,
 	};
 };
 
-const getCustomerProfile = async (req, res) => {
+const getCustomerProfile = asyncHandler(async (req, res) => {
 	const userId = req.user.id;
-	try {
-		const customer = await Customer.findOne({ user: userId })
-			.populate("user")
-			.populate("orderCount");
 
-		if (!customer) {
-			return res.status(404).json({ error: "Customer not found" });
-		}
+	const customer = await Customer.findOne({ user: userId })
+		.populate("user")
+		.populate("orderCount");
 
-		res.json(formatCustomerProfile(customer));
-	} catch (err) {
-		console.error(err);
-		res.status(500).json({ error: err.message });
+	if (!customer) {
+		return res.status(404).json({ error: "Customer not found" });
 	}
-};
+
+	// Pull live wallet balance for the profile response
+	let walletBalance = 0;
+	try {
+		const balance = await ledgerService.getAccountBalance(
+			customer._id,
+			"CUSTOMER",
+		);
+		walletBalance = balance.availableBalance ?? 0;
+	} catch (_) {
+		// non-fatal — profile still returns without balance
+	}
+
+	res.json(formatCustomerProfile(customer, walletBalance));
+});
 
 const requestProfileChange = async (req, res) => {
 	const userId = req.user.id;
@@ -374,52 +384,54 @@ const updateCustomerProfileImage = async (req, res) => {
 	}
 };
 
-const getCustomerWallet = async (req, res) => {
+/**
+ * GET /api/customers/wallet
+ * Returns wallet balance + titanAccount + last 20 transactions
+ */
+const getCustomerWallet = asyncHandler(async (req, res) => {
+	const userId = req.user.id;
+
+	const customer = await Customer.findOne({ user: userId })
+		.select("_id titanAccount")
+		.lean();
+
+	if (!customer) throw new AppError("Customer not found", 404);
+
+	let balanceInfo = { availableBalance: 0, pendingBalance: 0, totalBalance: 0 };
+	let transactions = [];
+
 	try {
-		const userId = req.user.id;
+		balanceInfo = await ledgerService.getAccountBalance(
+			customer._id,
+			"CUSTOMER",
+		);
+	} catch (_) {}
 
-		const customer = await Customer.findOne({ user: userId })
-			.select("_id titanAccount")
-			.lean();
-
-		if (!customer) {
-			return res.status(404).json({ error: "Customer not found" });
-		}
-
-		const ledgerService = require("../services/ledger.service");
-
-		let balanceInfo = { availableBalance: 0, pendingBalance: 0 };
-
-		try {
-			balanceInfo = await ledgerService.getAccountBalance(
-				customer._id,
-				"CUSTOMER",
-			);
-		} catch (err) {
-			// fallback safely
-		}
-
-		const { transactions = [] } = await ledgerService.getTransactionHistory(
+	try {
+		const result = await ledgerService.getTransactionHistory(
 			customer._id,
 			"CUSTOMER",
 			20,
 			0,
 		);
+		transactions = result.transactions ?? [];
+	} catch (_) {}
 
-		return res.json({
-			balance: balanceInfo.availableBalance ?? 0,
-			pendingBalance: balanceInfo.pendingBalance ?? 0,
-			bankDetails: customer.titanAccount || {
-				status: "processing",
-				message: "Your account is being prepared. Please check back shortly.",
-			},
-			transactions,
-		});
-	} catch (err) {
-		console.error("getCustomerWallet error:", err);
-		res.status(500).json({ error: err.message });
-	}
-};
+	return res.json({
+		success: true,
+		balance: balanceInfo.availableBalance ?? 0,
+		pendingBalance: balanceInfo.pendingBalance ?? 0,
+		totalBalance: balanceInfo.totalBalance ?? 0,
+		balanceFormatted: `₦${(balanceInfo.availableBalance ?? 0).toLocaleString("en-NG", { minimumFractionDigits: 2 })}`,
+		bankDetails: customer.titanAccount?.accountNumber
+			? customer.titanAccount
+			: {
+					status: "processing",
+					message: "Your account is being prepared. Please check back shortly.",
+				},
+		transactions,
+	});
+});
 
 module.exports = {
 	getCustomerProfile,
