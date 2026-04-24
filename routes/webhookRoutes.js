@@ -23,7 +23,7 @@ const router = express.Router();
 router.post("/paystack", express.json({ type: "*/*" }), async (req, res) => {
 	const hash = crypto
 		.createHmac("sha512", process.env.PAYSTACK_SECRET_KEY)
-		.update(JSON.stringify(req.body))
+		.update(req.rawBody ?? JSON.stringify(req.body))
 		.digest("hex");
 
 	// Always respond 200 immediately so Paystack doesn't retry
