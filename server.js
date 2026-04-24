@@ -48,7 +48,9 @@ logger.info("✅ Socket.IO initialized and available globally");
 
 app.use(httpLogger); // HTTP Request Logging
 app.use(cors());
-app.use(express.json());
+app.use(express.json({
+	verify: (req, _res, buf) => { req.rawBody = buf.toString("utf8"); },
+}));
 app.set("trust proxy", 1);
 
 // Swagger Documentation
@@ -82,6 +84,7 @@ app.use("/api/promo", promoRouter);
 app.use("/api/announcements", require("./routes/announcementRoutes"));
 app.use("/api/finance", require("./routes/financeRoutes"));
 app.use("/api/dva", require("./routes/dvaRoutes"));
+app.use("/api/webhooks", require("./routes/webhookRoutes"));
 // app.use("/api/test", require("./tests/test01"));
 
 logger.info(`Frontend URL: ${process.env.FRONTEND_URL}`);
