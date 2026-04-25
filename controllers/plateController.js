@@ -171,8 +171,8 @@ const getAllPlates = async (req, res) => {
 		// For all other sort fields (likes, ordersCount, commentsCount, createdAt),
 		// the paginate utility handles it via sortBy/sortOrder query params
 		const populateOptions = [
-			{ path: "items", select: "name price img -vendor" },
-			{ path: "combos", select: "comboName basePrice img -vendor" },
+			{ path: "items", select: "name price img" },
+			{ path: "combos", select: "comboName basePrice img" },
 			{
 				path: "vendor",
 				select: "name logoUrl profileImage bannerUrl isActive",

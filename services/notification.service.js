@@ -341,9 +341,7 @@ class NotificationService {
 			}
 
 			if (!user) {
-				logger.warn(
-					`User not found for ${recipientModel} profile ${profileId}`,
-				);
+				logger.warn(`User not found for ${recipientModel} profile ${profileId}`);
 				return;
 			}
 
