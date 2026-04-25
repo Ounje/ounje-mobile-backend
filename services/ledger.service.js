@@ -962,6 +962,75 @@ const reverseRiderFeeHold = async (riderId, orderId) => {
 	}
 };
 
+/**
+ * Reverse all ledger entries for a cancelled or deleted order.
+ * Handles vendor earnings in any state (hold or pending) and rider fee hold.
+ */
+const reverseOrderEarnings = async (order) => {
+	const vendorId = order.vendor;
+	const riderId = order.rider;
+	const orderId = order._id;
+
+	// Reverse vendor — handles both hold and pending states
+	const session = await mongoose.startSession();
+	session.startTransaction();
+	try {
+		const vendorAccount = await ensureAccount(vendorId, "VENDOR", session);
+
+		const pendingEntry = await LedgerEntry.findOne({
+			orderId,
+			accountId: vendorAccount._id,
+			reason: "VENDOR_ORDER_PENDING",
+		});
+
+		const holdEntry = !pendingEntry && await LedgerEntry.findOne({
+			orderId,
+			accountId: vendorAccount._id,
+			reason: "VENDOR_EARNING_HOLD",
+		});
+
+		const vendorEntry = pendingEntry || holdEntry;
+		if (vendorEntry) {
+			const amount = vendorEntry.amount;
+			const sourceField = pendingEntry ? "pendingBalance" : "holdBalance";
+
+			await LedgerAccount.findOneAndUpdate(
+				{ _id: vendorAccount._id },
+				{ $inc: { [sourceField]: -amount } },
+				{ session },
+			);
+
+			await LedgerEntry.create([{
+				accountId: vendorAccount._id,
+				amount,
+				entryType: "DEBIT",
+				reason: "REVERSAL",
+				orderId,
+				meta: { action: "order_cancelled", source: pendingEntry ? "pending" : "hold" },
+				balanceAfter: vendorAccount.availableBalance,
+			}], { session });
+
+			logger.info(`[WALLET] reverseOrderEarnings vendor: orderId=${orderId} amount=${amount} from=${sourceField}`);
+		}
+
+		await session.commitTransaction();
+	} catch (error) {
+		await session.abortTransaction();
+		logger.error(`[WALLET] reverseOrderEarnings vendor failed: orderId=${orderId} err=${error.message}`);
+	} finally {
+		session.endSession();
+	}
+
+	// Reverse rider fee hold if one exists
+	if (riderId) {
+		try {
+			await reverseRiderFeeHold(riderId, orderId);
+		} catch (error) {
+			logger.error(`[WALLET] reverseOrderEarnings rider failed: orderId=${orderId} err=${error.message}`);
+		}
+	}
+};
+
 module.exports = {
 	ensureAccount,
 	creditAccount,
@@ -978,6 +1047,7 @@ module.exports = {
 	releaseRiderFee,
 	reverseRiderFeeHold,
 	reverseVendorHold,
+	reverseOrderEarnings,
 	holdVendorAmount,
 	pendVendorEarning,
 	releaseVendorAmount,

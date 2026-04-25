@@ -1063,10 +1063,14 @@ const cancelOrder = async (orderId, customerId) => {
 	await order.save();
 
 	try {
+		await ledgerService.reverseOrderEarnings(order);
+	} catch (error) {
+		logger.error(`Failed to reverse ledger for cancelled order ${orderId}: ${error.message}`);
+	}
+
+	try {
 		await notificationService.notifyOrderCancelled(order.vendor, order);
-		logger.info(
-			`Order ${orderId} cancelled by customer ${customerId}, vendor ${order.vendor} notified`,
-		);
+		logger.info(`Order ${orderId} cancelled by customer ${customerId}, vendor ${order.vendor} notified`);
 	} catch (error) {
 		logger.error(`Failed to send cancellation notification: ${error.message}`);
 	}
