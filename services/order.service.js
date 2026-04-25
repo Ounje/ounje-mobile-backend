@@ -6,6 +6,7 @@ const {
 	Plate,
 	Customer,
 	RiderProfile,
+	Payment,
 } = require("../models");
 const { calculateOunjeFee, identifyZone } = require("../utils/delivery");
 const { parseTime: _parseTime } = require("../utils/time");
@@ -13,9 +14,10 @@ const {
 	isVendorOpenNow,
 	buildClosedReason,
 } = require("../utils/vendorScheduleCheck");
-const calculateCustomerRank = require("../utils/calculateCustomerRank");
+const calculateCustomerRank = require("../utils/customerRank");
 const crypto = require("crypto");
 const { sendPushNotification } = require("./push.notification.service");
+const { refundTransaction } = require("./dva.service");
 const ledgerService = require("./ledger.service");
 const notificationService = require("./notification.service");
 const { ORDER_STATUS, ORDER_SUB_STATUS } = require("../utils/constants");
@@ -1062,11 +1064,48 @@ const cancelOrder = async (orderId, customerId) => {
 
 	await order.save();
 
+	// Refund customer
+	if (order.paymentStatus === "paid") {
+		try {
+			if (order.paymentMethod === "wallet") {
+				await ledgerService.creditAccount(
+					order.customer,
+					"CUSTOMER",
+					order.totalPrice,
+					"REFUND",
+					order._id,
+					{ reason: "customer_cancelled" },
+				);
+				order.paymentStatus = "refunded";
+				await order.save();
+			} else if (order.paymentMethod === "paystack") {
+				const payment = await Payment.findOne({ orderId: order._id, status: "success" });
+				if (payment) {
+					try {
+						await refundTransaction(payment.reference, order.totalPrice * 100);
+						order.paymentStatus = "refunded";
+						await order.save();
+						logger.info(`[REFUND] Paystack refund issued for cancelled order ${order._id}`);
+					} catch (refundErr) {
+						logger.error(`[REFUND] Paystack refund failed for order ${order._id}: ${refundErr.message}`);
+					}
+				}
+			}
+		} catch (error) {
+			logger.error(`Failed to refund customer for cancelled order ${orderId}: ${error.message}`);
+		}
+	}
+
+	// Reverse vendor/rider ledger entries
+	try {
+		await ledgerService.reverseOrderEarnings(order);
+	} catch (error) {
+		logger.error(`Failed to reverse ledger for cancelled order ${orderId}: ${error.message}`);
+	}
+
 	try {
 		await notificationService.notifyOrderCancelled(order.vendor, order);
-		logger.info(
-			`Order ${orderId} cancelled by customer ${customerId}, vendor ${order.vendor} notified`,
-		);
+		logger.info(`Order ${orderId} cancelled by customer ${customerId}, vendor ${order.vendor} notified`);
 	} catch (error) {
 		logger.error(`Failed to send cancellation notification: ${error.message}`);
 	}

@@ -4,7 +4,8 @@ const crypto = require("crypto");
 const ledgerService = require("../services/ledger.service");
 const orderService = require("../services/order.service");
 const payoutService = require("../services/payout.service");
-const logger = require("../utils/logger"); //  FIX #8: use logger
+const emailService = require("../services/email/EmailService");
+const logger = require("../utils/logger");
 
 const paystack = axios.create({
 	baseURL: "https://api.paystack.co",
@@ -89,8 +90,6 @@ const initialisePayment = async (req, res) => {
 
 /**
  * 2. Verify Payment
- * Called by frontend after Paystack redirect.
- *  FIX #1: Guards against double order creation if webhook already fired.
  */
 const verifyPayment = async (req, res) => {
 	const { reference } = req.query;
@@ -113,9 +112,7 @@ const verifyPayment = async (req, res) => {
 
 			const pendingCheckout = await PendingCheckout.findOne({ reference });
 			if (pendingCheckout) {
-				//  FIX #1: check if webhook already created the order
 				if (payment.orderId) {
-					// Webhook beat us to it — just fetch the existing order
 					createdOrder = await Order.findById(payment.orderId);
 				} else {
 					const { cartData, customerId } = pendingCheckout;
@@ -144,7 +141,6 @@ const verifyPayment = async (req, res) => {
 								});
 						}
 
-						//  FIX #7: consistent fire-and-forget for OTP
 						orderService
 							.sendDeliveryOtp(createdOrder)
 							.catch((err) =>
@@ -155,7 +151,6 @@ const verifyPayment = async (req, res) => {
 					}
 				}
 			} else if (payment.orderId) {
-				// Legacy flow
 				await Order.findByIdAndUpdate(payment.orderId, {
 					paymentStatus: "paid",
 				});
@@ -176,89 +171,102 @@ const verifyPayment = async (req, res) => {
 			},
 		});
 	} catch (err) {
-		const paystackError = err.response?.data?.message || err.response?.data?.error || err.message;
+		const paystackError =
+			err.response?.data?.message || err.response?.data?.error || err.message;
 		logger.error("Verification Error:", err.response?.data || err.message);
-		res.status(500).json({ error: paystackError || "Payment verification failed" });
+		res
+			.status(500)
+			.json({ error: paystackError || "Payment verification failed" });
 	}
 };
 
 /**
  * 3. Webhook Handler
- *  FIX #3: uses PAYSTACK_SECRET_KEY (not test key)
- *  FIX #4: holdRiderFee added to cart flow
- *  FIX #6: DVA creditAccount orderId param fixed
- *  FIX #9: always returns 200 — Paystack retries on non-2xx
+ * Uses express.raw() — req.body is a Buffer, must be parsed after signature check
  */
 const webhookHandler = async (req, res) => {
-	//  FIX #3: consistent key — not test-specific
 	const secret = process.env.PAYSTACK_SECRET_KEY;
+
 	const hash = crypto
 		.createHmac("sha512", secret)
-		.update(JSON.stringify(req.body))
+		.update(req.body)
 		.digest("hex");
 
-	if (hash !== req.headers["x-paystack-signature"]) {
+	const sigOk = hash === req.headers["x-paystack-signature"];
+
+	// Parse body first so we can log the event name regardless of sig result
+	let event;
+	try {
+		event = JSON.parse(req.body.toString());
+	} catch {
+		logger.warn("[Webhook] invalid JSON body");
+		return res.status(400).send("Invalid JSON");
+	}
+
+	logger.info(`[Webhook] received event="${event.event}" sig_ok=${sigOk}`);
+
+	if (!sigOk) {
+		logger.warn(
+			`[Webhook] signature mismatch | body_is_buffer=${Buffer.isBuffer(req.body)} | body_length=${req.body?.length}`,
+		);
 		return res.status(400).send("Invalid signature");
 	}
 
-	//  FIX #9: wrap everything — always return 200 to Paystack
-	try {
-		const event = req.body;
+	logger.info(
+		`[Webhook] processing | channel=${event.data?.channel} ref=${event.data?.reference}`,
+	);
 
-		// ── transfer.success → finalize ledger payout ─────────────────────────
+	try {
+		// ── transfer.success ──────────────────────────────────────────────────
 		if (event.event === "transfer.success") {
 			const transferCode = event.data?.transfer_code;
-			if (transferCode) {
-				await payoutService.handleTransferSuccess(transferCode);
-			}
+			if (transferCode) await payoutService.handleTransferSuccess(transferCode);
 			return res.status(200).send("Webhook processed");
 		}
 
-		// ── transfer.failed / transfer.reversed → reverse ledger reserve ──────
+		// ── transfer.failed / transfer.reversed ───────────────────────────────
 		if (
 			event.event === "transfer.failed" ||
 			event.event === "transfer.reversed"
 		) {
 			const transferCode = event.data?.transfer_code;
 			const reason = event.data?.reason || event.event;
-			if (transferCode) {
+			if (transferCode)
 				await payoutService.handleTransferFailure(transferCode, reason);
-			}
 			return res.status(200).send("Webhook processed");
 		}
 
-		// ── DVA account assigned by Paystack ─────────────────────────────────────
+		// ── dedicatedaccount.assign.success ───────────────────────────────────
 		if (event.event === "dedicatedaccount.assign.success") {
-		const { customer, bank, account_number, account_name } = event.data;
+			const { customer, bank, account_number, account_name } = event.data;
 
-		await Customer.findOneAndUpdate(
-			{ "virtualAccount.paystackCustomerCode": customer.customer_code },
-			{
-			$set: {
-				"virtualAccount.accountNumber": account_number,
-				"virtualAccount.accountName":   account_name,
-				"virtualAccount.bankName":       bank.name,
-				"virtualAccount.bankId":         bank.id,
-				"virtualAccount.active":         true,
-				"virtualAccount.assignedAt":     new Date(),
-			},
-			}
-		);
+			await Customer.findOneAndUpdate(
+				{ paystackCustomerCode: customer.customer_code },
+				{
+					$set: {
+						"titanAccount.accountNumber": account_number,
+						"titanAccount.accountName": account_name,
+						"titanAccount.bankName": bank.name,
+						"titanAccount.bankSlug": bank.slug,
+					},
+				},
+			);
 
-		logger.info(`✓ DVA assigned: ${account_number} (${customer.customer_code})`);
-		return res.status(200).send("Webhook processed");
+			logger.info(
+				`[Webhook] DVA assigned: ${account_number} (${customer.customer_code})`,
+			);
+			return res.status(200).send("Webhook processed");
 		}
 
-		// ── DVA assignment failed — log it so you can retry ──────────────────────
+		// ── dedicatedaccount.assign.failed ────────────────────────────────────
 		if (event.event === "dedicatedaccount.assign.failed") {
-		const { customer } = event.data;
-		logger.error(
-			`DVA assignment failed for customer: ${customer?.customer_code}`
-		);
-		// Don't retry here automatically — use the admin retry route
-		return res.status(200).send("Webhook processed");
+			logger.error(
+				`[Webhook] DVA assignment failed for: ${event.data?.customer?.customer_code}`,
+			);
+			return res.status(200).send("Webhook processed");
 		}
 
+		// ── charge.success ────────────────────────────────────────────────────
 		if (event.event === "charge.success") {
 			const {
 				amount,
@@ -267,7 +275,7 @@ const webhookHandler = async (req, res) => {
 				customer: paystackCustomer,
 			} = event.data;
 
-			// ── DVA: virtual bank account top-up ─────────────────────────────────
+			// ── DVA top-up via virtual account ────────────────────────────────
 			if (event.data.channel === "dedicated_nuban") {
 				const naira = amount / 100;
 				try {
@@ -275,16 +283,22 @@ const webhookHandler = async (req, res) => {
 						paystackCustomerCode: paystackCustomer.customer_code,
 					});
 
+					logger.info(
+						`[Webhook] DVA top-up | code=${paystackCustomer.customer_code} found=${!!customer} amount=₦${naira}`,
+					);
+
 					if (!customer) {
 						logger.error(
-							`DVA: No customer for ${paystackCustomer.customer_code}`,
+							`[Webhook] DVA: no customer for ${paystackCustomer.customer_code}`,
 						);
 						return res.status(200).send("Customer not found");
 					}
 
 					const alreadyProcessed = await Payment.findOne({ reference });
-					if (alreadyProcessed)
+					if (alreadyProcessed) {
+						logger.info(`[Webhook] DVA: already processed ref=${reference}`);
 						return res.status(200).send("Already processed");
+					}
 
 					await Payment.create({
 						reference,
@@ -294,15 +308,41 @@ const webhookHandler = async (req, res) => {
 						paidAt: event.data.paid_at,
 					});
 
-					//  FIX #6: pass null as orderId, reference goes in metadata
-					await ledgerService.creditAccount(
+					const result = await ledgerService.creditAccount(
 						customer._id,
 						"CUSTOMER",
 						naira,
 						"DVA_TRANSFER",
 						null,
-						{ reference },
+						{ paystackReference: reference, channel: event.data.channel },
 					);
+
+					logger.info(
+						`[Webhook] DVA credited ₦${naira} to customer ${customer._id} | newBalance=${result?.newBalance}`,
+					);
+
+					// Send wallet credit email — fire and forget
+					Customer.findById(customer._id)
+						.populate("user")
+						.then((populated) => {
+							if (populated?.user?.email) {
+								emailService
+									.transferSuccessEmail(
+										populated.user.email,
+										populated.firstName || populated.user.name,
+										`₦${naira.toLocaleString()}`,
+										populated.titanAccount?.accountNumber,
+									)
+									.catch((err) =>
+										logger.error(
+											`[Webhook] Transfer email failed: ${err.message}`,
+										),
+									);
+							}
+						})
+						.catch((err) =>
+							logger.error(`[Webhook] Email populate failed: ${err.message}`),
+						);
 
 					if (global.io) {
 						global.io.to(customer._id.toString()).emit("walletCredited", {
@@ -311,13 +351,21 @@ const webhookHandler = async (req, res) => {
 							message: `₦${naira.toLocaleString()} added to your wallet`,
 						});
 					}
+
+					// Push notification
+					try {
+						const notificationService = require("../services/notification.service");
+						await notificationService.notifyCustomerWalletTopup(customer._id, naira);
+					} catch (pushErr) {
+						logger.error(`[Webhook] Push notification failed: ${pushErr.message}`);
+					}
 				} catch (err) {
-					logger.error("DVA error:", err.message);
+					logger.error(`[Webhook] DVA error: ${err.message}`);
 				}
 				return res.status(200).send("DVA processed");
 			}
 
-			// ── New flow: PendingCheckout ─────────────────────────────────────────
+			// ── PendingCheckout flow ───────────────────────────────────────────
 			const pendingCheckout = await PendingCheckout.findOne({ reference });
 			if (pendingCheckout) {
 				const { cartData, customerId } = pendingCheckout;
@@ -343,7 +391,6 @@ const webhookHandler = async (req, res) => {
 					);
 					await PendingCheckout.deleteOne({ reference });
 
-					//  FIX #7: consistent fire-and-forget for OTP
 					orderService
 						.sendDeliveryOtp(order)
 						.catch((err) =>
@@ -364,7 +411,6 @@ const webhookHandler = async (req, res) => {
 						);
 					}
 
-					//  FIX #4: holdRiderFee was missing in cart flow
 					const deliveryFee = order.deliveryFee || 0;
 					if (order.rider && deliveryFee > 0) {
 						await ledgerService.holdRiderFee(
@@ -382,23 +428,22 @@ const webhookHandler = async (req, res) => {
 					}
 
 					logger.info(
-						`✓ Webhook (cart mode): Order ${order._id} created and distributed.`,
+						`[Webhook] cart mode: Order ${order._id} created and distributed`,
 					);
 				}
 
 				return res.status(200).send("Webhook processed");
 			}
 
-			// ── Legacy flow ───────────────────────────────────────────────────────
+			// ── Legacy flow ───────────────────────────────────────────────────
 			const order = await Order.findById(metadata?.orderId).populate("items");
-			if (!order) return res.status(200).send("Order not found"); //  FIX #9: 200 not 404
+			if (!order) return res.status(200).send("Order not found");
 			if (order.paymentStatus === "paid")
 				return res.status(200).send("Already processed");
 
 			order.paymentStatus = "paid";
 			await order.save();
 
-			//  FIX #7: consistent fire-and-forget
 			orderService
 				.sendDeliveryOtp(order)
 				.catch((err) =>
@@ -431,23 +476,18 @@ const webhookHandler = async (req, res) => {
 				});
 			}
 
-			logger.info(
-				`✓ Webhook (legacy): Order ${order._id} distributed to wallets.`,
-			);
+			logger.info(`[Webhook] legacy: Order ${order._id} distributed`);
 		}
 
 		return res.status(200).send("Webhook processed");
 	} catch (err) {
-		//  FIX #9: log error but always return 200 — prevents Paystack retry storm
-		logger.error("Webhook error:", err);
+		logger.error(`[Webhook] error: ${err.message}`, err);
 		return res.status(200).send("Error logged");
 	}
 };
 
 /**
  * 4. Wallet Payment
- *  FIX #2: debit before createOrder to prevent TOCTOU
- *  FIX #5: debit uses estimate.totalPrice (same amount balance was checked against)
  */
 const walletPayment = async (req, res) => {
 	try {
@@ -472,9 +512,6 @@ const walletPayment = async (req, res) => {
 			const estimate = await orderService.estimateOrderPrice(cartData);
 			const totalPrice = estimate.totalPrice;
 
-			//  FIX #2 + #5: debit FIRST using estimate amount, then create order
-			// If debit fails → insufficient funds, no order created (clean)
-			// If createOrder fails after debit → reverse the debit (clean)
 			await ledgerService.debitAccount(
 				customer._id,
 				"CUSTOMER",
@@ -487,7 +524,6 @@ const walletPayment = async (req, res) => {
 			try {
 				order = await orderService.createOrder(userId, cartData);
 			} catch (createErr) {
-				// Rollback the debit if order creation fails
 				await ledgerService.creditAccount(
 					customer._id,
 					"CUSTOMER",
@@ -503,7 +539,6 @@ const walletPayment = async (req, res) => {
 			order.paymentMethod = "wallet";
 			await order.save();
 		} else {
-			// Legacy flow
 			order = await Order.findById(orderId).populate("items");
 			if (!order)
 				return res
@@ -515,7 +550,6 @@ const walletPayment = async (req, res) => {
 					.json({ success: false, message: "Order is already paid" });
 			}
 
-			//  FIX #2: atomic debit — will throw if insufficient (no separate check needed)
 			await ledgerService.debitAccount(
 				customer._id,
 				"CUSTOMER",
@@ -529,7 +563,6 @@ const walletPayment = async (req, res) => {
 			await order.save();
 		}
 
-		//  FIX #7: consistent fire-and-forget for OTP
 		orderService
 			.sendDeliveryOtp(order)
 			.catch((err) =>
@@ -565,7 +598,6 @@ const walletPayment = async (req, res) => {
 		return res.status(200).json({ success: true, order });
 	} catch (error) {
 		logger.error("Wallet Payment Error:", error.message);
-		// Surface insufficient funds clearly to the client
 		if (error.message?.includes("Insufficient")) {
 			return res
 				.status(400)
