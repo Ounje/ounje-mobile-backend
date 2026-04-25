@@ -1,9 +1,10 @@
 const admin = require("../utils/firebase");
 const logger = require("../utils/logger");
 
+const PROJECT_ID = "ounje-market";
+
 /**
- * Send push notification via Firebase Admin SDK (FCM).
- * Accepts raw FCM tokens registered by the mobile app via @react-native-firebase/messaging.
+ * Send push notification via FCM HTTP v1 API using the service account credential directly.
  *
  * @param {string} token     - FCM device token
  * @param {string} title     - Notification title
@@ -21,11 +22,14 @@ const sendPushNotification = async (token, title, body, options = {}) => {
 			`📱 Attempting push — token: ${token.slice(0, 20)}... | title: "${title}"`,
 		);
 
-		const messaging = admin.messaging?.();
-		if (!messaging) {
+		if (!admin.apps.length) {
 			logger.warn("⚠️ Firebase Admin not initialized — push skipped");
 			return;
 		}
+
+		// Get OAuth2 access token directly from the app credential
+		const accessTokenObj = await admin.app().options.credential.getAccessToken();
+		const accessToken = accessTokenObj.access_token;
 
 		// FCM requires all data values to be strings
 		const dataPayload = {};
@@ -36,41 +40,48 @@ const sendPushNotification = async (token, title, body, options = {}) => {
 		}
 
 		const message = {
-			token,
-			notification: { title, body },
-			android: {
-				priority: "high",
-				notification: {
-					channelId: options.channelId ?? "orders",
+			message: {
+				token,
+				notification: { title, body },
+				android: {
 					priority: "high",
-					defaultSound: true,
+					notification: {
+						channel_id: options.channelId ?? "orders",
+						priority: "high",
+						default_sound: true,
+					},
 				},
-			},
-			apns: {
-				payload: {
-					aps: { sound: "default", badge: 1 },
+				apns: {
+					payload: {
+						aps: { sound: "default", badge: 1 },
+					},
 				},
+				...(Object.keys(dataPayload).length > 0 && { data: dataPayload }),
 			},
-			...(Object.keys(dataPayload).length > 0 && { data: dataPayload }),
 		};
 
-		await messaging.send(message);
-		logger.info(`✅ Push notification sent via Firebase: "${title}"`);
-	} catch (error) {
-		// Token is invalid or expired — log the token so it can be identified and cleared
-		if (
-			error.code === "messaging/invalid-registration-token" ||
-			error.code === "messaging/registration-token-not-registered"
-		) {
-			logger.warn(
-				`⚠️ Stale or invalid FCM token (first 20): ${token?.slice(0, 20)}... — device may need to re-register`,
-			);
+		const response = await fetch(
+			`https://fcm.googleapis.com/v1/projects/${PROJECT_ID}/messages:send`,
+			{
+				method: "POST",
+				headers: {
+					"Authorization": `Bearer ${accessToken}`,
+					"Content-Type": "application/json",
+				},
+				body: JSON.stringify(message),
+			},
+		);
+
+		const result = await response.json();
+
+		if (!response.ok) {
+			logger.error(`❌ FCM HTTP error ${response.status}: ${JSON.stringify(result)}`);
 			return;
 		}
 
-		logger.error(
-			`❌ Firebase push error: ${error.message} | token: ${token?.slice(0, 20)}...`,
-		);
+		logger.info(`✅ Push notification sent via FCM v1: "${title}" | messageId: ${result.name}`);
+	} catch (error) {
+		logger.error(`❌ Firebase push error: ${error.message} | token: ${token?.slice(0, 20)}...`);
 	}
 };
 
