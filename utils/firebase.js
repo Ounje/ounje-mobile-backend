@@ -17,8 +17,12 @@ function initFirebase() {
 					.replace(/\\n/g, "\n");
 			}
 		} else if (fs.existsSync(secretPath)) {
-			logger.info("🔑 Firebase: loading from secret file");
-			serviceAccount = JSON.parse(fs.readFileSync(secretPath, "utf8"));
+			logger.info("🔑 Firebase: loading from secret file (path)");
+			if (!admin.apps.length) {
+				admin.initializeApp({ credential: admin.credential.cert(secretPath) });
+			}
+			logger.info("✅ Firebase Admin Initialized");
+			return admin;
 		} else {
 			logger.info("🔑 Firebase: loading from local config");
 			serviceAccount = require("../config/serviceAccountKey.json");
