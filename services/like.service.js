@@ -63,6 +63,9 @@ class LikeService {
 				target: targetId,
 			});
 
+			// Write the count back to the denormalized field on the entity
+			await Model.findByIdAndUpdate(targetId, { likes: likeCount });
+
 			return {
 				liked: like,
 				totalLikes: likeCount,
