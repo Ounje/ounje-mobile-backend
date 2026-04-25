@@ -17,30 +17,16 @@ function initFirebase() {
 					.replace(/\\n/g, "\n");
 			}
 		} else if (fs.existsSync(secretPath)) {
-			logger.info("🔑 Firebase: loading from secret file (path)");
+			logger.info("🔑 Firebase: loading from secret file");
 			if (!admin.apps.length) {
 				admin.initializeApp({ credential: admin.credential.cert(secretPath) });
 			}
 			logger.info("✅ Firebase Admin Initialized");
-			// Test OAuth2 token generation immediately
-			admin.app().options.credential.getAccessToken()
-				.then(t => logger.info(`✅ OAuth2 token OK: ${t.access_token.slice(0, 20)}...`))
-				.catch(e => logger.error(`❌ OAuth2 token FAILED: ${e.message}`));
 			return admin;
 		} else {
 			logger.info("🔑 Firebase: loading from local config");
 			serviceAccount = require("../config/serviceAccountKey.json");
 		}
-
-		// Log enough to confirm the credential is intact
-		logger.info(`🔑 Firebase project_id: ${serviceAccount.project_id}`);
-		logger.info(`🔑 Firebase client_email: ${serviceAccount.client_email}`);
-		logger.info(
-			`🔑 Firebase private_key starts: ${serviceAccount.private_key?.slice(0, 50)}`,
-		);
-		logger.info(
-			`🔑 Firebase private_key ends: ${serviceAccount.private_key?.slice(-50)}`,
-		);
 
 		if (!admin.apps.length) {
 			admin.initializeApp({
@@ -50,9 +36,7 @@ function initFirebase() {
 
 		logger.info("✅ Firebase Admin Initialized");
 	} catch (error) {
-		logger.warn(
-			"⚠️ Firebase configuration missing or invalid. Push notifications will be disabled.",
-		);
+		logger.warn("⚠️ Firebase configuration missing or invalid. Push notifications will be disabled.");
 		logger.warn(`Firebase init error: ${error.message}`);
 	}
 	return admin;

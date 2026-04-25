@@ -262,7 +262,6 @@ class NotificationService {
 	}
 
 	async notifyCustomerWalletTopup(customerId, amountNaira) {
-		console.log(`[PushDebug] notifyCustomerWalletTopup — customerId=${customerId} amount=${amountNaira}`);
 		return this.createNotification({
 			recipient: customerId,
 			recipientModel: "customer",
@@ -310,7 +309,6 @@ class NotificationService {
 	}
 
 	async pushToUser(profileId, recipientModel, title, body) {
-		console.log(`[PushDebug] pushToUser — model=${recipientModel} id=${profileId}`);
 		try {
 			const User = require("../models/User");
 			let user = null;
@@ -318,29 +316,22 @@ class NotificationService {
 			if (recipientModel === "vendor") {
 				const { VendorProfile } = require("../models");
 				const profile = await VendorProfile.findById(profileId).select("owner");
-				console.log(`[PushDebug] vendor profile found=${!!profile} owner=${profile?.owner}`);
 				if (profile?.owner)
 					user = await User.findById(profile.owner).select("fcmToken");
 			} else if (recipientModel === "rider") {
 				const { RiderProfile } = require("../models");
 				const profile = await RiderProfile.findById(profileId).select("user");
-				console.log(`[PushDebug] rider profile found=${!!profile} userId=${profile?.user}`);
 				if (profile?.user)
 					user = await User.findById(profile.user).select("fcmToken");
 			} else {
 				const { Customer } = require("../models");
 				const profile = await Customer.findById(profileId).select("user");
-				console.log(`[PushDebug] customer profile found=${!!profile} userId=${profile?.user}`);
 				if (profile?.user)
 					user = await User.findById(profile.user).select("fcmToken");
 			}
 
-			console.log(`[PushDebug] user found=${!!user} hasFcmToken=${!!user?.fcmToken}`);
-
 			if (!user) {
-				logger.warn(
-					`User not found for ${recipientModel} profile ${profileId}`,
-				);
+				logger.warn(`User not found for ${recipientModel} profile ${profileId}`);
 				return;
 			}
 
@@ -349,19 +340,10 @@ class NotificationService {
 				return;
 			}
 
-			console.log(`[PushDebug] calling Firebase send — token prefix=${user.fcmToken.slice(0, 20)}`);
-			await sendPushNotification(user.fcmToken, title, body, {
-				channelId: "orders",
-			});
-			console.log(`[PushDebug] Firebase send completed`);
-			logger.info(
-				`Push notification sent to ${recipientModel} ${profileId}: ${title}`,
-			);
+			await sendPushNotification(user.fcmToken, title, body, { channelId: "orders" });
+			logger.info(`Push notification sent to ${recipientModel} ${profileId}: ${title}`);
 		} catch (error) {
-			console.log(`[PushDebug] error — ${error.message}`);
-			logger.error(
-				`Failed to send push notification to ${profileId}: ${error.message}`,
-			);
+			logger.error(`Failed to send push notification to ${profileId}: ${error.message}`);
 		}
 	}
 }
