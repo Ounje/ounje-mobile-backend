@@ -22,6 +22,10 @@ function initFirebase() {
 				admin.initializeApp({ credential: admin.credential.cert(secretPath) });
 			}
 			logger.info("✅ Firebase Admin Initialized");
+			// Test OAuth2 token generation immediately
+			admin.app().options.credential.getAccessToken()
+				.then(t => logger.info(`✅ OAuth2 token OK: ${t.access_token.slice(0, 20)}...`))
+				.catch(e => logger.error(`❌ OAuth2 token FAILED: ${e.message}`));
 			return admin;
 		} else {
 			logger.info("🔑 Firebase: loading from local config");
