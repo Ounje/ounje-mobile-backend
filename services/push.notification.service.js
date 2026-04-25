@@ -1,63 +1,106 @@
-const admin = require("firebase-admin");
+const { GoogleAuth } = require("google-auth-library");
 const fs = require("fs");
-const logger = require("./logger");
+const logger = require("../utils/logger");
 
-function parsePrivateKey(key) {
-	if (!key) return key;
-	// Handle all common escaping variants from env vars / JSON stringification
-	return key.replace(/\\n/g, "\n");
-}
+const PROJECT_ID = "ounje-market";
+const FCM_SCOPE = "https://www.googleapis.com/auth/firebase.messaging";
 
-function initFirebase() {
-	if (admin.apps.length) return admin;
+let _authClient = null;
 
-	try {
+async function getAccessToken() {
+	if (!_authClient) {
+		let authOptions;
 		const secretPath = "/etc/secrets/.serviceAccountKey.json";
-		let credential;
 
 		if (process.env.FIREBASE_SERVICE_ACCOUNT_JSON) {
-			logger.info("🔑 Firebase: loading from env var");
-			const serviceAccount = JSON.parse(
-				process.env.FIREBASE_SERVICE_ACCOUNT_JSON,
-			);
-			serviceAccount.private_key = parsePrivateKey(serviceAccount.private_key);
-
-			logger.info(`🔑 project_id: ${serviceAccount.project_id}`);
-			logger.info(`🔑 client_email: ${serviceAccount.client_email}`);
-			logger.info(
-				`🔑 private_key[:50]: ${serviceAccount.private_key?.slice(0, 50)}`,
-			);
-			logger.info(
-				`🔑 private_key[-30:]: ${serviceAccount.private_key?.slice(-30)}`,
-			);
-
-			credential = admin.credential.cert(serviceAccount);
+			const sa = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_JSON);
+			if (sa.private_key) sa.private_key = sa.private_key.replace(/\\n/g, "\n");
+			authOptions = { credentials: sa, scopes: [FCM_SCOPE] };
 		} else if (fs.existsSync(secretPath)) {
-			logger.info("🔑 Firebase: loading from secret file");
-			credential = admin.credential.cert(secretPath);
+			authOptions = { keyFilename: secretPath, scopes: [FCM_SCOPE] };
 		} else {
-			logger.info("🔑 Firebase: loading from local config");
-			const serviceAccount = require("../config/serviceAccountKey.json");
-			credential = admin.credential.cert(serviceAccount);
+			authOptions = {
+				keyFilename: require.resolve("../config/serviceAccountKey.json"),
+				scopes: [FCM_SCOPE],
+			};
 		}
 
-		admin.initializeApp({ credential });
-		logger.info("✅ Firebase Admin Initialized");
-
-		// Eagerly verify the credential works
-		admin
-			.app()
-			.options.credential.getAccessToken()
-			.then((t) =>
-				logger.info(`✅ OAuth2 token OK: ${t.access_token.slice(0, 20)}...`),
-			)
-			.catch((e) => logger.error(`❌ OAuth2 token FAILED: ${e.message}`));
-	} catch (error) {
-		logger.warn("⚠️ Firebase init failed — push notifications disabled");
-		logger.warn(`Firebase init error: ${error.message}`);
+		const auth = new GoogleAuth(authOptions);
+		_authClient = await auth.getClient();
 	}
 
-	return admin;
+	const tokenObj = await _authClient.getAccessToken();
+	return tokenObj.token;
 }
 
-module.exports = initFirebase();
+const sendPushNotification = async (token, title, body, options = {}) => {
+	try {
+		if (!token) {
+			logger.warn("Push skipped — no FCM token provided");
+			return;
+		}
+
+		logger.info(
+			`📱 Attempting push — token: ${token.slice(0, 20)}... | title: "${title}"`,
+		);
+
+		const accessToken = await getAccessToken();
+
+		const dataPayload = {};
+		if (options.data) {
+			for (const [k, v] of Object.entries(options.data)) {
+				dataPayload[k] = String(v);
+			}
+		}
+
+		const message = {
+			message: {
+				token,
+				notification: { title, body },
+				android: {
+					priority: "high",
+					notification: {
+						channel_id: options.channelId ?? "orders",
+						notification_priority: "PRIORITY_HIGH",
+						default_sound: true,
+					},
+				},
+				apns: {
+					payload: {
+						aps: { sound: "default", badge: 1 },
+					},
+				},
+				...(Object.keys(dataPayload).length > 0 && { data: dataPayload }),
+			},
+		};
+
+		const response = await fetch(
+			`https://fcm.googleapis.com/v1/projects/${PROJECT_ID}/messages:send`,
+			{
+				method: "POST",
+				headers: {
+					Authorization: `Bearer ${accessToken}`,
+					"Content-Type": "application/json",
+				},
+				body: JSON.stringify(message),
+			},
+		);
+
+		const result = await response.json();
+
+		if (!response.ok) {
+			logger.error(
+				`❌ FCM HTTP error ${response.status}: ${JSON.stringify(result)}`,
+			);
+			return;
+		}
+
+		logger.info(`✅ Push sent: "${title}" | messageId: ${result.name}`);
+	} catch (error) {
+		logger.error(`❌ Firebase push error: ${error.message}`);
+	}
+};
+
+module.exports = {
+	sendPushNotification,
+};
