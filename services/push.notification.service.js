@@ -47,7 +47,7 @@ const sendPushNotification = async (token, title, body, options = {}) => {
 					priority: "high",
 					notification: {
 						channel_id: options.channelId ?? "orders",
-						priority: "high",
+						notification_priority: "PRIORITY_HIGH",
 						default_sound: true,
 					},
 				},
