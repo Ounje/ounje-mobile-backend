@@ -154,11 +154,16 @@ class RatingService {
 		if (targetType === "Vendor") {
 			updateData.rating = avg;
 		}
-		// Plate: 'rating' was used before standardizing, keep it synced if needed, but averageRating is now source of truth
+		// Plate: keep 'rating' in sync and also update the comments counter
 		if (targetType === "Plate") {
 			updateData.rating = avg;
+			const commentCount = await Rating.countDocuments({
+				targetType,
+				target: this.toObjectId(targetId),
+				comment: { $exists: true, $ne: "" },
+			});
+			updateData.commentsCount = commentCount;
 		}
-
 
 		// Update target model with new stats
 		await Model.findByIdAndUpdate(targetId, updateData);
