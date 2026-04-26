@@ -31,6 +31,9 @@ coverage/
 # Misc
 *.tgz
 
+# Claude Code memory
+.claude/
+
 #test routes
 tests/
 
