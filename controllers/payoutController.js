@@ -9,38 +9,44 @@ const VendorProfile = require("../models/VendorProfile");
  * GET /api/payouts/balance
  */
 const getBalance = async (req, res) => {
-  try {
-    const userId = req.user.id;
-    const userType = req.user.role; // 'rider' or 'vendor' from middleware
+	try {
+		const userId = req.user.id;
+		const userType = req.user.role;
 
-    if (!["rider", "vendor"].includes(userType)) {
-      return res.status(403).json({ error: "Only riders and vendors can view balances" });
-    }
+		if (!["rider", "vendor"].includes(userType)) {
+			return res
+				.status(403)
+				.json({ error: "Only riders and vendors can view balances" });
+		}
 
-    // LedgerAccount.userId stores profile _id, not User._id — resolve the right id first
-    let accountUserId = userId;
-    if (userType === "vendor") {
-      const vp = await VendorProfile.findOne({ owner: userId }).select("_id");
-      if (!vp) return res.status(404).json({ error: "Vendor profile not found" });
-      accountUserId = vp._id;
-    } else if (userType === "rider") {
-      const rp = await RiderProfile.findOne({ user: userId }).select("_id");
-      if (!rp) return res.status(404).json({ error: "Rider profile not found" });
-      accountUserId = rp._id;
-    }
+		let accountUserId = userId;
+		if (userType === "vendor") {
+			const vp = await VendorProfile.findOne({ owner: userId }).select("_id");
+			if (!vp)
+				return res.status(404).json({ error: "Vendor profile not found" });
+			accountUserId = vp._id;
+		} else if (userType === "rider") {
+			const rp = await RiderProfile.findOne({ user: userId }).select("_id");
+			if (!rp)
+				return res.status(404).json({ error: "Rider profile not found" });
+			accountUserId = rp._id;
+		}
 
-    const balance = await ledgerService.getAccountBalance(accountUserId, userType.toUpperCase());
+		const balance = await ledgerService.getAccountBalance(
+			accountUserId,
+			userType.toUpperCase(),
+		);
 
-    // totalEarnings = withdrawable + in-progress (hold) + pending payout
-    const totalEarnings = (balance.availableBalance ?? 0)
-      + (balance.holdBalance ?? 0)
-      + (balance.pendingBalance ?? 0);
+		const totalEarnings =
+			(balance.availableBalance ?? 0) +
+			(balance.holdBalance ?? 0) +
+			(balance.pendingBalance ?? 0);
 
-    res.json({ ...balance, totalEarnings });
-  } catch (error) {
-    console.error("Balance fetch error:", error.message);
-    res.status(500).json({ error: error.message });
-  }
+		res.json({ ...balance, totalEarnings });
+	} catch (error) {
+		console.error("Balance fetch error:", error.message);
+		res.status(500).json({ error: error.message });
+	}
 };
 
 /**
@@ -48,121 +54,135 @@ const getBalance = async (req, res) => {
  * GET /api/payouts/history?limit=20&skip=0
  */
 const getTransactionHistory = async (req, res) => {
-  try {
-    const userId = req.user.id;
-    const userType = req.user.role;
-    const { limit = 20, skip = 0 } = req.query;
+	try {
+		const userId = req.user.id;
+		const userType = req.user.role;
+		const { limit = 20, skip = 0 } = req.query;
 
-    if (!["rider", "vendor"].includes(userType)) {
-      return res.status(403).json({ error: "Only riders and vendors can view history" });
-    }
+		if (!["rider", "vendor"].includes(userType)) {
+			return res
+				.status(403)
+				.json({ error: "Only riders and vendors can view history" });
+		}
 
-    // LedgerAccount.userId stores the profile _id (VendorProfile._id / RiderProfile._id),
-    // NOT the User._id. Look up the correct profile _id before querying.
-    let accountUserId = userId;
-    if (userType === "vendor") {
-      const vp = await VendorProfile.findOne({ owner: userId }).select("_id");
-      if (!vp) return res.status(404).json({ error: "Vendor profile not found" });
-      accountUserId = vp._id;
-    } else if (userType === "rider") {
-      const rp = await RiderProfile.findOne({ user: userId }).select("_id");
-      if (!rp) return res.status(404).json({ error: "Rider profile not found" });
-      accountUserId = rp._id;
-    }
+		let accountUserId = userId;
+		if (userType === "vendor") {
+			const vp = await VendorProfile.findOne({ owner: userId }).select("_id");
+			if (!vp)
+				return res.status(404).json({ error: "Vendor profile not found" });
+			accountUserId = vp._id;
+		} else if (userType === "rider") {
+			const rp = await RiderProfile.findOne({ user: userId }).select("_id");
+			if (!rp)
+				return res.status(404).json({ error: "Rider profile not found" });
+			accountUserId = rp._id;
+		}
 
-    const history = await ledgerService.getTransactionHistory(
-      accountUserId,
-      userType.toUpperCase(),
-      parseInt(limit),
-      parseInt(skip),
-    );
+		const history = await ledgerService.getTransactionHistory(
+			accountUserId,
+			userType.toUpperCase(),
+			parseInt(limit),
+			parseInt(skip),
+		);
 
-    res.json(history);
-  } catch (error) {
-    console.error("History fetch error:", error.message);
-    res.status(500).json({ error: error.message });
-  }
+		res.json(history);
+	} catch (error) {
+		console.error("History fetch error:", error.message);
+		res.status(500).json({ error: error.message });
+	}
 };
 
 /**
  * Request a payout (reserve balance)
  * POST /api/payouts/request
- * Body: { amount, bankDetails: { accountNumber, bankCode, accountName } } 
+ * Body: { amount, bankDetails: { accountNumber, bankCode, accountName } }
  */
 const requestPayout = async (req, res) => {
-  try {
-    const userId = req.user.id;
-    const userType = req.user.role;
-    const { amount, bankDetails } = req.body;
+	try {
+		const userId = req.user.id;
+		const userType = req.user.role;
+		const { amount, bankDetails } = req.body;
 
-    if (!["rider", "vendor"].includes(userType)) {
-      return res.status(403).json({ error: "Only riders and vendors can request payouts" });
-    }
+		if (!["rider", "vendor"].includes(userType)) {
+			return res
+				.status(403)
+				.json({ error: "Only riders and vendors can request payouts" });
+		}
 
-    if (!amount || amount <= 0) {
-      return res.status(400).json({ error: "Amount must be greater than 0" });
-    }
+		if (!amount || amount <= 0) {
+			return res.status(400).json({ error: "Amount must be greater than 0" });
+		}
 
-    if (!bankDetails || !bankDetails.accountNumber || !bankDetails.bankCode) {
-      return res.status(400).json({ error: "Bank details required" });
-    }
+		if (!bankDetails || !bankDetails.accountNumber || !bankDetails.bankCode) {
+			return res.status(400).json({ error: "Bank details required" });
+		}
 
-    // Check current balance
-    const balance = await ledgerService.getAccountBalance(userId, userType.toUpperCase());
-    if (balance.availableBalance < amount) {
-      return res.status(400).json({
-        error: `Insufficient balance. Available: ₦${balance.availableBalance}`,
-        availableBalance: balance.availableBalance,
-      });
-    }
+		// ✅ Resolve profile _id — ledger is keyed on profile _id, NOT User._id
+		let accountUserId, recipientId, recipientType;
+		if (userType === "vendor") {
+			const vp = await VendorProfile.findOne({ owner: userId });
+			if (!vp)
+				return res.status(404).json({ error: "Vendor profile not found" });
+			accountUserId = vp._id;
+			recipientId = vp._id;
+			recipientType = "VendorProfile";
+		} else {
+			const rp = await RiderProfile.findOne({ user: userId });
+			if (!rp)
+				return res.status(404).json({ error: "Rider profile not found" });
+			accountUserId = rp._id;
+			recipientId = rp._id;
+			recipientType = "RiderProfile";
+		}
 
-    // Reserve the balance (move from available to pending)
-    const reserved = await ledgerService.reserveBalance(userId, userType.toUpperCase(), amount);
+		// ✅ Balance check uses correct profile _id
+		const balance = await ledgerService.getAccountBalance(
+			accountUserId,
+			userType.toUpperCase(),
+		);
+		if (balance.availableBalance < amount) {
+			return res.status(400).json({
+				error: `Insufficient balance. Available: ₦${balance.availableBalance}`,
+				availableBalance: balance.availableBalance,
+			});
+		}
 
-    // Look up profile for recipientId / recipientType (required by Payout model)
-    let recipientId, recipientType;
-    if (userType === "rider") {
-      const profile = await RiderProfile.findOne({ user: userId });
-      if (!profile) return res.status(404).json({ error: "Rider profile not found" });
-      recipientId = profile._id;
-      recipientType = "RiderProfile";
-    } else {
-      const profile = await VendorProfile.findOne({ owner: userId });
-      if (!profile) return res.status(404).json({ error: "Vendor profile not found" });
-      recipientId = profile._id;
-      recipientType = "VendorProfile";
-    }
+		// ✅ Reserve also uses correct profile _id
+		const reserved = await ledgerService.reserveBalance(
+			accountUserId,
+			userType.toUpperCase(),
+			amount,
+		);
 
-    // Create payout record
-    const payout = await Payout.create({
-      recipientId,
-      recipientType,
-      amount,
-      bankDetails: {
-        bankName: bankDetails.bankName || "",
-        accountNumber: bankDetails.accountNumber,
-        accountName: bankDetails.accountName || "",
-      },
-      status: "pending",
-    });
+		const payout = await Payout.create({
+			recipientId,
+			recipientType,
+			amount,
+			bankDetails: {
+				bankName: bankDetails.bankName || "",
+				accountNumber: bankDetails.accountNumber,
+				accountName: bankDetails.accountName || "",
+			},
+			status: "pending",
+		});
 
-    res.status(201).json({
-      message: "Payout request submitted successfully",
-      payout: {
-        payoutId: payout._id,
-        amount: payout.amount,
-        status: payout.status,
-        requestedAt: payout.createdAt,
-      },
-      updatedBalance: {
-        availableBalance: reserved.availableBalance,
-        pendingBalance: reserved.pendingBalance,
-      },
-    });
-  } catch (error) {
-    console.error("Payout request error:", error.message);
-    res.status(500).json({ error: error.message });
-  }
+		res.status(201).json({
+			message: "Payout request submitted successfully",
+			payout: {
+				payoutId: payout._id,
+				amount: payout.amount,
+				status: payout.status,
+				requestedAt: payout.createdAt,
+			},
+			updatedBalance: {
+				availableBalance: reserved.availableBalance,
+				pendingBalance: reserved.pendingBalance,
+			},
+		});
+	} catch (error) {
+		console.error("Payout request error:", error.message);
+		res.status(500).json({ error: error.message });
+	}
 };
 
 /**
@@ -170,156 +190,190 @@ const requestPayout = async (req, res) => {
  * GET /api/payouts/pending
  */
 const getPendingPayouts = async (req, res) => {
-  try {
-    const userId = req.user.id;
-    const userType = req.user.role;
+	try {
+		const userId = req.user.id;
+		const userType = req.user.role;
 
-    if (!["rider", "vendor"].includes(userType)) {
-      return res.status(403).json({ error: "Only riders and vendors can view payouts" });
-    }
+		if (!["rider", "vendor"].includes(userType)) {
+			return res
+				.status(403)
+				.json({ error: "Only riders and vendors can view payouts" });
+		}
 
-    const payouts = await Payout.find({
-      user: userId,
-      status: { $in: ["pending", "processing"] },
-    }).sort({ createdAt: -1 });
+		// ✅ Resolve profile _id for correct query
+		let recipientId;
+		if (userType === "vendor") {
+			const vp = await VendorProfile.findOne({ owner: userId }).select("_id");
+			if (!vp)
+				return res.status(404).json({ error: "Vendor profile not found" });
+			recipientId = vp._id;
+		} else {
+			const rp = await RiderProfile.findOne({ user: userId }).select("_id");
+			if (!rp)
+				return res.status(404).json({ error: "Rider profile not found" });
+			recipientId = rp._id;
+		}
 
-    res.json(payouts);
-  } catch (error) {
-    console.error("Pending payouts fetch error:", error.message);
-    res.status(500).json({ error: error.message });
-  }
+		const payouts = await Payout.find({
+			recipientId,
+			status: { $in: ["pending", "processing"] },
+		}).sort({ createdAt: -1 });
+
+		res.json(payouts);
+	} catch (error) {
+		console.error("Pending payouts fetch error:", error.message);
+		res.status(500).json({ error: error.message });
+	}
 };
 
 /**
  * Cancel a payout request (admin or user)
  * PUT /api/payouts/:payoutId/cancel
- * Reverses the reservation and moves balance back to available
  */
 const cancelPayout = async (req, res) => {
-  try {
-    const { payoutId } = req.params;
-    const userId = req.user.id;
+	try {
+		const { payoutId } = req.params;
+		const userId = req.user.id;
+		const userType = req.user.role;
 
-    const payout = await Payout.findById(payoutId);
-    if (!payout) {
-      return res.status(404).json({ error: "Payout not found" });
-    }
+		const payout = await Payout.findById(payoutId);
+		if (!payout) {
+			return res.status(404).json({ error: "Payout not found" });
+		}
 
-    // Check authorization
-    if (payout.user.toString() !== userId && req.user.role !== "admin") {
-      return res.status(403).json({ error: "Unauthorized" });
-    }
+		// ✅ Resolve profile _id to verify ownership
+		let accountUserId;
+		if (userType === "vendor") {
+			const vp = await VendorProfile.findOne({ owner: userId }).select("_id");
+			if (!vp)
+				return res.status(404).json({ error: "Vendor profile not found" });
+			accountUserId = vp._id;
+		} else if (userType === "rider") {
+			const rp = await RiderProfile.findOne({ user: userId }).select("_id");
+			if (!rp)
+				return res.status(404).json({ error: "Rider profile not found" });
+			accountUserId = rp._id;
+		}
 
-    if (payout.status !== "pending") {
-      return res.status(400).json({
-        error: `Cannot cancel payout with status: ${payout.status}`,
-      });
-    }
+		// ✅ Authorization check uses recipientId (profile _id), not user._id
+		if (
+			userType !== "admin" &&
+			payout.recipientId.toString() !== accountUserId.toString()
+		) {
+			return res.status(403).json({ error: "Unauthorized" });
+		}
 
-    // Reverse the reservation
-    const reversed = await ledgerService.reverseReserve(
-      payout.user,
-      payout.userType,
-      payout.amount,
-      "Payout request cancelled by user"
-    );
+		if (payout.status !== "pending") {
+			return res.status(400).json({
+				error: `Cannot cancel payout with status: ${payout.status}`,
+			});
+		}
 
-    // Update payout record
-    payout.status = "cancelled";
-    await payout.save();
+		// ✅ Reverse reservation using recipientId and recipientType from payout doc
+		const reversed = await ledgerService.reverseReserve(
+			payout.recipientId,
+			payout.recipientType === "VendorProfile" ? "VENDOR" : "RIDER",
+			payout.amount,
+			"Payout request cancelled by user",
+		);
 
-    res.json({
-      message: "Payout request cancelled",
-      payout,
-      updatedBalance: {
-        availableBalance: reversed.availableBalance,
-        pendingBalance: reversed.pendingBalance,
-      },
-    });
-  } catch (error) {
-    console.error("Cancel payout error:", error.message);
-    res.status(500).json({ error: error.message });
-  }
+		payout.status = "cancelled";
+		await payout.save();
+
+		res.json({
+			message: "Payout request cancelled",
+			payout,
+			updatedBalance: {
+				availableBalance: reversed.availableBalance,
+				pendingBalance: reversed.pendingBalance,
+			},
+		});
+	} catch (error) {
+		console.error("Cancel payout error:", error.message);
+		res.status(500).json({ error: error.message });
+	}
 };
 
 /**
  * Process payout (admin endpoint)
  * PUT /api/payouts/:payoutId/process
- * Transfers money from pending balance to external bank account
- * Called after verifying successful bank transfer
  */
 const processPayout = async (req, res) => {
-  try {
-    const { payoutId } = req.params;
-    const { transactionRef, status = "completed" } = req.body;
+	try {
+		const { payoutId } = req.params;
+		const { transactionRef, status = "completed" } = req.body;
 
+		if (req.user.role !== "admin") {
+			return res.status(403).json({ error: "Only admins can process payouts" });
+		}
 
+		const payout = await Payout.findById(payoutId);
+		if (!payout) {
+			return res.status(404).json({ error: "Payout not found" });
+		}
 
-    // Admin check
-    if (req.user.role !== "admin") {
-      return res.status(403).json({ error: "Only admins can process payouts" });
-    }
+		if (payout.status !== "pending" && payout.status !== "processing") {
+			return res.status(400).json({
+				error: `Cannot process payout with status: ${payout.status}`,
+			});
+		}
 
-    const payout = await Payout.findById(payoutId);
-    if (!payout) {
-      return res.status(404).json({ error: "Payout not found" });
-    }
+		// ✅ Derive userType from recipientType stored on payout
+		const ledgerType =
+			payout.recipientType === "VendorProfile" ? "VENDOR" : "RIDER";
 
-    if (payout.status !== "pending" && payout.status !== "processing") {
-      return res.status(400).json({
-        error: `Cannot process payout with status: ${payout.status}`,
-      });
-    }
+		if (status === "failed") {
+			const reversed = await ledgerService.reverseReserve(
+				payout.recipientId,
+				ledgerType,
+				payout.amount,
+				`Payout processing failed: ${transactionRef}`,
+			);
 
-    if (status === "failed") {
-      // Reverse the reservation if transfer failed
-      const reversed = await ledgerService.reverseReserve(
-        payout.user,
-        payout.userType,
-        payout.amount,
-        `Payout processing failed: ${transactionRef}`
-      );
+			payout.status = "failed";
+			payout.transactionRef = transactionRef;
+			payout.processedAt = new Date();
+			await payout.save();
 
-      payout.status = "failed";
-      payout.transactionRef = transactionRef;
-      payout.processedAt = new Date();
-      await payout.save();
+			return res.json({
+				message: "Payout marked as failed and balance reversed",
+				payout,
+				updatedBalance: {
+					availableBalance: reversed.availableBalance,
+					pendingBalance: reversed.pendingBalance,
+				},
+			});
+		}
 
-      return res.json({
-        message: "Payout marked as failed and balance reversed",
-        payout,
-        updatedBalance: {
-          availableBalance: reversed.availableBalance,
-          pendingBalance: reversed.pendingBalance,
-        },
-      });
-    }
+		// ✅ Complete payout uses recipientId (profile _id)
+		const completed = await ledgerService.completePayout(
+			payout.recipientId,
+			ledgerType,
+			payout.amount,
+		);
 
-    // Debit from pending balance (money leaves system)
-    const completed = await ledgerService.completePayout(
-      payout.user,
-      payout.userType,
-      payout.amount
-    );
+		payout.status = "completed";
+		payout.transactionRef = transactionRef;
+		payout.processedAt = new Date();
+		await payout.save();
 
-    // Update payout record
-    payout.status = "completed";
-    payout.transactionRef = transactionRef;
-    payout.processedAt = new Date();
-    await payout.save();
+		const finalBalance = await ledgerService.getAccountBalance(
+			payout.recipientId,
+			ledgerType,
+		);
 
-    res.json({
-      message: "Payout processed successfully",
-      payout,
-      updatedBalance: {
-        availableBalance: (await ledgerService.getAccountBalance(payout.user, payout.userType)).availableBalance,
-        pendingBalance: completed.pendingBalance,
-      },
-    });
-  } catch (error) {
-    console.error("Process payout error:", error.message);
-    res.status(500).json({ error: error.message });
-  }
+		res.json({
+			message: "Payout processed successfully",
+			payout,
+			updatedBalance: {
+				availableBalance: finalBalance.availableBalance,
+				pendingBalance: completed.pendingBalance,
+			},
+		});
+	} catch (error) {
+		console.error("Process payout error:", error.message);
+		res.status(500).json({ error: error.message });
+	}
 };
 
 /**
@@ -327,16 +381,18 @@ const processPayout = async (req, res) => {
  * POST /api/payouts/:payoutId/retry
  */
 const retryPayout = async (req, res) => {
-  try {
-    if (req.user.role !== "admin") return res.status(403).json({ error: "Only admins can retry payouts" });
-    const { payoutId } = req.params;
-    const result = await payoutService.processPendingPayout(payoutId);
-    if (result && result.success) return res.json({ message: "Payout retried successfully", result });
-    return res.status(400).json({ message: "Payout retry failed", result });
-  } catch (error) {
-    console.error('Retry payout error:', error.message);
-    res.status(500).json({ error: error.message });
-  }
+	try {
+		if (req.user.role !== "admin")
+			return res.status(403).json({ error: "Only admins can retry payouts" });
+		const { payoutId } = req.params;
+		const result = await payoutService.processPendingPayout(payoutId);
+		if (result && result.success)
+			return res.json({ message: "Payout retried successfully", result });
+		return res.status(400).json({ message: "Payout retry failed", result });
+	} catch (error) {
+		console.error("Retry payout error:", error.message);
+		res.status(500).json({ error: error.message });
+	}
 };
 
 /**
@@ -344,35 +400,55 @@ const retryPayout = async (req, res) => {
  * Fetch withdrawal history for the logged-in Vendor or Rider
  */
 const getPayoutHistory = async (req, res) => {
-  try {
-    const { page = 1, limit = 10 } = req.query;
-    
-    // We identify the user by req.user (from your auth middleware)
-    const query = { 
-      user: req.user.id, 
-      userType: req.user.role // Assuming role is 'VENDOR' or 'RIDER'
-    };
+	try {
+		const userId = req.user.id;
+		const userType = req.user.role;
+		const { page = 1, limit = 10 } = req.query;
 
-    const history = await Payout.find(query)
-      .sort({ createdAt: -1 }) // Newest first
-      .limit(limit * 1)
-      .skip((page - 1) * limit)
-      .exec();
+		if (!["rider", "vendor"].includes(userType)) {
+			return res
+				.status(403)
+				.json({ error: "Only riders and vendors can view payout history" });
+		}
 
-    const count = await Payout.countDocuments(query);
+		// ✅ Resolve profile _id
+		let recipientId, recipientType;
+		if (userType === "vendor") {
+			const vp = await VendorProfile.findOne({ owner: userId }).select("_id");
+			if (!vp)
+				return res.status(404).json({ error: "Vendor profile not found" });
+			recipientId = vp._id;
+			recipientType = "VendorProfile";
+		} else {
+			const rp = await RiderProfile.findOne({ user: userId }).select("_id");
+			if (!rp)
+				return res.status(404).json({ error: "Rider profile not found" });
+			recipientId = rp._id;
+			recipientType = "RiderProfile";
+		}
 
-    res.json({
-      success: true,
-      data: history,
-      pagination: {
-        total: count,
-        pages: Math.ceil(count / limit),
-        currentPage: page
-      }
-    });
-  } catch (error) {
-    res.status(500).json({ success: false, message: error.message });
-  }
+		const query = { recipientId, recipientType };
+
+		const history = await Payout.find(query)
+			.sort({ createdAt: -1 })
+			.limit(limit * 1)
+			.skip((page - 1) * limit)
+			.exec();
+
+		const count = await Payout.countDocuments(query);
+
+		res.json({
+			success: true,
+			data: history,
+			pagination: {
+				total: count,
+				pages: Math.ceil(count / limit),
+				currentPage: page,
+			},
+		});
+	} catch (error) {
+		res.status(500).json({ success: false, message: error.message });
+	}
 };
 
 /**
@@ -380,42 +456,59 @@ const getPayoutHistory = async (req, res) => {
  * GET /api/payouts/statement?startDate=2025-01-01&endDate=2025-12-31
  */
 const getStatement = async (req, res) => {
-  try {
-    const userId = req.user.id;
-    const userType = req.user.role;
-    const { startDate, endDate } = req.query;
+	try {
+		const userId = req.user.id;
+		const userType = req.user.role;
+		const { startDate, endDate } = req.query;
 
-    if (!["rider", "vendor"].includes(userType)) {
-      return res.status(403).json({ error: "Only riders and vendors can view statements" });
-    }
+		if (!["rider", "vendor"].includes(userType)) {
+			return res
+				.status(403)
+				.json({ error: "Only riders and vendors can view statements" });
+		}
 
-    if (!startDate || !endDate) {
-      return res.status(400).json({ error: "startDate and endDate required (YYYY-MM-DD format)" });
-    }
+		if (!startDate || !endDate) {
+			return res
+				.status(400)
+				.json({ error: "startDate and endDate required (YYYY-MM-DD format)" });
+		}
 
-    const statement = await ledgerService.getAccountStatement(
-      userId,
-      userType.toUpperCase(),
-      new Date(startDate),
-      new Date(endDate)
-    );
+		// ✅ Resolve profile _id
+		let accountUserId;
+		if (userType === "vendor") {
+			const vp = await VendorProfile.findOne({ owner: userId }).select("_id");
+			if (!vp)
+				return res.status(404).json({ error: "Vendor profile not found" });
+			accountUserId = vp._id;
+		} else {
+			const rp = await RiderProfile.findOne({ user: userId }).select("_id");
+			if (!rp)
+				return res.status(404).json({ error: "Rider profile not found" });
+			accountUserId = rp._id;
+		}
 
-    res.json(statement);
-  } catch (error) {
-    console.error("Statement fetch error:", error.message);
-    res.status(500).json({ error: error.message });
-  }
+		const statement = await ledgerService.getAccountStatement(
+			accountUserId,
+			userType.toUpperCase(),
+			new Date(startDate),
+			new Date(endDate),
+		);
+
+		res.json(statement);
+	} catch (error) {
+		console.error("Statement fetch error:", error.message);
+		res.status(500).json({ error: error.message });
+	}
 };
 
-
 module.exports = {
-  getBalance,
-  getTransactionHistory,
-  requestPayout,
-  getPendingPayouts,
-  cancelPayout,
-  processPayout,
-  retryPayout,
-  getStatement,
-  getPayoutHistory,
+	getBalance,
+	getTransactionHistory,
+	requestPayout,
+	getPendingPayouts,
+	cancelPayout,
+	processPayout,
+	retryPayout,
+	getStatement,
+	getPayoutHistory,
 };
