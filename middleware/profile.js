@@ -11,7 +11,7 @@ const requireCustomer = asyncHandler(async (req, res, next) => {
 });
 
 const requireVendor = asyncHandler(async (req, res, next) => {
-    const vendor = await VendorProfile.findOne({ user: req.user.id });
+    const vendor = await VendorProfile.findOne({ owner: req.user.id });
     if (!vendor) throw new AppError("Vendor profile not found", 404);
 
     req.vendor = vendor;

@@ -13,6 +13,7 @@ const Order = require("./Order");
 const OTP = require("./OTP");
 const OtpVerification = require("./OtpVerification");
 const Payment = require("./Payment");
+const PendingCheckout = require("./PendingCheckout");
 const Payout = require("./Payout");
 const Plate = require("./Plate");
 const Promotion = require("./Promotion");
@@ -22,6 +23,7 @@ const RiderProfile = require("./RiderProfile");
 const SupportTicket = require("./SupportTicket");
 const User = require("./User");
 const VendorProfile = require("./VendorProfile");
+const PendingProfileChange = require("./pendingProfileChange");
 
 module.exports = {
 	Admin,
@@ -39,6 +41,7 @@ module.exports = {
 	OTP,
 	OtpVerification,
 	Payment,
+	PendingCheckout,
 	Payout,
 	Plate,
 	Promotion,
@@ -48,4 +51,5 @@ module.exports = {
 	SupportTicket,
 	User,
 	VendorProfile,
+	PendingProfileChange,
 };

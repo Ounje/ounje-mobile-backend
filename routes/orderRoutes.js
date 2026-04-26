@@ -13,6 +13,8 @@ const {
 
 const {
 	// Customer
+	estimateOrder,
+	getDeliveryEstimate,
 	createOrder,
 	getMyOrders,
 	getOrderById,
@@ -21,6 +23,8 @@ const {
 	// Vendor
 	vendorAcceptOrder,
 	vendorDeclineOrder,
+	vendorStartPreparing,
+	vendorMarkReady,
 	getVendorDeclineStats,
 	getVendorOrders,
 	vendorGetCustomerOrderDetails,
@@ -28,6 +32,8 @@ const {
 	// Rider
 	acceptOrder,
 	pickUpOrder,
+	resendDeliveryOtp,
+	riderMarkOnTheWay,
 	completeDelivery,
 	getAvailableRiderRequests,
 	getCurrentRiderOrder,
@@ -35,7 +41,7 @@ const {
 	getRiderOrders,
 	getRiderOrderById,
 	reportDelivery,
-
+	rejectDispatch,
 	updateOrderStatus,
 } = require("../controllers/orderController");
 
@@ -125,6 +131,26 @@ const router = express.Router();
  *       404:
  *         description: Vendor or items not found
  */
+// Price estimate — no order created, used by PaymentScreen to show correct total
+router.post(
+	"/estimate",
+	authMiddleware,
+	checkActiveUser,
+	roleGuard(["customer"]),
+	requireCustomer,
+	estimateOrder,
+);
+
+// Delivery fee estimate — fast haversine estimate for vendor preview (no Google Maps call)
+router.get(
+	"/delivery-estimate",
+	authMiddleware,
+	checkActiveUser,
+	roleGuard(["customer"]),
+	requireCustomer,
+	getDeliveryEstimate,
+);
+
 router.post(
 	"/",
 	authMiddleware,
@@ -275,6 +301,24 @@ router.put(
 	roleGuard(["vendor"]),
 	requireVendor,
 	vendorDeclineOrder,
+);
+
+router.put(
+	"/vendor/:orderId/preparing",
+	authMiddleware,
+	checkActiveUser,
+	roleGuard(["vendor"]),
+	requireVendor,
+	vendorStartPreparing,
+);
+
+router.put(
+	"/vendor/:orderId/ready",
+	authMiddleware,
+	checkActiveUser,
+	roleGuard(["vendor"]),
+	requireVendor,
+	vendorMarkReady,
 );
 
 /**
@@ -505,18 +549,27 @@ router.get(
  *     security:
  *       - bearerAuth: []
  */
-router.get(
-	"/rider/:orderId",
-	authMiddleware,
-	checkActiveUser,
-	roleGuard(["rider"]),
-	getRiderOrderById,
-);
 
 /* ======================
    RIDER ACTION ROUTES
 ====================== */
 
+router.get(
+	"/rider/:orderId",
+	authMiddleware,
+	checkActiveUser,
+	roleGuard(["rider"]),
+	requireRider,
+	getRiderOrderById,
+);
+
+router.post(
+    "/rider/:orderId/resend-otp",
+    authMiddleware,
+    checkActiveUser,
+    roleGuard(["rider", "customer"]),
+    resendDeliveryOtp,
+);
 /**
  * @swagger
  * /api/orders/rider/{orderId}/accept:
@@ -530,9 +583,18 @@ router.put(
 	"/rider/:orderId/accept",
 	authMiddleware,
 	checkActiveUser,
-	roleGuard(["rider"]),
+	roleGuard(["rider", "customer"]),
 	requireRider,
 	acceptOrder,
+);
+
+router.put(
+	"/rider/:orderId/reject-dispatch",
+	authMiddleware,
+	checkActiveUser,
+	roleGuard(["rider"]),
+	requireRider,
+	rejectDispatch,
 );
 
 /**
@@ -569,6 +631,15 @@ router.put(
  *             type: object
  *             required: [otp]
  */
+router.put(
+	"/rider/:orderId/on-the-way",
+	authMiddleware,
+	checkActiveUser,
+	roleGuard(["rider"]),
+	requireRider,
+	riderMarkOnTheWay,
+);
+
 router.put(
 	"/rider/:orderId/complete",
 	authMiddleware,
@@ -619,6 +690,7 @@ router.post(
 	authMiddleware,
 	checkActiveUser,
 	roleGuard(["rider"]),
+	requireRider,
 	reportDelivery,
 );
 

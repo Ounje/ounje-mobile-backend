@@ -13,6 +13,7 @@ const SelectionItemSchema = new mongoose.Schema({
 		required: true,
 	},
 	name: { type: String }, // Denormalized name from FoodItem for quick access
+	img: { type: String }, // Denormalized image URL from FoodItem
 	price: {
 		type: Number,
 		default: 0,

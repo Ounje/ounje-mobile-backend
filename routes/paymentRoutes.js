@@ -1,5 +1,5 @@
 const express = require("express");
-const { initialisePayment, verifyPayment, webhookHandler } = require("../controllers/paymentController");
+const { initialisePayment, verifyPayment, webhookHandler, walletPayment } = require("../controllers/paymentController");
 const { authMiddleware, roleGuard, ipWhitelist } = require("../middleware/auth");
 const router = express.Router();
 
@@ -70,6 +70,47 @@ router.get("/verify", verifyPayment);
  *       200:
  *         description: Webhook received
  */
-router.post("/webhook", webhookHandler); 
+router.post("/webhook", webhookHandler);
+
+/**
+ * @swagger
+ * /api/payments/wallet:
+ *   post:
+ *     summary: Pay for an order using wallet balance
+ *     tags: [Payments]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - orderId
+ *             properties:
+ *               orderId:
+ *                 type: string
+ *     responses:
+ *       200:
+ *         description: Payment successful
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 order:
+ *                   type: object
+ *       400:
+ *         description: Insufficient wallet balance or order already paid
+ *       401:
+ *         description: Unauthorized
+ *       404:
+ *         description: Order or customer not found
+ */
+router.post("/wallet", authMiddleware, roleGuard(["customer"]), walletPayment);
 
 module.exports = router;

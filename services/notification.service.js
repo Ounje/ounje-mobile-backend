@@ -14,6 +14,7 @@ class NotificationService {
 				payload.recipientModel,
 				payload.title,
 				payload.message,
+				payload.channelId ?? "general",
 			);
 			return notification;
 		} catch (error) {
@@ -22,14 +23,13 @@ class NotificationService {
 		}
 	}
 
-	// NEW: Works for all user types (vendor, customer, rider)
 	async getUserNotifications(
 		userId,
 		recipientModel,
 		{ page = 1, limit = 20, unreadOnly = false },
 	) {
 		const skip = (page - 1) * limit;
-		const query = { recipient: userId, recipientModel: recipientModel };
+		const query = { recipient: userId, recipientModel };
 		if (unreadOnly) query.isRead = false;
 
 		const [notifications, total, unreadCount] = await Promise.all([
@@ -55,7 +55,6 @@ class NotificationService {
 	}
 
 	// DEPRECATED: Use getUserNotifications instead
-	// Keeping for backward compatibility
 	async getVendorNotifications(
 		vendorId,
 		{ page = 1, limit = 20, unreadOnly = false },
@@ -102,29 +101,33 @@ class NotificationService {
 	// ============ VENDOR NOTIFICATIONS ============
 
 	async notifyNewOrder(vendorId, order) {
+		const earning = order.vendorEarning ?? order.totalPrice;
 		return this.createNotification({
 			recipient: vendorId,
 			recipientModel: "vendor",
 			type: "new_order",
 			title: "🎉 New Order Received!",
-			message: `You have a new order for ₦${order.totalPrice}`,
+			message: `You have a new order worth ₦${earning.toLocaleString()} (your earnings)`,
 			data: {
 				orderId: order._id,
-				totalPrice: order.totalPrice,
+				vendorEarning: earning,
 				itemCount: order.items?.length || 0,
 			},
 			priority: "high",
+			channelId: "orders",
 		});
 	}
 
 	async notifyOrderCancelled(vendorId, order) {
+		const earning = order.vendorEarning ?? order.totalPrice;
 		return this.createNotification({
 			recipient: vendorId,
 			recipientModel: "vendor",
 			type: "order_cancelled",
 			title: "Order Cancelled",
-			message: `Order for ₦${order.totalPrice} has been cancelled`,
+			message: `Order worth ₦${earning.toLocaleString()} (your earnings) has been cancelled`,
 			data: { orderId: order._id },
+			channelId: "orders",
 		});
 	}
 
@@ -137,6 +140,7 @@ class NotificationService {
 			message: `Your payout of ₦${payout.amount} has been sent`,
 			data: { payoutId: payout._id },
 			priority: "high",
+			channelId: "payouts",
 		});
 	}
 
@@ -149,6 +153,7 @@ class NotificationService {
 			message: `Your payout of ₦${payout.amount} failed. Please check your account details.`,
 			data: { payoutId: payout._id },
 			priority: "urgent",
+			channelId: "payouts",
 		});
 	}
 
@@ -159,11 +164,9 @@ class NotificationService {
 			type: "newsflash",
 			title: newsflash.title || "📢 New Announcement",
 			message: newsflash.description || "Check out the latest newsflash",
-			data: {
-				newsflashId: newsflash._id,
-				imageUrl: newsflash.imageUrl,
-			},
+			data: { newsflashId: newsflash._id, imageUrl: newsflash.imageUrl },
 			priority: "medium",
+			channelId: "general",
 		});
 	}
 
@@ -176,13 +179,25 @@ class NotificationService {
 			type: "new_order",
 			title: "🚴 Rider Assigned!",
 			message: `${riderName} is on the way to pick up your order`,
-			data: {
-				orderId: order._id,
-				riderId: order.rider,
-			},
+			data: { orderId: order._id, riderId: order.rider },
 			priority: "high",
+			channelId: "orders",
 		});
 	}
+
+	async notifyCustomerFoodReady(customerId, order) {
+		return this.createNotification({
+			recipient: customerId,
+			recipientModel: "customer",
+			type: "food_ready",
+			title: "🍽️ Food Ready for Pickup!",
+			message: "Your food is ready and waiting for the rider to pick it up",
+			data: { orderId: order._id },
+			priority: "high",
+			channelId: "orders",
+		});
+	}
+
 	async notifyCustomerOrderAccepted(customerId, order, vendorName) {
 		return this.createNotification({
 			recipient: customerId,
@@ -190,25 +205,22 @@ class NotificationService {
 			type: "vendor_accepted_order",
 			title: "Vendor has accepted your order!",
 			message: `${vendorName} has accepted your order`,
-			data: {
-				orderId: order._id,
-				vendorId: order.vendor,
-			},
+			data: { orderId: order._id, vendorId: order.vendor },
 			priority: "high",
+			channelId: "orders",
 		});
 	}
+
 	async notifyCustomerOrderDeclined(customerId, order, vendorName) {
 		return this.createNotification({
 			recipient: customerId,
 			recipientModel: "customer",
-			type: "vendor_accepted_order",
-			title: "Vendor has accepted your order!",
+			type: "vendor_declined_order",
+			title: "Vendor has declined your order!",
 			message: `${vendorName} declined your order`,
-			data: {
-				orderId: order._id,
-				vendorId: order.vendor,
-			},
+			data: { orderId: order._id, vendorId: order.vendor },
 			priority: "high",
+			channelId: "orders",
 		});
 	}
 
@@ -221,6 +233,7 @@ class NotificationService {
 			message: "Your rider has picked up your order and is heading your way",
 			data: { orderId: order._id },
 			priority: "high",
+			channelId: "orders",
 		});
 	}
 
@@ -233,6 +246,33 @@ class NotificationService {
 			message: "Your order has been delivered. Enjoy your meal!",
 			data: { orderId: order._id },
 			priority: "high",
+			channelId: "orders",
+		});
+	}
+
+	async notifyCustomerRiderDeclined(customerId, order) {
+		return this.createNotification({
+			recipient: customerId,
+			recipientModel: "customer",
+			type: "rider_declined_order",
+			title: "🚴 Rider Declined Order",
+			message: "Your order has been declined by the assigned rider",
+			data: { orderId: order._id },
+			priority: "high",
+			channelId: "orders",
+		});
+	}
+
+	async notifyCustomerWalletTopup(customerId, amountNaira) {
+		return this.createNotification({
+			recipient: customerId,
+			recipientModel: "customer",
+			type: "wallet_topup",
+			title: "💰 Wallet Credited!",
+			message: `₦${Number(amountNaira).toLocaleString()} has been added to your O-Credit wallet`,
+			data: { amount: amountNaira },
+			priority: "high",
+			channelId: "wallet",
 		});
 	}
 
@@ -251,6 +291,7 @@ class NotificationService {
 				zone: order.zone,
 			},
 			priority: "high",
+			channelId: "orders",
 		});
 	}
 
@@ -271,32 +312,51 @@ class NotificationService {
 		}
 	}
 
-	async pushToUser(userId, recipientModel, title, body) {
+	async pushToUser(
+		profileId,
+		recipientModel,
+		title,
+		body,
+		channelId = "general",
+	) {
 		try {
-			// Use the base User model since Vendor/Customer/Rider extend from it
 			const User = require("../models/User");
+			let user = null;
 
-			// Find user by ID - works for all discriminators (Vendor, Customer, Rider)
-			const user = await User.findById(userId).select("fcmToken");
+			if (recipientModel === "vendor") {
+				const { VendorProfile } = require("../models");
+				const profile = await VendorProfile.findById(profileId).select("owner");
+				if (profile?.owner)
+					user = await User.findById(profile.owner).select("fcmToken");
+			} else if (recipientModel === "rider") {
+				const { RiderProfile } = require("../models");
+				const profile = await RiderProfile.findById(profileId).select("user");
+				if (profile?.user)
+					user = await User.findById(profile.user).select("fcmToken");
+			} else {
+				const { Customer } = require("../models");
+				const profile = await Customer.findById(profileId).select("user");
+				if (profile?.user)
+					user = await User.findById(profile.user).select("fcmToken");
+			}
 
 			if (!user) {
-				logger.warn(`User ${userId} not found for push notification`);
+				logger.warn(`User not found for ${recipientModel} profile ${profileId}`);
 				return;
 			}
 
 			if (!user.fcmToken) {
-				logger.info(`No FCM token found for ${recipientModel} ${userId}`);
+				logger.info(`No push token for ${recipientModel} ${profileId}`);
 				return;
 			}
 
-			// Fix: sendPushNotification expects (token, title, body)
-			await sendPushNotification(user.fcmToken, title, body);
+			await sendPushNotification(user.fcmToken, title, body, { channelId });
 			logger.info(
-				`Push notification sent to ${recipientModel} ${userId}: ${title}`,
+				`Push notification sent to ${recipientModel} ${profileId}: ${title}`,
 			);
 		} catch (error) {
 			logger.error(
-				`Failed to send push notification to ${userId}: ${error.message}`,
+				`Failed to send push notification to ${profileId}: ${error.message}`,
 			);
 		}
 	}

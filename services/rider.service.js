@@ -4,6 +4,7 @@ const payoutService = require("./payout.service");
 const ratingService = require("./rating.service");
 const ledgerService = require("./ledger.service");
 const logger = require("../utils/logger");
+const { AVAILABLE_ZONES } = require("../utils/constants");
 
 /**
  * Get Rider Dashboard Data
@@ -145,11 +146,20 @@ const getRiderProfile = async (userId) => {
 	const setupComplete = riderProfile.setupComplete === true;
 	const missingFields = []; // No longer dynamically calculating this as it causes loops
 
-	// Ensure isActive is consistent with setupComplete
-	if (setupComplete && !riderProfile.isActive) {
+	// Ensure isActive and status are both correct for a completed setup.
+	// A rider who completed setup must always be available for dispatch.
+	// This catches both the isActive=false case AND status drift (e.g. status="offline" after a crash).
+	const needsHeal =
+		setupComplete &&
+		(!riderProfile.isActive ||
+			!["available", "busy"].includes(riderProfile.status));
+	if (needsHeal) {
 		riderProfile.isActive = true;
 		riderProfile.status = "available";
 		await riderProfile.save();
+		logger.info(
+			`[RiderProfile] Auto-healed status to available for rider ${riderProfile._id}`,
+		);
 	}
 
 	return {
@@ -180,7 +190,7 @@ const getRiderProfile = async (userId) => {
 					accountName: bankDetails.accountName,
 					bankCode: bankDetails.bankCode,
 					bankName: bankDetails.bankName || null,
-			  }
+				}
 			: null,
 	};
 };
@@ -344,10 +354,15 @@ const updateBankDetails = async (userId, bankDetails) => {
 	const riderProfile = await RiderProfile.findOne({ user: userId });
 	if (!riderProfile) throw new Error("Rider profile not found");
 
+	// Save the bank details onto the profile
+	riderProfile.bankDetails = { accountNumber, bankCode, accountName };
+	riderProfile.paystackRecipientCode = undefined; // invalidate stale recipient
+	await riderProfile.save();
+
+	// Pass userId (not riderProfile._id) — Payout.user stores the user ID
 	const retryResults = await payoutService.processPendingPayoutsForUser(
-		riderProfile._id,
+		userId,
 		"RIDER",
-		{ accountNumber, bankCode, accountName },
 	);
 
 	return {
@@ -356,12 +371,71 @@ const updateBankDetails = async (userId, bankDetails) => {
 		retryResults,
 	};
 };
-
 /**
- * Leaderboard
+ * Leaderboard — sorted by rankingScore DESC.
+ * Falls back to totalDeliveries if no scores are computed yet.
  */
 const getRiderLeaderboard = async () => {
-	return ratingService.getRiderLeaderboard();
+	const riders = await RiderProfile.find({ isActive: true })
+		.sort({ rankingScore: -1, totalDeliveries: -1 })
+		.limit(20)
+		.populate("user", "name")
+		.lean();
+
+	const data = riders.map((r) => ({
+		riderId: r.user?._id ?? r._id,
+		name: r.user?.name ?? "—",
+		totalDeliveries: r.totalDeliveries ?? 0,
+		rating: r.averageRating ?? r.ratings?.average ?? 0,
+		rankingScore: r.rankingScore ?? 0,
+		tier: r.tier ?? "STARTER",
+		acceptanceRate: r.acceptanceRate ?? 100,
+	}));
+
+	return { success: true, count: data.length, data };
+};
+
+/**
+ * Change Rider Zone (once every 7 days)
+ */
+const changeZone = async (userId, zones) => {
+	if (!Array.isArray(zones) || zones.length < 1 || zones.length > 2) {
+		throw new Error("You must select 1 or 2 delivery zones");
+	}
+
+	const invalid = zones.filter((z) => !AVAILABLE_ZONES.includes(z));
+	if (invalid.length > 0) {
+		throw new Error(`Invalid zone(s): ${invalid.join(", ")}`);
+	}
+
+	const riderProfile = await RiderProfile.findOne({ user: userId });
+	if (!riderProfile) throw new Error("Rider profile not found");
+
+	// TODO: re-enable 7-day restriction before going to production
+	// if (riderProfile.lastZoneChange) {
+	// 	const daysSince =
+	// 		(Date.now() - new Date(riderProfile.lastZoneChange).getTime()) /
+	// 		(1000 * 60 * 60 * 24);
+	// 	if (daysSince < 7) {
+	// 		const daysLeft = Math.ceil(7 - daysSince);
+	// 		throw new Error(
+	// 			`You can only change your zone once every 7 days. Try again in ${daysLeft} day(s).`,
+	// 		);
+	// 	}
+	// }
+
+	riderProfile.operatingArea = zones;
+	riderProfile.lastZoneChange = new Date();
+	await riderProfile.save();
+
+	return {
+		success: true,
+		message: "Zone updated successfully",
+		data: {
+			operatingArea: riderProfile.operatingArea,
+			lastZoneChange: riderProfile.lastZoneChange,
+		},
+	};
 };
 
 /**
@@ -384,15 +458,53 @@ const deactivateRiderAccount = async (userId) => {
 	};
 };
 
+// Work out what tier a rider belongs to based on their score.
+// Thresholds are deliberately generous for launch so new riders aren't stuck at STARTER long.
+const _tierForScore = (score) => {
+	if (score >= 80) return "ELITE";
+	if (score >= 40) return "PRO";
+	if (score >= 15) return "ACTIVE";
+	return "STARTER";
+};
+
+// Recomputes and saves a rider's ranking score + tier.
+// Formula: (totalDeliveries * 0.4) + (averageRating * 0.4) + (acceptanceRate * 0.2)
+// Call this after: order accepted, order delivered, rating received.
+const updateRiderRankingScore = async (riderId) => {
+	try {
+		const rider = await RiderProfile.findById(riderId).select(
+			"totalDeliveries averageRating acceptanceRate",
+		);
+		if (!rider) return;
+
+		const score =
+			rider.totalDeliveries * 0.4 +
+			(rider.averageRating || 0) * 0.4 +
+			(rider.acceptanceRate ?? 100) * 0.2;
+
+		const tier = _tierForScore(score);
+		await RiderProfile.findByIdAndUpdate(riderId, {
+			rankingScore: score,
+			tier,
+		});
+	} catch (err) {
+		logger.error(
+			`updateRiderRankingScore failed riderId=${riderId}: ${err.message}`,
+		);
+	}
+};
+
 module.exports = {
 	getRiderDashboard,
 	completeRiderRegistration,
 	getRiderProfile,
 	updateOperatingArea,
 	getOperatingArea,
+	changeZone,
 	updateCurrentLocation,
 	updateRiderStatus,
 	updateBankDetails,
 	getRiderLeaderboard,
 	deactivateRiderAccount,
+	updateRiderRankingScore,
 };

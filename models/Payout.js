@@ -19,18 +19,22 @@ const payoutSchema = new mongoose.Schema(
 		},
 		status: {
 			type: String,
-			enum: ["pending", "processed", "failed"],
+			enum: ["pending", "processing", "processed", "failed", "cancelled"],
 			default: "pending",
 		},
-		// OPTION A: Stored Details (Acceptable for Payouts, NOT Payments)
 		bankDetails: {
 			bankName: String,
 			accountNumber: String,
 			accountName: String,
+			bankCode: String,
 		},
-		// OPTION B: Tokenized (Best Practice)
+		feeDeducted: { type: Number, default: 0 },
+		netAmount: { type: Number },
+		idempotencyKey: { type: String, unique: true, sparse: true },
+		transactionRef: { type: String },
+		ledgerEntry: { type: mongoose.Schema.Types.ObjectId, ref: "LedgerEntry" },
+		failureReason: { type: String },
 		providerRecipientCode: String,
-		reference: String,
 		processedAt: Date,
 	},
 	{ timestamps: true },
@@ -38,5 +42,6 @@ const payoutSchema = new mongoose.Schema(
 
 payoutSchema.index({ status: 1, createdAt: -1 });
 payoutSchema.index({ recipientId: 1, recipientType: 1 });
+payoutSchema.index({ transactionRef: 1 }, { sparse: true });
 
 module.exports = mongoose.model("Payout", payoutSchema);

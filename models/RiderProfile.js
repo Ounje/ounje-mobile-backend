@@ -14,6 +14,7 @@ const riderProfileSchema = new mongoose.Schema(
 			default: "pending",
 		},
 		operatingArea: [],
+		lastZoneChange: { type: Date, default: null },
 		isActive: { type: Boolean, default: false },
 		setupComplete: { type: Boolean, default: false },
 		currentLocation: {
@@ -49,6 +50,11 @@ const riderProfileSchema = new mongoose.Schema(
 		},
 		averageRating: { type: Number, default: 0 },
 		ratingCount: { type: Number, default: 0 },
+		rankingScore: { type: Number, default: 0 },
+		tier: { type: String, enum: ["STARTER", "ACTIVE", "PRO", "ELITE"], default: "STARTER" },
+		acceptanceRate: { type: Number, default: 100 }, // percentage 0–100
+		ordersOffered: { type: Number, default: 0 },
+		ordersAccepted: { type: Number, default: 0 },
 		// Personal Verification Documents
 		guarantor: {
 			name: { type: String },
@@ -82,5 +88,6 @@ const riderProfileSchema = new mongoose.Schema(
 );
 
 riderProfileSchema.plugin(toJSON);
+riderProfileSchema.index({ currentLocation: "2dsphere" });
 
 module.exports = mongoose.model("RiderProfile", riderProfileSchema);

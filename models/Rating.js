@@ -4,7 +4,7 @@ const ratingSchema = new mongoose.Schema(
 	{
 		targetType: {
 			type: String,
-			enum: ["FoodItem", "Combo", "VendorProfile", "RiderProfile", "Plate"],
+			enum: ["FoodItem", "Combo", "Vendor", "Rider", "Plate"],
 			required: true,
 		},
 		target: {
@@ -33,8 +33,9 @@ const ratingSchema = new mongoose.Schema(
 	{ timestamps: true },
 );
 
+// One rating per customer per entity per order
 ratingSchema.index(
-	{ targetType: 1, target: 1, customer: 1, createdAt: -1 },
+	{ targetType: 1, target: 1, customer: 1, orderId: 1 },
 	{ unique: true },
 );
 

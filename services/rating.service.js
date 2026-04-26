@@ -26,7 +26,7 @@ class RatingService {
 		return id && Types.ObjectId.isValid(id) ? new Types.ObjectId(id) : null;
 	}
 
-	async rateEntity(customerId, targetType, targetId, { rating, comment }) {
+	async rateEntity(customerId, targetType, targetId, { rating, comment, orderId }) {
 		const Model = this.getModel(targetType);
 		if (!Model) {
 			logger.error(`RatingService: Invalid target type ${targetType}`);
@@ -53,6 +53,7 @@ class RatingService {
 				target,
 				rating,
 				comment,
+				orderId,
 			);
 		}
 
@@ -74,9 +75,14 @@ class RatingService {
 		target,
 		rating,
 		comment,
+		orderId,
 	) {
 		if (rating !== undefined && (rating < 1 || rating > 5)) {
 			throw new Error("Rating must be between 1 and 5");
+		}
+
+		if (!orderId) {
+			throw new Error("orderId is required to submit a rating");
 		}
 
 		const canRate = await this.hasCompletedOrder({
@@ -84,6 +90,7 @@ class RatingService {
 			targetType,
 			targetId,
 			target,
+			orderId,
 		});
 
 		if (!canRate) {
@@ -92,18 +99,21 @@ class RatingService {
 			);
 		}
 
-		const updateData = {};
-		if (rating !== undefined) updateData.rating = rating;
-		if (comment !== undefined) updateData.comment = comment;
-
-		if (Object.keys(updateData).length === 0) {
-			throw new Error("Please provide a rating or comment");
+		if (rating === undefined) {
+			throw new Error("Please provide a rating");
 		}
 
 		const Rating = mongoose.model("Rating");
+
+		// Resolve User ID to Customer profile ID (Rating.customer refs Customer, not User)
+		const CustomerModel = mongoose.model("Customer");
+		const customerProfile = await CustomerModel.findOne({ user: customerId }).select("_id").lean();
+		const customerProfileId = customerProfile?._id ?? this.toObjectId(customerId);
+
+		// One rating per customer per entity per order — upsert so re-submission updates
 		await Rating.findOneAndUpdate(
-			{ targetType, targetType: targetType === "Plate" ? "Plate" : targetType, target: targetId, customer: customerId },
-			updateData,
+			{ targetType, target: targetId, customer: customerProfileId, orderId },
+			{ rating, ...(comment !== undefined ? { comment } : {}) },
 			{
 				upsert: true,
 				new: true,
@@ -130,7 +140,7 @@ class RatingService {
 
 		const { avg = 0, count = 0 } = stats[0] || {};
 
-		// Standard fields for all models
+		const updateData = {};
 		updateData.averageRating = avg;
 		updateData.ratingCount = count;
 
@@ -144,43 +154,83 @@ class RatingService {
 		if (targetType === "Vendor") {
 			updateData.rating = avg;
 		}
-		// Plate: 'rating' was used before standardizing, keep it synced if needed, but averageRating is now source of truth
+		// Plate: keep 'rating' in sync and also update the comments counter
 		if (targetType === "Plate") {
 			updateData.rating = avg;
+			const commentCount = await Rating.countDocuments({
+				targetType,
+				target: this.toObjectId(targetId),
+				comment: { $exists: true, $ne: "" },
+			});
+			updateData.commentsCount = commentCount;
 		}
-
 
 		// Update target model with new stats
 		await Model.findByIdAndUpdate(targetId, updateData);
 
+		// Keep ranking scores in sync whenever a rating changes
+		if (targetType === "Vendor") {
+			const vendorService = require("./vendor.service");
+			await vendorService.updateVendorRankingScore(targetId);
+		}
+		if (targetType === "Rider") {
+			const riderService = require("./rider.service");
+			await riderService.updateRiderRankingScore(targetId);
+		}
+
 		return { averageRating: avg, totalRatings: count };
 	}
 
-	async hasCompletedOrder({ customerId, targetType, targetId, target }) {
-		const query = {
-			status: "DELIVERED",
-			customer: this.toObjectId(customerId),
-		};
+	async hasCompletedOrder({ customerId, targetType, targetId, target, orderId }) {
+		const Order = mongoose.model("Order");
 
+		// customerId is req.user.id (User._id from JWT).
+		// Order.customer references the Customer profile, not the User.
+		// Resolve the User ID to a Customer profile ID for comparison.
+		const CustomerModel = mongoose.model("Customer");
+		const customerProfile = await CustomerModel.findOne({ user: customerId }).select("_id").lean();
+		if (!customerProfile) return false;
+		const customerProfileId = customerProfile._id.toString();
+
+		// If orderId is provided, just verify this specific order was delivered and
+		// belongs to the correct vendor/rider — fastest and most precise check.
+		if (orderId) {
+			const order = await Order.findById(orderId).select(
+				"status customer vendor rider",
+			);
+			if (!order) return false;
+			if (order.status !== "delivered") return false;
+			if (order.customer.toString() !== customerProfileId) return false;
+
+			const tId = this.toObjectId(targetId);
+			if (targetType === "Vendor") {
+				return order.vendor && order.vendor.toString() === tId.toString();
+			}
+			if (targetType === "Rider") {
+				// Order.rider stores RiderProfile _id
+				return order.rider && order.rider.toString() === tId.toString();
+			}
+			// For FoodItem / Combo / Plate — trust that orderId was delivered
+			return true;
+		}
+
+		// Fallback: scan all completed orders (used when orderId is not supplied)
+		const query = {
+			status: "delivered",
+			customer: this.toObjectId(customerProfileId),
+		};
 		const tId = this.toObjectId(targetId);
 
 		switch (targetType) {
 			case "Vendor":
-				// Check for orders from this vendor (Order.vendor is VendorProfile ID)
 				query.vendor = tId;
 				break;
 			case "Rider":
-				if (target && target.user) {
-					query.rider = target.user; // Assuming Order.rider matches RiderProfile.user (User ID)
-				} else {
-					// Fallback to profile ID if target.user isn't available (shouldn't happen for RiderProfile)
-					query.rider = tId;
-				}
+				query.rider = tId;
 				break;
 			case "FoodItem":
 			case "Combo":
 			case "Plate":
-				// Check for orders containing this item
 				query["items.item"] = tId;
 				query["items.itemType"] = targetType;
 				break;
@@ -188,9 +238,27 @@ class RatingService {
 				return false;
 		}
 
-		const Order = mongoose.model("Order");
 		const exists = await Order.exists(query);
 		return !!exists;
+	}
+
+	// Check whether a customer has already rated an order (vendor + rider)
+	async checkOrderRating(customerId, orderId) {
+		const Rating = mongoose.model("Rating");
+		// Resolve User ID to Customer profile ID
+		const CustomerModel = mongoose.model("Customer");
+		const customerProfile = await CustomerModel.findOne({ user: customerId }).select("_id").lean();
+		const customerProfileId = customerProfile?._id ?? this.toObjectId(customerId);
+		const ratings = await Rating.find({
+			customer: customerProfileId,
+			orderId: this.toObjectId(orderId),
+		}).select("targetType").lean();
+
+		return {
+			vendorRated: ratings.some((r) => r.targetType === "Vendor"),
+			riderRated: ratings.some((r) => r.targetType === "Rider"),
+			fullyRated: ratings.some((r) => r.targetType === "Vendor") && ratings.some((r) => r.targetType === "Rider"),
+		};
 	}
 
 	// Expose for usage in deleteReview or other places if needed

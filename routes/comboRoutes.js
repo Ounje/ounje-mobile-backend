@@ -13,6 +13,7 @@ const {
 	getMyCombos,
 	getVendorCombos,
 	getVendorCombosGrouped,
+	toggleComboAvailability,
 } = require("../controllers/foodItemController");
 const {
 	createComboGroup,
@@ -251,6 +252,14 @@ router.delete(
 	authMiddleware,
 	checkActiveUser,
 	deleteCombo,
+);
+
+router.patch(
+	"/:comboId/availability",
+	authMiddleware,
+	roleGuard(["vendor"]),
+	checkActiveUser,
+	toggleComboAvailability,
 );
 
 // Combo Group Routes

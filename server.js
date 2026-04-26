@@ -1,13 +1,17 @@
 const express = require("express");
 const mongoose = require("mongoose");
 const cors = require("cors");
-const http = require("http"); // Standard Node.js module
+const http = require("http");
 require("dotenv").config();
+console.log("Resend Key present:", !!process.env.RESEND_API_KEY);
 const httpLogger = require("./middleware/httpLogger");
 const logger = require("./utils/logger");
 
 // Load all models early so Mongoose model registration is guaranteed
 require("./models");
+
+// Initialize Firebase Admin SDK early so push notifications are ready before any request
+require("./utils/firebase");
 
 const authRoutes = require("./routes/authRoutes");
 const foodItemRoutes = require("./routes/foodItemRoutes");
@@ -25,24 +29,28 @@ const ratingRouter = require("./routes/ratingsRoutes");
 const newflashRouter = require("./routes/newflash.route");
 const searchRouter = require("./routes/search.routes");
 const notificationRouter = require("./routes/notification.router");
+const promoRouter = require("./routes/promo.routes");
 
 const app = express();
-
-// This is the "server" variable that was missing!
 const server = http.createServer(app);
 
-// Initialize Socket.io using that server
+// Initialize Socket.io
 const io = require("socket.io")(server, {
-	cors: { origin: "*" }, // Allows connections from your frontend
+	cors: { origin: "*" },
 });
 
-// ✅ FIX: Set global.io OUTSIDE the connection handler
-// This makes it available to all services (notification, order, etc.)
 global.io = io;
 logger.info("✅ Socket.IO initialized and available globally");
 
-app.use(httpLogger); // HTTP Request Logging
+app.use(httpLogger);
 app.use(cors());
+
+// ── Webhook route MUST be before express.json() ───────────────────────────────
+// express.raw() captures the raw buffer Paystack needs for signature verification.
+// If express.json() runs first, the raw body is gone and the sig check fails.
+app.use("/api/webhooks", require("./routes/webhookRoutes"));
+
+// ── Global JSON parser (all other routes) ────────────────────────────────────
 app.use(express.json());
 app.set("trust proxy", 1);
 
@@ -51,15 +59,10 @@ const swaggerUi = require("swagger-ui-express");
 const swaggerSpecs = require("./config/swagger");
 app.use("/api-docs", swaggerUi.serve, swaggerUi.setup(swaggerSpecs));
 
-//api routes
+// API Routes
 app.use("/api/auth", authRoutes);
-// Standardized routes
 app.use("/api/food-items", foodItemRoutes);
 app.use("/api/combos", comboRoutes);
-// Legacy route support (Redirect /api/dishes/xxx to the appropriate new route if we wanted, but simple mounting is okay)
-// For legacy /api/dishes/food-items -> it won't work easily with standard mounting unless we duplicate logic.
-// But verified legacy use cases: /api/dishes/food-items -> now /api/food-items
-// /api/dishes/combos -> now /api/combos
 app.use("/api/newsflash", newflashRouter);
 app.use("/api/orders", orderRoutes);
 app.use("/api/payments", paymentRoutes);
@@ -73,34 +76,102 @@ app.use("/api/support", supportRoutes);
 app.use("/api/rating", ratingRouter);
 app.use("/api/search", searchRouter);
 app.use("/api/notifications", notificationRouter);
+app.use("/api/promo", promoRouter);
 app.use("/api/announcements", require("./routes/announcementRoutes"));
-// app.use("/api/test", require("./tests/test01"));
+app.use("/api/finance", require("./routes/financeRoutes"));
+app.use("/api/dva", require("./routes/dvaRoutes"));
 
 logger.info(`Frontend URL: ${process.env.FRONTEND_URL}`);
 
 // Socket.IO Connection Handler
-io.on("connection", (socket) => {
+io.on("connection", async (socket) => {
 	logger.info(`A user connected: ${socket.id}`);
 
-	// The Frontend will call this as soon as the app opens
-	socket.on("join", (userId) => {
+	try {
+		const jwt = require("jsonwebtoken");
+		const decoded = jwt.verify(
+			socket.handshake.auth.token,
+			process.env.ACCESS_SECRET,
+		);
+		const userId = decoded.id;
+		if (userId) {
+			socket.join(userId);
+			logger.info(`Socket auto-joined userId room: ${userId}`);
+
+			const { Customer, VendorProfile, RiderProfile } = require("./models");
+
+			const [customer, vendor, rider] = await Promise.all([
+				Customer.findOne({ user: userId }).select("_id").lean(),
+				VendorProfile.findOne({ owner: userId }).select("_id").lean(),
+				RiderProfile.findOne({ user: userId })
+					.select("_id status isActive operatingArea")
+					.lean(),
+			]);
+
+			if (customer) {
+				socket.join(customer._id.toString());
+				logger.info(`Socket auto-joined customerProfile room: ${customer._id}`);
+			}
+			if (vendor) {
+				socket.join(vendor._id.toString());
+				logger.info(`Socket auto-joined vendorProfile room: ${vendor._id}`);
+			}
+			if (rider) {
+				socket.join(rider._id.toString());
+				logger.info(
+					`Socket auto-joined riderProfile room: ${rider._id} | status=${rider.status} isActive=${rider.isActive} zones=${JSON.stringify(rider.operatingArea)}`,
+				);
+			}
+		}
+	} catch {
+		// Unauthenticated socket — fine
+	}
+
+	socket.on("join", async (userId) => {
 		socket.join(userId);
 		logger.info(`User ${userId} joined their private room`);
+
+		try {
+			const { Customer, VendorProfile, RiderProfile } = require("./models");
+
+			const customer = await Customer.findOne({ user: userId })
+				.select("_id")
+				.lean();
+			if (customer) {
+				socket.join(customer._id.toString());
+				logger.info(`Socket auto-joined customerProfile room: ${customer._id}`);
+			}
+
+			const vendor = await VendorProfile.findOne({ owner: userId })
+				.select("_id")
+				.lean();
+			if (vendor) {
+				socket.join(vendor._id.toString());
+				logger.info(`Socket auto-joined vendorProfile room: ${vendor._id}`);
+			}
+
+			const rider = await RiderProfile.findOne({ user: userId })
+				.select("_id")
+				.lean();
+			if (rider) {
+				socket.join(rider._id.toString());
+				logger.info(`Socket auto-joined riderProfile room: ${rider._id}`);
+			}
+		} catch (err) {
+			logger.error(`Auto-join profile room failed: ${err.message}`);
+		}
 	});
 
-	// 1. Listen for the 'update-location' signal from the Rider's App
 	socket.on("update-location", async (data) => {
 		try {
 			const { RiderProfile } = require("./models");
 
-			// 2. SAVE to Database: Update rider location
-			// Note: data.riderId should be the rider's user ID, not the profile ID
 			await RiderProfile.findOneAndUpdate(
 				{ user: data.riderId },
 				{
 					currentLocation: {
 						type: "Point",
-						coordinates: [data.lng, data.lat], // GeoJSON format: [longitude, latitude]
+						coordinates: [data.lng, data.lat],
 					},
 				},
 			);
@@ -109,7 +180,6 @@ io.on("connection", (socket) => {
 				`Rider ${data.riderId} location updated: [${data.lng}, ${data.lat}]`,
 			);
 
-			// 3. BROADCAST: Send this same data to the Operations Dashboard
 			io.emit("rider-moved", {
 				riderId: data.riderId,
 				lat: data.lat,
@@ -125,7 +195,6 @@ io.on("connection", (socket) => {
 	});
 });
 
-// Middleware
 const errorHandler = require("./middleware/errorHandler");
 app.use(errorHandler);
 
@@ -139,7 +208,6 @@ mongoose.connect(process.env.MONGO_DB_URI).then(() => {
 	server.listen(PORT, () => {
 		logger.info(`🚀 Server running on port ${PORT}`);
 
-		// Keep Render instance awake by pinging itself every 14 minutes
 		if (process.env.NODE_ENV === "production" || process.env.RENDER) {
 			keepAlive("https://ounje-mobile-backend.onrender.com/");
 		}

@@ -3,7 +3,7 @@ const { Schema, model } = require('mongoose');
 
 const ledgerAccountSchema = new Schema({
     userId: { type: Schema.Types.ObjectId, required: true, index: true },
-    type: { type: String, enum: ['VENDOR', 'RIDER', 'PLATFORM'], required: true },
+    type: { type: String, enum: ['VENDOR', 'RIDER', 'PLATFORM', 'CUSTOMER'], required: true },
     // cached snapshots for quick reads; the source of truth is ledger_entries aggregation
     availableBalance: { type: Number, default: 0 },
     pendingBalance: { type: Number, default: 0 },

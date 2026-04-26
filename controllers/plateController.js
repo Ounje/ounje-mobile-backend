@@ -1,146 +1,83 @@
-const mongoose = require("mongoose");
 const { Plate, FoodItem, Combo, Customer } = require("../models");
+const { deleteImage } = require("../config/cloudinary");
 const { paginate } = require("../utils/paginate");
-
-const resolveItems = async (itemIds) => {
-	if (!itemIds || !Array.isArray(itemIds) || itemIds.length === 0) return [];
-	const resolvedItems = [];
-
-	for (const itemId of itemIds) {
-		const objectId = new mongoose.Types.ObjectId(itemId);
-
-		const foodItem = await FoodItem.findOne(
-			{ "subCategory.items._id": objectId },
-			{ "subCategory.$": 1, vendor: 1, category: 1 },
-		).lean();
-
-		if (!foodItem) continue;
-
-		let specificItem = null;
-		let subCategoryName = null;
-
-		for (const subCat of foodItem.subCategory) {
-			const found = subCat.items.find(
-				(i) => i._id.toString() === itemId.toString(),
-			);
-			if (found) {
-				specificItem = found;
-				subCategoryName = subCat.name;
-				break;
-			}
-		}
-
-		if (!specificItem) continue;
-
-		resolvedItems.push({
-			itemId: specificItem._id,
-			foodItemId: foodItem._id,
-			category: foodItem.category,
-			subCategoryName,
-			name: specificItem.name,
-			price: specificItem.price,
-			img: specificItem.img,
-			description: specificItem.description || null,
-			preparationTime: specificItem.preparationTime || null,
-			isAvailable: specificItem.isAvailable,
-		});
-	}
-
-	return resolvedItems;
-};
 
 const buildPlate = async (req, res) => {
 	try {
-		let { name, description, items, vendor } = req.body;
+		let { name, items, vendor } = req.body;
 
 		if (typeof items === "string") {
 			try {
 				items = JSON.parse(items);
-			} catch {
-				return res.status(400).json({ error: "Invalid items format." });
+			} catch (e) {
+				// Check if it's a comma-separated list
+				if (items.includes(",")) {
+					items = items.split(",").map((item) => item.trim());
+				} else {
+					// if it's just a single ID string, wrap it in an array
+					items = [items];
+				}
 			}
 		}
 
-		if (!Array.isArray(items) || items.length === 0) {
-			return res.status(400).json({ error: "At least one item is required." });
-		}
-
+		// Lookup Customer ID from User ID
 		const customer = await Customer.findOne({ user: req.user.id });
 		if (!customer) {
 			return res.status(404).json({ error: "Customer profile not found" });
 		}
 
-		const resolvedItems = [];
-		let totalPrice = 0;
-		let maxTime = 0;
-		const itemNames = [];
+		// Fetch item details to calculate price and description
+		const selectedItems = await FoodItem.find({ _id: { $in: items } });
+		const selectedCombos = await Combo.find({ _id: { $in: items } });
 
-		for (const itemId of items) {
-			const objectId = new mongoose.Types.ObjectId(itemId);
+		// Debugging: See if items are actually being found in your terminal
+		console.log(
+			"Items found in DB:",
+			selectedItems.length,
+			"Combos found:",
+			selectedCombos.length,
+		);
 
-			const foodItem = await FoodItem.findOne(
-				{ "subCategory.items._id": objectId },
-				{ "subCategory.$": 1, vendor: 1, category: 1 },
-			).lean();
-
-			if (!foodItem) {
-				return res.status(404).json({
-					error: `No food item found containing itemId ${itemId}.`,
-				});
-			}
-
-			let specificItem = null;
-			for (const subCat of foodItem.subCategory) {
-				const found = subCat.items.find(
-					(i) => i._id.toString() === itemId.toString(),
-				);
-				if (found) {
-					specificItem = found;
-					break;
-				}
-			}
-
-			if (!specificItem) {
-				return res.status(404).json({
-					error: `Item ${itemId} could not be resolved.`,
-				});
-			}
-
-			resolvedItems.push(itemId);
-			totalPrice += specificItem.price || 0;
-			maxTime = Math.max(maxTime, parseInt(specificItem.preparationTime) || 0);
-			itemNames.push(specificItem.name);
+		if (selectedItems.length + selectedCombos.length === 0) {
+			return res
+				.status(400)
+				.json({ error: "No valid food items or combos selected" });
 		}
 
-		const comboIds = req.body.combos || [];
-		const selectedCombos =
-			comboIds.length > 0 ? await Combo.find({ _id: { $in: comboIds } }) : [];
-
-		const combosTotal = selectedCombos.reduce(
-			(sum, c) => sum + (c.basePrice || 0),
+		// Calculate total price
+		const price = [...selectedItems, ...selectedCombos].reduce(
+			(sum, item) => sum + (item.price || item.basePrice || 0),
 			0,
 		);
-		const price = totalPrice + combosTotal;
-		const timeToMake = `${Math.max(maxTime, ...selectedCombos.map((c) => parseInt(c.time) || 0), 0)} mins`;
 
-		const autoDescription = [
-			...itemNames,
-			...selectedCombos.map((c) => c.comboName),
+		// Calculate max preparation time (assuming parallel preparation, or sum if sequential - usually max for plates)
+		// Parse "30 mins" or "30" to numbers
+		const times = [...selectedItems, ...selectedCombos].map(
+			(item) => parseInt(item.preparationTime || item.time) || 0,
+		);
+		const maxTime = Math.max(...times);
+		const timeToMake = `${maxTime} mins`;
+
+		const description = [
+			...selectedItems.map((item) => item.name),
+			...selectedCombos.map((combo) => combo.comboName),
 		].join(", ");
-		const finalDescription = description || autoDescription;
 
+		const foodItemIds = selectedItems.map((item) => item._id);
+		const comboIds = selectedCombos.map((item) => item._id);
+
+		// Logic to build a plate using plateData
 		const newPlate = await Plate.create({
 			name,
-			customer: customer._id,
+			customer: customer._id, // Use Customer document ID, not User ID
 			vendor,
 			price,
-			img: req.files?.file?.[0]?.path || undefined,
+			img: req.file ? req.file.path : undefined,
 			timeToMake,
-			items: resolvedItems,
-			combos: selectedCombos.map((c) => c._id),
-			description: finalDescription,
+			items: foodItemIds,
+			combos: comboIds,
+			description,
 		});
-
 		res.status(201).json(newPlate);
 	} catch (error) {
 		res.status(500).json({ error: error.message });
@@ -149,24 +86,175 @@ const buildPlate = async (req, res) => {
 
 const getAllPlates = async (req, res) => {
 	try {
+		const { sortBy } = req.query;
+
+		// Trending sort requires an aggregation pipeline to compute a composite score
+		if (sortBy === "trending") {
+			const page = parseInt(req.query.page) || 1;
+			const limit = Math.min(parseInt(req.query.limit) || 10, 30);
+			const skip = (page - 1) * limit;
+
+			const results = await Plate.aggregate([
+				{
+					$addFields: {
+						trendingScore: {
+							$add: [
+								{ $ifNull: ["$likes", 0] },
+								{ $multiply: [{ $ifNull: ["$ordersCount", 0] }, 2] },
+								{ $ifNull: ["$commentsCount", 0] },
+							],
+						},
+					},
+				},
+				{ $sort: { trendingScore: -1, createdAt: -1 } },
+				{
+					$lookup: {
+						from: "vendorprofiles",
+						localField: "vendor",
+						foreignField: "_id",
+						as: "vendorInfo",
+					},
+				},
+				{ $unwind: { path: "$vendorInfo", preserveNullAndEmptyArrays: true } },
+				{ $skip: skip },
+				{ $limit: limit },
+				{
+					$project: {
+						id: { $toString: "$_id" },
+						name: 1,
+						description: 1,
+						price: 1,
+						img: 1,
+						likes: 1,
+						ordersCount: 1,
+						commentsCount: 1,
+						trendingScore: 1,
+						timeToMake: 1,
+						rating: 1,
+						averageRating: 1,
+						createdAt: 1,
+						vendor: {
+							_id: "$vendorInfo._id",
+							name: "$vendorInfo.name",
+							isOnline: {
+								$eq: [
+									{ $arrayElemAt: ["$vendorInfo.storeDetails.status", 0] },
+									"active",
+								],
+							},
+							image: {
+								$ifNull: [
+									"$vendorInfo.logoUrl",
+									"$vendorInfo.profileImage",
+									"$vendorInfo.bannerUrl",
+									null,
+								],
+							},
+						},
+					},
+				},
+			]);
+
+			const total = await Plate.countDocuments();
+			return res.status(200).json({
+				success: true,
+				data: results,
+				pagination: {
+					total,
+					page,
+					limit,
+					hasNextPage: skip + results.length < total,
+				},
+			});
+		}
+
+		// For all other sort fields (likes, ordersCount, commentsCount, createdAt),
+		// the paginate utility handles it via sortBy/sortOrder query params
 		const populateOptions = [
-			{ path: "combos", select: "-vendor -averageRating -ratingCount -likes" },
-			{ path: "vendor", select: "storeDetails img description" },
+			{ path: "items", select: "name price img" },
+			{ path: "combos", select: "comboName basePrice img" },
+			{
+				path: "vendor",
+				select: "name logoUrl profileImage bannerUrl isActive",
+			},
 			{ path: "customer", select: "firstName lastName img" },
 		];
 
-		const result = await paginate(Plate, req.query, populateOptions);
+		const result = await paginate(Plate, req.query, populateOptions, {});
+		res.status(200).json(result);
+	} catch (error) {
+		res.status(500).json({ error: error.message });
+	}
+};
 
-		const resolvedPlates = await Promise.all(
-			result.data.map(async (plate) => {
-				// Convert Mongoose doc to plain object if not already
-				const plainPlate = plate.toObject ? plate.toObject() : plate;
-				const resolvedItems = await resolveItems(plainPlate.items);
-				return { ...plainPlate, items: resolvedItems };
-			}),
-		);
+/**
+ * GET /api/plates/popular
+ * Returns top plates ranked by popularity score: likes + (ordersCount × 2)
+ */
+const getPopularPlates = async (req, res) => {
+	try {
+		const limit = Math.min(parseInt(req.query.limit) || 10, 20);
 
-		res.status(200).json({ ...result, data: resolvedPlates });
+		const plates = await Plate.aggregate([
+			{
+				$addFields: {
+					popularityScore: {
+						$add: [
+							{ $ifNull: ["$likes", 0] },
+							{ $multiply: [{ $ifNull: ["$ordersCount", 0] }, 2] },
+						],
+					},
+				},
+			},
+			{ $sort: { popularityScore: -1, createdAt: -1 } },
+			{ $limit: limit },
+			{
+				$lookup: {
+					from: "vendorprofiles",
+					localField: "vendor",
+					foreignField: "_id",
+					as: "vendorInfo",
+				},
+			},
+			{ $unwind: { path: "$vendorInfo", preserveNullAndEmptyArrays: true } },
+			{
+				$project: {
+					id: { $toString: "$_id" },
+					name: 1,
+					description: 1,
+					price: 1,
+					img: 1,
+					likes: 1,
+					ordersCount: 1,
+					commentsCount: 1,
+					popularityScore: 1,
+					timeToMake: 1,
+					rating: 1,
+					averageRating: 1,
+					createdAt: 1,
+					vendor: {
+						_id: "$vendorInfo._id",
+						name: "$vendorInfo.name",
+						isOnline: {
+							$eq: [
+								{ $arrayElemAt: ["$vendorInfo.storeDetails.status", 0] },
+								"active",
+							],
+						},
+						image: {
+							$ifNull: [
+								"$vendorInfo.logoUrl",
+								"$vendorInfo.profileImage",
+								"$vendorInfo.bannerUrl",
+								null,
+							],
+						},
+					},
+				},
+			},
+		]);
+
+		res.status(200).json({ success: true, data: plates });
 	} catch (error) {
 		res.status(500).json({ error: error.message });
 	}
@@ -175,24 +263,20 @@ const getAllPlates = async (req, res) => {
 const getSpecificPlate = async (req, res) => {
 	try {
 		const { plateId } = req.params;
-
 		const plate = await Plate.findById(plateId)
+			.populate("items", "-vendor -averageRating -ratingCount -likes")
 			.populate("combos", "-vendor -averageRating -ratingCount -likes")
 			.populate("vendor", "storeDetails img description")
-			.populate("customer", "firstName lastName img")
-			.lean();
-
+			.populate("customer", "firstName lastName img");
 		if (!plate) {
 			return res.status(404).json({ error: "Plate not found" });
 		}
-
-		const resolvedItems = await resolveItems(plate.items);
-
-		res.status(200).json({ ...plate, items: resolvedItems });
+		res.status(200).json(plate);
 	} catch (error) {
 		res.status(500).json({ error: error.message });
 	}
 };
+
 const deletePlate = async (req, res) => {
 	try {
 		const { plateId } = req.params;
@@ -250,6 +334,7 @@ const fixAllPlates = async (req, res) => {
 module.exports = {
 	buildPlate,
 	getAllPlates,
+	getPopularPlates,
 	getSpecificPlate,
 	deletePlate,
 	fixAllPlates,

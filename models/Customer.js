@@ -9,9 +9,29 @@ const customerSchema = new mongoose.Schema(
 			required: true,
 			unique: true,
 		},
-		name: { type: String },
-		phone: { type: Number },
-		fcmToken: { type: String },
+
+		// Paystack customer code ─────────────────────────────
+		paystackCustomerCode: {
+			type: String,
+			default: null,
+			// e.g. 'CUS_abc123xyz'
+		},
+
+		// Titan dedicated virtual account ─────────────────────
+		titanAccount: {
+			accountNumber: { type: String, default: null }, // e.g. '9012345678'
+			accountName: { type: String, default: null }, // e.g. 'YourApp/John Doe'
+			bankName: { type: String, default: null }, // 'Titan Paystack'
+			bankSlug: { type: String, default: null }, // 'titan-paystack'
+		},
+
+		firstName: { type: String },
+		lastName: { type: String },
+		phone: { type: String },
+		rank: {
+			type: String,
+			default: "Bronze Bite",
+		},
 		isActive: { type: Boolean, default: true },
 		savedAddresses: [
 			{
@@ -26,17 +46,18 @@ const customerSchema = new mongoose.Schema(
 			pushNotifications: { type: Boolean, default: true },
 		},
 	},
-	{ timestamps: true,
+	{
+		timestamps: true,
 		toJSON: { virtuals: true },
-        toObject: { virtuals: true }
+		toObject: { virtuals: true },
 	},
 );
 
 customerSchema.virtual("orderCount", {
-    ref: "Order",           
-    localField: "_id",      
-    foreignField: "customer", 
-    count: true,            
+	ref: "Order", // The model to count from
+	localField: "_id", // The ID of the Customer
+	foreignField: "customer", // The field in the Order model that stores the Customer ID
+	count: true, // Return just the number
 });
 
 customerSchema.plugin(toJSON);

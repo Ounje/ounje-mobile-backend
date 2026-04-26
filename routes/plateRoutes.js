@@ -3,6 +3,7 @@ const express = require("express");
 const {
 	buildPlate,
 	getAllPlates,
+	getPopularPlates,
 	getSpecificPlate,
 	deletePlate,
 	fixAllPlates,
@@ -69,6 +70,7 @@ router.post(
  *         description: List of plates
  */
 router.get("/get-plates", getAllPlates);
+router.get("/popular", getPopularPlates);
 
 /**
  * @swagger

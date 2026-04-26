@@ -1,30 +1,55 @@
-const firebaseAdmin = require("../utils/firebase");
-/**
- * @param {string} token - The user's unique device token
- * @param {string} title - The heading (e.g., "Order Packaged!")
- * @param {string} body - The detail (e.g., "The vendor is done with your meal")
- */
-const sendPushNotification = async (token, title, body) => {
+const admin = require("../utils/firebase");
+const logger = require("../utils/logger");
+
+const sendPushNotification = async (token, title, body, options = {}) => {
 	try {
-		if (!token) return; // Can't send if we don't have a device to send to
-
-		const message = {
-			notification: { title, body },
-			token: token, // This is the specific phone's ID
-		};
-
-		if (!firebaseAdmin.apps?.length) {
-			console.log("⚠️ Push skipped (Firebase not configured):", title);
+		if (!token) {
+			logger.warn("⚠️ Push skipped — no FCM token provided");
 			return;
 		}
 
-		await firebaseAdmin.messaging().send(message);
-		console.log("✅ Push Notification sent!");
+		if (!admin.apps.length) {
+			logger.warn("⚠️ Firebase Admin not initialized — push skipped");
+			return;
+		}
+
+		logger.info(
+			`📱 Attempting push — token: ${token.slice(0, 20)}... | title: "${title}"`,
+		);
+
+		const dataPayload = {};
+		if (options.data) {
+			for (const [k, v] of Object.entries(options.data)) {
+				dataPayload[k] = String(v);
+			}
+		}
+
+		const message = {
+			token,
+			notification: { title, body },
+			android: {
+				priority: "high",
+				notification: {
+					channelId: options.channelId ?? "general",
+					priority: "high",
+					defaultSound: true,
+				},
+			},
+			apns: {
+				payload: {
+					aps: { sound: "default", badge: 1 },
+				},
+			},
+			...(Object.keys(dataPayload).length > 0 && { data: dataPayload }),
+		};
+
+		const messageId = await admin.messaging().send(message);
+		logger.info(`✅ Push sent: "${title}" | messageId: ${messageId}`);
 	} catch (error) {
-		console.error("❌ Firebase error:", error);
+		logger.error(
+			`❌ Firebase push error: ${error.message} | token: ${token?.slice(0, 20)}...`,
+		);
 	}
 };
 
-module.exports = {
-	sendPushNotification,
-};
+module.exports = { sendPushNotification };
