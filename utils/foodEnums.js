@@ -50,7 +50,6 @@ const FOOD_ENUMS = {
 		BEER: "beer",
 		SMOOTHIE: "smoothie",
 		SWALLOW: "swallow",
-		SOUP: "soup",
 		JOLLOF: "jollof",
 		FRIED: "fried",
 		WHITE: "white",
@@ -68,7 +67,7 @@ const FOOD_ENUMS = {
 
 const CATEGORY_SUBCATEGORY_MAP = {
 	protein:  ["protein", "meat", "fish", "chicken", "turkey", "goat", "eggs", "seafood", "sausage", "shrimp", "lobster", "crab", "calamari"],
-	soups:    ["soups", "soup", "stew", "sauce"],
+	soups:    ["soups", "stew", "sauce"],
 	rice:     ["rice", "jollof", "fried", "white", "coconut", "pasta", "sauce"],
 	swallow:  ["swallow", "sauce"],
 	sides:    ["sides", "plantain", "beans", "salad", "vegetables", "fruit", "sauce"],
