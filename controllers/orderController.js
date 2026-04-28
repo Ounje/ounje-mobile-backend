@@ -305,6 +305,22 @@ exports.riderMarkOnTheWay = asyncHandler(async (req, res) => {
   });
 });
 
+// Rider marks arrived at customer
+exports.riderMarkArrived = asyncHandler(async (req, res) => {
+  const { orderId } = req.params;
+  const riderId = req.rider._id;
+
+  const order = await orderRiderService.riderMarkArrived(
+    orderId,
+    riderId.toString(),
+  );
+  res.status(200).json({
+    success: true,
+    message: "Status updated: rider arrived at customer",
+    order: formatRiderOrder(order),
+  });
+});
+
 // Rider completes delivery
 exports.completeDelivery = asyncHandler(async (req, res) => {
   const { orderId } = req.params;

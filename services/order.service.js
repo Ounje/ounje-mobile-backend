@@ -992,10 +992,28 @@ const pickUpOrder = async (orderId, riderId) => {
 
 const completeDelivery = async (orderId, riderId, otp) => {
 	const order = await Order.findById(orderId);
-	if (!order) throw new AppError("Order not found", 404); // FIX #11
+	if (!order) throw new AppError("Order not found", 404);
 
 	if (order.rider.toString() !== riderId) {
 		throw new AppError("Not assigned to you", 403);
+	}
+
+	// if (
+	// 	order.status !== ORDER_STATUS.RIDING ||
+	// 	order.subStatus !== ORDER_SUB_STATUS.PICKED_UP
+	// ) {
+	// 	throw new AppError("Order is not ready for delivery confirmation", 400);
+	// }
+
+	try {
+		await notificationService.notifyCustomerRiderArrived(order.customer, order);
+		logger.info(
+			`Rider has arrived notification sent to customer ${order.customer}`,
+		);
+	} catch (error) {
+		logger.error(
+			`Failed to send rider has arrived notification: ${error.message}`,
+		);
 	}
 
 	await verifyDeliveryOtp(order, otp, riderId);
@@ -1079,20 +1097,29 @@ const cancelOrder = async (orderId, customerId) => {
 				order.paymentStatus = "refunded";
 				await order.save();
 			} else if (order.paymentMethod === "paystack") {
-				const payment = await Payment.findOne({ orderId: order._id, status: "success" });
+				const payment = await Payment.findOne({
+					orderId: order._id,
+					status: "success",
+				});
 				if (payment) {
 					try {
 						await refundTransaction(payment.reference, order.totalPrice * 100);
 						order.paymentStatus = "refunded";
 						await order.save();
-						logger.info(`[REFUND] Paystack refund issued for cancelled order ${order._id}`);
+						logger.info(
+							`[REFUND] Paystack refund issued for cancelled order ${order._id}`,
+						);
 					} catch (refundErr) {
-						logger.error(`[REFUND] Paystack refund failed for order ${order._id}: ${refundErr.message}`);
+						logger.error(
+							`[REFUND] Paystack refund failed for order ${order._id}: ${refundErr.message}`,
+						);
 					}
 				}
 			}
 		} catch (error) {
-			logger.error(`Failed to refund customer for cancelled order ${orderId}: ${error.message}`);
+			logger.error(
+				`Failed to refund customer for cancelled order ${orderId}: ${error.message}`,
+			);
 		}
 	}
 
@@ -1100,12 +1127,16 @@ const cancelOrder = async (orderId, customerId) => {
 	try {
 		await ledgerService.reverseOrderEarnings(order);
 	} catch (error) {
-		logger.error(`Failed to reverse ledger for cancelled order ${orderId}: ${error.message}`);
+		logger.error(
+			`Failed to reverse ledger for cancelled order ${orderId}: ${error.message}`,
+		);
 	}
 
 	try {
 		await notificationService.notifyOrderCancelled(order.vendor, order);
-		logger.info(`Order ${orderId} cancelled by customer ${customerId}, vendor ${order.vendor} notified`);
+		logger.info(
+			`Order ${orderId} cancelled by customer ${customerId}, vendor ${order.vendor} notified`,
+		);
 	} catch (error) {
 		logger.error(`Failed to send cancellation notification: ${error.message}`);
 	}

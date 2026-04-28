@@ -184,7 +184,18 @@ class NotificationService {
 			channelId: "orders",
 		});
 	}
-
+	async notifyCustomerRiderArrived(customerId, order) {
+		return this.createNotification({
+			recipient: customerId,
+			recipientModel: "customer",
+			type: "new_order",
+			title: "🚴 Rider Arrived!",
+			message: "Your rider has arrived at the pickup location",
+			data: { orderId: order._id },
+			priority: "high",
+			channelId: "orders",
+		});
+	}
 	async notifyCustomerFoodReady(customerId, order) {
 		return this.createNotification({
 			recipient: customerId,
@@ -231,6 +242,19 @@ class NotificationService {
 			type: "new_order",
 			title: "📦 Order Picked Up!",
 			message: "Your rider has picked up your order and is heading your way",
+			data: { orderId: order._id },
+			priority: "high",
+			channelId: "orders",
+		});
+	}
+
+	async notifyCustomerRiderArrived(customerId, order) {
+		return this.createNotification({
+			recipient: customerId,
+			recipientModel: "customer",
+			type: "order_update",
+			title: "🏍️ Rider is Here!",
+			message: "Your rider has arrived at your delivery address. Come get your order!",
 			data: { orderId: order._id },
 			priority: "high",
 			channelId: "orders",
@@ -341,7 +365,9 @@ class NotificationService {
 			}
 
 			if (!user) {
-				logger.warn(`User not found for ${recipientModel} profile ${profileId}`);
+				logger.warn(
+					`User not found for ${recipientModel} profile ${profileId}`,
+				);
 				return;
 			}
 
