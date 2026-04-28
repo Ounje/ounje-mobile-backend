@@ -81,6 +81,46 @@ app.use("/api/announcements", require("./routes/announcementRoutes"));
 app.use("/api/finance", require("./routes/financeRoutes"));
 app.use("/api/dva", require("./routes/dvaRoutes"));
 
+// ── Deep-link fallback ────────────────────────────────────────────────────────
+// When someone taps a share link (https://ounje.app/VendorMenu/:id) on a device
+// that doesn't have the app installed, this route sends them to the right store.
+app.get("/VendorMenu/:id", (req, res) => {
+	const ua = req.headers["user-agent"] || "";
+	const playStore = "https://play.google.com/store/apps/details?id=com.ounjefood.Ounje";
+	const appStore = "https://apps.apple.com/app/ounje/id6762204959";
+	if (/android/i.test(ua)) return res.redirect(302, playStore);
+	if (/iphone|ipad|ipod/i.test(ua)) return res.redirect(302, appStore);
+	// Desktop or unknown — show both options
+	return res.send(`
+		<!DOCTYPE html>
+		<html>
+		<head>
+			<meta charset="utf-8">
+			<meta name="viewport" content="width=device-width,initial-scale=1">
+			<title>Download Ounje</title>
+			<style>
+				body { font-family: sans-serif; display: flex; flex-direction: column;
+					   align-items: center; justify-content: center; min-height: 100vh;
+					   margin: 0; background: #F0FDF4; color: #1A3F1C; }
+				h1 { font-size: 1.5rem; margin-bottom: 8px; }
+				p { color: #555; margin-bottom: 32px; }
+				.links { display: flex; gap: 16px; flex-wrap: wrap; justify-content: center; }
+				a { background: #1A3F1C; color: #fff; text-decoration: none;
+					padding: 14px 28px; border-radius: 12px; font-weight: 700; font-size: 1rem; }
+			</style>
+		</head>
+		<body>
+			<h1>Get the Ounje app</h1>
+			<p>Download Ounje to view this vendor's menu and order food.</p>
+			<div class="links">
+				<a href="${playStore}">Google Play</a>
+				<a href="${appStore}">App Store</a>
+			</div>
+		</body>
+		</html>
+	`);
+});
+
 logger.info(`Frontend URL: ${process.env.FRONTEND_URL}`);
 
 // Socket.IO Connection Handler
