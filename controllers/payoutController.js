@@ -101,7 +101,7 @@ const requestPayout = async (req, res) => {
 	try {
 		const userId = req.user.id;
 		const userType = req.user.role;
-		const { amount, bankDetails } = req.body;
+		const { amount, bankDetails, withdrawalType = "next_day" } = req.body;
 
 		if (!["rider", "vendor"].includes(userType)) {
 			return res
@@ -116,6 +116,10 @@ const requestPayout = async (req, res) => {
 		if (!bankDetails || !bankDetails.accountNumber || !bankDetails.bankCode) {
 			return res.status(400).json({ error: "Bank details required" });
 		}
+
+		const INSTANT_FEE = 100;
+		const instantFee = withdrawalType === "instant" ? INSTANT_FEE : 0;
+		const totalDebit = amount + instantFee;
 
 		// ✅ Resolve profile _id — ledger is keyed on profile _id, NOT User._id
 		let accountUserId, recipientId, recipientType;
@@ -135,29 +139,33 @@ const requestPayout = async (req, res) => {
 			recipientType = "RiderProfile";
 		}
 
-		// ✅ Balance check uses correct profile _id
+		// ✅ Balance check — must cover payout amount plus instant fee
 		const balance = await ledgerService.getAccountBalance(
 			accountUserId,
 			userType.toUpperCase(),
 		);
-		if (balance.availableBalance < amount) {
+		if (balance.availableBalance < totalDebit) {
 			return res.status(400).json({
-				error: `Insufficient balance. Available: ₦${balance.availableBalance}`,
+				error: instantFee > 0
+					? `Insufficient balance. You need ₦${totalDebit} (₦${amount} + ₦${instantFee} instant fee). Available: ₦${balance.availableBalance}`
+					: `Insufficient balance. Available: ₦${balance.availableBalance}`,
 				availableBalance: balance.availableBalance,
 			});
 		}
 
-		// ✅ Reserve also uses correct profile _id
+		// ✅ Reserve full debit (payout amount + instant fee) atomically
 		const reserved = await ledgerService.reserveBalance(
 			accountUserId,
 			userType.toUpperCase(),
-			amount,
+			totalDebit,
 		);
 
 		const payout = await Payout.create({
 			recipientId,
 			recipientType,
 			amount,
+			withdrawalType,
+			feeDeducted: instantFee,
 			bankDetails: {
 				bankName: bankDetails.bankName || "",
 				accountNumber: bankDetails.accountNumber,
@@ -171,6 +179,8 @@ const requestPayout = async (req, res) => {
 			payout: {
 				payoutId: payout._id,
 				amount: payout.amount,
+				feeDeducted: payout.feeDeducted,
+				withdrawalType: payout.withdrawalType,
 				status: payout.status,
 				requestedAt: payout.createdAt,
 			},
