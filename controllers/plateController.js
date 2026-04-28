@@ -31,7 +31,7 @@ const resolveSubCategoryItems = async (itemIds) => {
 
 const buildPlate = async (req, res) => {
 	try {
-		let { name, items, vendor } = req.body;
+		let { name, items, vendor, totalPrice } = req.body;
 
 		// Normalize items to an array of IDs
 		if (typeof items === "string") {
@@ -62,17 +62,23 @@ const buildPlate = async (req, res) => {
 			`SubCategoryItems resolved: ${selectedItems.length}, Combos found: ${selectedCombos.length}`,
 		);
 
-		if (selectedItems.length + selectedCombos.length === 0) {
+		// Allow plate creation when an explicit price snapshot is provided (e.g. order total),
+		// even if the individual item IDs cannot be resolved from SubCategoryItems.
+		const overridePrice = totalPrice !== undefined ? parseFloat(totalPrice) : null;
+		if (selectedItems.length + selectedCombos.length === 0 && overridePrice === null) {
 			return res
 				.status(400)
 				.json({ error: "No valid food items or combos selected" });
 		}
 
-		// Total price — reflects the actual order total on the plate
-		const price = [
-			...selectedItems.map((i) => i.price || 0),
-			...selectedCombos.map((c) => c.basePrice || c.price || 0),
-		].reduce((sum, p) => sum + p, 0);
+		// Use the override price when provided; otherwise sum resolved item prices.
+		const price =
+			overridePrice !== null && overridePrice > 0
+				? overridePrice
+				: [
+						...selectedItems.map((i) => i.price || 0),
+						...selectedCombos.map((c) => c.basePrice || c.price || 0),
+					].reduce((sum, p) => sum + p, 0);
 
 		// Max prep time across all selected items/combos
 		const times = [
@@ -80,7 +86,7 @@ const buildPlate = async (req, res) => {
 			...selectedCombos.map((c) => parseInt(c.time || c.preparationTime) || 0),
 		];
 		const maxTime = times.length > 0 ? Math.max(...times) : 0;
-		const timeToMake = `${maxTime} mins`;
+		const timeToMake = maxTime > 0 ? `${maxTime} mins` : "—";
 
 		// Human-readable description from item/combo names
 		const description = [
@@ -91,14 +97,17 @@ const buildPlate = async (req, res) => {
 		// Store the raw SubCategoryItem IDs (as passed in) and combo IDs separately
 		const comboIds = selectedCombos.map((c) => c._id);
 
+		// Image: route uses plateUpload.fields([{name:'file'}]) so the file is in req.files, not req.file
+		const uploadedFile = req.files?.file?.[0] ?? req.file;
+
 		const newPlate = await Plate.create({
 			name,
 			customer: customer._id,
 			vendor,
 			price,
-			img: req.file ? req.file.path : undefined,
+			img: uploadedFile ? uploadedFile.path : undefined,
 			timeToMake,
-			items, // SubCategoryItem IDs
+			items,
 			combos: comboIds,
 			description,
 		});
