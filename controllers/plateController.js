@@ -1,41 +1,65 @@
 const { Plate, FoodItem, Combo, Customer } = require("../models");
 const { deleteImage } = require("../config/cloudinary");
 const { paginate } = require("../utils/paginate");
+const logger = require("../utils/logger");
+/**
+ * Helper: given an array of SubCategoryItem IDs (strings or ObjectIds),
+ * queries parent FoodItems and extracts the matching embedded subdocs.
+ */
+const resolveSubCategoryItems = async (itemIds) => {
+	if (!itemIds || itemIds.length === 0) return [];
+
+	const idStrings = itemIds.map(String);
+
+	const parentFoodItems = await FoodItem.find({
+		"subCategory.items._id": { $in: itemIds },
+	});
+
+	const resolved = [];
+	for (const foodItem of parentFoodItems) {
+		for (const sub of foodItem.subCategory) {
+			for (const subItem of sub.items) {
+				if (idStrings.includes(subItem._id.toString())) {
+					resolved.push(subItem);
+				}
+			}
+		}
+	}
+
+	return resolved;
+};
 
 const buildPlate = async (req, res) => {
 	try {
 		let { name, items, vendor } = req.body;
 
+		// Normalize items to an array of IDs
 		if (typeof items === "string") {
 			try {
 				items = JSON.parse(items);
 			} catch (e) {
-				// Check if it's a comma-separated list
 				if (items.includes(",")) {
 					items = items.split(",").map((item) => item.trim());
 				} else {
-					// if it's just a single ID string, wrap it in an array
 					items = [items];
 				}
 			}
 		}
 
-		// Lookup Customer ID from User ID
+		// Lookup Customer from User ID
 		const customer = await Customer.findOne({ user: req.user.id });
 		if (!customer) {
 			return res.status(404).json({ error: "Customer profile not found" });
 		}
 
-		// Fetch item details to calculate price and description
-		const selectedItems = await FoodItem.find({ _id: { $in: items } });
+		// Resolve nested SubCategoryItems from parent FoodItems
+		const selectedItems = await resolveSubCategoryItems(items);
+
+		// Resolve any Combos from the same items array
 		const selectedCombos = await Combo.find({ _id: { $in: items } });
 
-		// Debugging: See if items are actually being found in your terminal
-		console.log(
-			"Items found in DB:",
-			selectedItems.length,
-			"Combos found:",
-			selectedCombos.length,
+		logger.info(
+			`SubCategoryItems resolved: ${selectedItems.length}, Combos found: ${selectedCombos.length}`,
 		);
 
 		if (selectedItems.length + selectedCombos.length === 0) {
@@ -44,40 +68,41 @@ const buildPlate = async (req, res) => {
 				.json({ error: "No valid food items or combos selected" });
 		}
 
-		// Calculate total price
-		const price = [...selectedItems, ...selectedCombos].reduce(
-			(sum, item) => sum + (item.price || item.basePrice || 0),
-			0,
-		);
+		// Total price — reflects the actual order total on the plate
+		const price = [
+			...selectedItems.map((i) => i.price || 0),
+			...selectedCombos.map((c) => c.basePrice || c.price || 0),
+		].reduce((sum, p) => sum + p, 0);
 
-		// Calculate max preparation time (assuming parallel preparation, or sum if sequential - usually max for plates)
-		// Parse "30 mins" or "30" to numbers
-		const times = [...selectedItems, ...selectedCombos].map(
-			(item) => parseInt(item.preparationTime || item.time) || 0,
-		);
-		const maxTime = Math.max(...times);
+		// Max prep time across all selected items/combos
+		const times = [
+			...selectedItems.map((i) => parseInt(i.preparationTime) || 0),
+			...selectedCombos.map((c) => parseInt(c.time || c.preparationTime) || 0),
+		];
+		const maxTime = times.length > 0 ? Math.max(...times) : 0;
 		const timeToMake = `${maxTime} mins`;
 
+		// Human-readable description from item/combo names
 		const description = [
-			...selectedItems.map((item) => item.name),
-			...selectedCombos.map((combo) => combo.comboName),
+			...selectedItems.map((i) => i.name),
+			...selectedCombos.map((c) => c.comboName),
 		].join(", ");
 
-		const foodItemIds = selectedItems.map((item) => item._id);
-		const comboIds = selectedCombos.map((item) => item._id);
+		// Store the raw SubCategoryItem IDs (as passed in) and combo IDs separately
+		const comboIds = selectedCombos.map((c) => c._id);
 
-		// Logic to build a plate using plateData
 		const newPlate = await Plate.create({
 			name,
-			customer: customer._id, // Use Customer document ID, not User ID
+			customer: customer._id,
 			vendor,
 			price,
 			img: req.file ? req.file.path : undefined,
 			timeToMake,
-			items: foodItemIds,
+			items, // SubCategoryItem IDs
 			combos: comboIds,
 			description,
 		});
+
 		res.status(201).json(newPlate);
 	} catch (error) {
 		res.status(500).json({ error: error.message });
@@ -88,7 +113,6 @@ const getAllPlates = async (req, res) => {
 	try {
 		const { sortBy } = req.query;
 
-		// Trending sort requires an aggregation pipeline to compute a composite score
 		if (sortBy === "trending") {
 			const page = parseInt(req.query.page) || 1;
 			const limit = Math.min(parseInt(req.query.limit) || 10, 30);
@@ -145,9 +169,12 @@ const getAllPlates = async (req, res) => {
 							image: {
 								$ifNull: [
 									"$vendorInfo.logoUrl",
-									"$vendorInfo.profileImage",
-									"$vendorInfo.bannerUrl",
-									null,
+									{
+										$ifNull: [
+											"$vendorInfo.profileImage",
+											"$vendorInfo.bannerUrl",
+										],
+									},
 								],
 							},
 						},
@@ -168,10 +195,7 @@ const getAllPlates = async (req, res) => {
 			});
 		}
 
-		// For all other sort fields (likes, ordersCount, commentsCount, createdAt),
-		// the paginate utility handles it via sortBy/sortOrder query params
 		const populateOptions = [
-			{ path: "items", select: "name price img" },
 			{ path: "combos", select: "comboName basePrice img" },
 			{
 				path: "vendor",
@@ -187,10 +211,6 @@ const getAllPlates = async (req, res) => {
 	}
 };
 
-/**
- * GET /api/plates/popular
- * Returns top plates ranked by popularity score: likes + (ordersCount × 2)
- */
 const getPopularPlates = async (req, res) => {
 	try {
 		const limit = Math.min(parseInt(req.query.limit) || 10, 20);
@@ -244,9 +264,12 @@ const getPopularPlates = async (req, res) => {
 						image: {
 							$ifNull: [
 								"$vendorInfo.logoUrl",
-								"$vendorInfo.profileImage",
-								"$vendorInfo.bannerUrl",
-								null,
+								{
+									$ifNull: [
+										"$vendorInfo.profileImage",
+										"$vendorInfo.bannerUrl",
+									],
+								},
 							],
 						},
 					},
@@ -263,15 +286,26 @@ const getPopularPlates = async (req, res) => {
 const getSpecificPlate = async (req, res) => {
 	try {
 		const { plateId } = req.params;
+
 		const plate = await Plate.findById(plateId)
-			.populate("items", "-vendor -averageRating -ratingCount -likes")
-			.populate("combos", "-vendor -averageRating -ratingCount -likes")
-			.populate("vendor", "storeDetails img description")
+			.populate("combos", "comboName basePrice img")
+			.populate(
+				"vendor",
+				"name logoUrl profileImage bannerUrl storeDetails description",
+			)
 			.populate("customer", "firstName lastName img");
+
 		if (!plate) {
 			return res.status(404).json({ error: "Plate not found" });
 		}
-		res.status(200).json(plate);
+
+		// Resolve SubCategoryItems manually since they're embedded subdocs
+		const resolvedItems = await resolveSubCategoryItems(plate.items);
+
+		res.status(200).json({
+			...plate.toObject(),
+			items: resolvedItems,
+		});
 	} catch (error) {
 		res.status(500).json({ error: error.message });
 	}
@@ -284,17 +318,18 @@ const deletePlate = async (req, res) => {
 		if (!plate) {
 			return res.status(404).json({ error: "Plate not found" });
 		}
-		console.log(plate.customer.user.toString());
-		// Compare User IDs since req.user.id is User ID
+
 		if (req.user.id !== plate.customer.user.toString()) {
 			return res
 				.status(403)
 				.json({ error: "Forbidden: You can only delete your own plates" });
 		}
+
 		if (plate.img) {
 			const publicId = plate.img.split("/").pop().split(".")[0];
 			await deleteImage(`plates/${publicId}`);
 		}
+
 		await plate.deleteOne();
 		res.status(200).json({ message: "Plate deleted successfully" });
 	} catch (error) {
@@ -304,27 +339,43 @@ const deletePlate = async (req, res) => {
 
 const fixAllPlates = async (req, res) => {
 	try {
-		// 1. Find all plates that don't have a description yet
 		const plates = await Plate.find();
+		let updated = 0;
 
 		for (let plate of plates) {
-			// 2. Look up the food items for this specific plate
-			const selectedItems = await FoodItem.find({ _id: { $in: plate.items } });
-			const selectedCombos = await Combo.find({ _id: { $in: plate.combos } });
+			const resolvedItems = await resolveSubCategoryItems(plate.items);
+			const resolvedCombos = await Combo.find({ _id: { $in: plate.combos } });
 
-			// 3. Create the description string
+			// Recalculate price
+			const price = [
+				...resolvedItems.map((i) => i.price || 0),
+				...resolvedCombos.map((c) => c.basePrice || c.price || 0),
+			].reduce((sum, p) => sum + p, 0);
+
+			// Recalculate prep time
+			const times = [
+				...resolvedItems.map((i) => parseInt(i.preparationTime) || 0),
+				...resolvedCombos.map(
+					(c) => parseInt(c.time || c.preparationTime) || 0,
+				),
+			];
+			const maxTime = times.length > 0 ? Math.max(...times) : 0;
+
+			// Recalculate description
 			const description = [
-				...selectedItems.map((item) => item.name),
-				...selectedCombos.map((combo) => combo.comboName),
+				...resolvedItems.map((i) => i.name),
+				...resolvedCombos.map((c) => c.comboName),
 			].join(", ");
 
-			// 4. Update the plate in the DB
+			plate.price = price;
+			plate.timeToMake = `${maxTime} mins`;
 			plate.description = description;
 			await plate.save();
+			updated++;
 		}
 
 		res.status(200).json({
-			message: "All existing plates have been updated with descriptions!",
+			message: `${updated} plates updated with correct price, timeToMake, and description.`,
 		});
 	} catch (error) {
 		res.status(500).json({ error: error.message });
