@@ -80,11 +80,25 @@ const processSinglePayout = async ({
 		};
 	}
 
+	// Resolve profile first — ledger and Payout are keyed on profile._id, not User._id
+	const model = userType === "VENDOR" ? VendorProfile : RiderProfile;
+	const userField = userType === "VENDOR" ? "owner" : "user";
+	const profile = await model.findOne({ [userField]: userId });
+	if (!profile) {
+		return {
+			success: false,
+			reason: "profile_not_found",
+			detail: `${userType} profile not found for userId ${userId}`,
+		};
+	}
+
+	const recipientId = profile._id;
+	const recipientType = userType === "VENDOR" ? "VendorProfile" : "RiderProfile";
+
 	if (!bankDetails || !bankDetails.accountNumber || !bankDetails.bankCode) {
 		const pending = await Payout.create({
-			user: userId,
-			userType,
-			order: orderId,
+			recipientId,
+			recipientType,
 			amount,
 			feeDeducted: fees.total,
 			netAmount,
@@ -94,11 +108,11 @@ const processSinglePayout = async ({
 		return { success: false, reason: "no_bank", payout: pending };
 	}
 
-	// FIX #3: Deduplication — prevent concurrent duplicate payouts
+	// Deduplication — prevent concurrent duplicate payouts
 	const existingPayout = await Payout.findOne({
-		user: userId,
-		...(orderId ? { order: orderId } : {}),
-		status: { $in: ["processing", "completed"] },
+		recipientId,
+		recipientType,
+		status: { $in: ["processing", "processed"] },
 	});
 	if (existingPayout) {
 		return {
@@ -108,15 +122,14 @@ const processSinglePayout = async ({
 		};
 	}
 
-	// Reserve balance (moves from available → pending in ledger)
+	// Reserve balance using profile._id (moves from available → pending in ledger)
 	let reserved;
 	try {
-		reserved = await ledgerService.reserveBalance(userId, userType, amount);
+		reserved = await ledgerService.reserveBalance(recipientId, userType, amount);
 	} catch {
 		const failed = await Payout.create({
-			user: userId,
-			userType,
-			order: orderId,
+			recipientId,
+			recipientType,
 			amount,
 			bankDetails,
 			status: "failed",
@@ -125,13 +138,11 @@ const processSinglePayout = async ({
 		return { success: false, reason: "insufficient_funds", payout: failed };
 	}
 
-	// FIX #2: stable idempotency key — not timestamp-based
-	const stableKey = `payout_${userId}_${orderId ?? reserved.entry._id}`;
+	const stableKey = `payout_${recipientId}_${orderId ?? reserved.entry._id}`;
 
 	let payout = await Payout.create({
-		user: userId,
-		userType,
-		order: orderId,
+		recipientId,
+		recipientType,
 		amount,
 		feeDeducted: fees.total,
 		netAmount,
@@ -142,15 +153,7 @@ const processSinglePayout = async ({
 	});
 
 	try {
-		// Resolve Paystack Recipient
 		let recipientCode;
-		const model = userType === "VENDOR" ? VendorProfile : RiderProfile;
-
-		// FIX #5: use findOne({ user: userId }) not findById(userId)
-		const profile = await model.findOne({ user: userId });
-		if (!profile)
-			throw new Error(`${userType} profile not found for userId ${userId}`);
-
 		if (profile.paystackRecipientCode) {
 			recipientCode = profile.paystackRecipientCode;
 		} else {
@@ -165,23 +168,17 @@ const processSinglePayout = async ({
 			await profile.save();
 		}
 
-		// Trigger Transfer
+		// webhook on transfer.success calls completePayout; transfer.failed/reversed calls reverseReserve
 		const transfer = await paystack.transfer.initiate({
-			// FIX #4: send netAmount (after fees) not full amount
 			amount: Math.round(netAmount * 100),
 			recipient: recipientCode,
 			reason: `Wallet Withdrawal`,
-			reference: stableKey, // FIX #2: pass stable key as Paystack reference
+			reference: stableKey,
 		});
 
 		const transferCode = transfer?.data?.transfer_code;
 
-		// FIX #1: Do NOT call completePayout here.
-		// completePayout is called in the Paystack webhook on transfer.success.
-		// reverseReserve is called on transfer.failed / transfer.reversed.
-		// This prevents ledger debit before money actually leaves Paystack.
-
-		payout.status = "processing"; // stays processing until webhook confirms
+		payout.status = "processing";
 		payout.transactionRef = transferCode;
 		await payout.save();
 
@@ -189,7 +186,7 @@ const processSinglePayout = async ({
 	} catch (err) {
 		logger.error("Transfer failed:", err.message);
 		await ledgerService.reverseReserve(
-			userId,
+			recipientId,
 			userType,
 			amount,
 			`Withdrawal failed: ${err.message}`,
