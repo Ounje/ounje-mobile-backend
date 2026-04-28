@@ -28,6 +28,7 @@ const payoutSchema = new mongoose.Schema(
 			accountName: String,
 			bankCode: String,
 		},
+		withdrawalType: { type: String, enum: ["instant", "next_day"], default: "next_day" },
 		feeDeducted: { type: Number, default: 0 },
 		netAmount: { type: Number },
 		idempotencyKey: { type: String, unique: true, sparse: true },
