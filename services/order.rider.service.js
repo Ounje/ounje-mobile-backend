@@ -558,6 +558,45 @@ const riderMarkOnTheWay = async (orderId, riderId) => {
 	return order;
 };
 
+const riderMarkArrived = async (orderId, riderId) => {
+	const order = await Order.findById(orderId);
+	if (!order) throw new Error("Order not found");
+
+	if (!order.rider || order.rider.toString() !== riderId) {
+		throw new Error("You are not assigned to this order");
+	}
+
+	if (order.status !== ORDER_STATUS.RIDING) {
+		throw new Error("Order is not in riding status");
+	}
+
+	if (
+		order.subStatus !== ORDER_SUB_STATUS.ON_THE_WAY &&
+		order.subStatus !== ORDER_SUB_STATUS.PICKED_UP
+	) {
+		throw new Error("Order must be picked_up or on_the_way before marking arrived");
+	}
+
+	order.subStatus = ORDER_SUB_STATUS.RIDER_ARRIVED;
+	await order.save();
+
+	if (global.io) {
+		global.io.to(order.customer.toString()).emit("orderUpdate", {
+			orderId: order._id,
+			status: order.status,
+			subStatus: order.subStatus,
+		});
+	}
+
+	await notificationService.notifyCustomerRiderArrived(
+		order.customer.toString(),
+		order,
+	);
+
+	logger.info(`Order ${orderId} — rider ${riderId} has arrived`);
+	return order;
+};
+
 module.exports = {
 	startDispatch,
 	cancelDispatch,
@@ -568,4 +607,5 @@ module.exports = {
 	getRiderCompletedOrdersToday,
 	getRiderOrders,
 	riderMarkOnTheWay,
+	riderMarkArrived,
 };

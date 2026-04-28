@@ -34,6 +34,7 @@ const {
 	pickUpOrder,
 	resendDeliveryOtp,
 	riderMarkOnTheWay,
+	riderMarkArrived,
 	completeDelivery,
 	getAvailableRiderRequests,
 	getCurrentRiderOrder,
@@ -638,6 +639,15 @@ router.put(
 	roleGuard(["rider"]),
 	requireRider,
 	riderMarkOnTheWay,
+);
+
+router.put(
+	"/rider/:orderId/arrived",
+	authMiddleware,
+	checkActiveUser,
+	roleGuard(["rider"]),
+	requireRider,
+	riderMarkArrived,
 );
 
 router.put(
