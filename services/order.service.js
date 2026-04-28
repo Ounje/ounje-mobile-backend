@@ -998,12 +998,12 @@ const completeDelivery = async (orderId, riderId, otp) => {
 		throw new AppError("Not assigned to you", 403);
 	}
 
-	if (
-		order.status !== ORDER_STATUS.RIDING ||
-		order.subStatus !== ORDER_SUB_STATUS.PICKED_UP
-	) {
-		throw new AppError("Order is not ready for delivery confirmation", 400);
-	}
+	// if (
+	// 	order.status !== ORDER_STATUS.RIDING ||
+	// 	order.subStatus !== ORDER_SUB_STATUS.PICKED_UP
+	// ) {
+	// 	throw new AppError("Order is not ready for delivery confirmation", 400);
+	// }
 
 	try {
 		await notificationService.notifyCustomerRiderArrived(order.customer, order);
