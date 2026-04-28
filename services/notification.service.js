@@ -237,6 +237,19 @@ class NotificationService {
 		});
 	}
 
+	async notifyCustomerRiderArrived(customerId, order) {
+		return this.createNotification({
+			recipient: customerId,
+			recipientModel: "customer",
+			type: "order_update",
+			title: "🏍️ Rider is Here!",
+			message: "Your rider has arrived at your delivery address. Come get your order!",
+			data: { orderId: order._id },
+			priority: "high",
+			channelId: "orders",
+		});
+	}
+
 	async notifyCustomerDeliveryComplete(customerId, order) {
 		return this.createNotification({
 			recipient: customerId,
