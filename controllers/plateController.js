@@ -1,4 +1,4 @@
-const { Plate, FoodItem, Combo, Customer } = require("../models");
+const { Plate, FoodItem, Combo, Customer, VendorProfile } = require("../models");
 const { deleteImage } = require("../config/cloudinary");
 const { paginate } = require("../utils/paginate");
 const logger = require("../utils/logger");
@@ -223,8 +223,20 @@ const getAllPlates = async (req, res) => {
 const getPopularPlates = async (req, res) => {
 	try {
 		const limit = Math.min(parseInt(req.query.limit) || 10, 20);
+		const zone = req.query.zone;
+
+		let vendorFilter = {};
+		if (zone) {
+			const nearbyVendors = await VendorProfile.find({
+				zone: { $regex: zone, $options: "i" },
+			}).select("_id").lean();
+			if (nearbyVendors.length > 0) {
+				vendorFilter = { vendor: { $in: nearbyVendors.map((v) => v._id) } };
+			}
+		}
 
 		const plates = await Plate.aggregate([
+			{ $match: vendorFilter },
 			{
 				$addFields: {
 					popularityScore: {
