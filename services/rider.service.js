@@ -137,7 +137,7 @@ const getRiderProfile = async (userId) => {
 	if (!riderProfile) throw new Error("Rider profile not found");
 
 	const bankDetails = await payoutService.getUserBankDetails(
-		riderProfile._id,
+		userId,
 		"RIDER",
 	);
 
@@ -341,7 +341,7 @@ const updateRiderStatus = async (userId, status) => {
  * Update Bank Details
  */
 const updateBankDetails = async (userId, bankDetails) => {
-	const { accountNumber, bankCode, accountName } = bankDetails;
+	const { accountNumber, bankCode, accountName, bankName } = bankDetails;
 
 	if (!accountNumber || !bankCode || !accountName) {
 		throw new Error("accountNumber, bankCode, and accountName are required");
@@ -355,7 +355,7 @@ const updateBankDetails = async (userId, bankDetails) => {
 	if (!riderProfile) throw new Error("Rider profile not found");
 
 	// Save the bank details onto the profile
-	riderProfile.bankDetails = { accountNumber, bankCode, accountName };
+	riderProfile.bankDetails = { accountNumber, bankCode, accountName, bankName: bankName || null };
 	riderProfile.paystackRecipientCode = undefined; // invalidate stale recipient
 	await riderProfile.save();
 
