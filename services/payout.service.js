@@ -395,9 +395,11 @@ const handleTransferSuccess = async (transferCode) => {
 		return;
 	}
 
+	const successLedgerType =
+		payout.recipientType === "VendorProfile" ? "VENDOR" : "RIDER";
 	await ledgerService.completePayout(
-		payout.user,
-		payout.userType,
+		payout.recipientId,
+		successLedgerType,
 		payout.amount,
 	);
 	payout.status = "processed";
@@ -405,7 +407,7 @@ const handleTransferSuccess = async (transferCode) => {
 	await payout.save();
 
 	logger.info(
-		`[PAYOUT] Completed: transferCode=${transferCode} userId=${payout.user} amount=${payout.amount}`,
+		`[PAYOUT] Completed: transferCode=${transferCode} recipientId=${payout.recipientId} amount=${payout.amount}`,
 	);
 };
 
@@ -431,9 +433,11 @@ const handleTransferFailure = async (
 		return;
 	}
 
+	const failureLedgerType =
+		payout.recipientType === "VendorProfile" ? "VENDOR" : "RIDER";
 	await ledgerService.reverseReserve(
-		payout.user,
-		payout.userType,
+		payout.recipientId,
+		failureLedgerType,
 		payout.amount,
 		reason,
 	);
@@ -442,7 +446,7 @@ const handleTransferFailure = async (
 	await payout.save();
 
 	logger.info(
-		`[PAYOUT] Reversed: transferCode=${transferCode} userId=${payout.user} amount=${payout.amount}`,
+		`[PAYOUT] Reversed: transferCode=${transferCode} recipientId=${payout.recipientId} amount=${payout.amount}`,
 	);
 };
 

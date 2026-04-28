@@ -1,59 +1,144 @@
 const Promotion = require("../models/Promotion");
+const { generatePromoCode } = require("../utils/codeGenerator");
+logger = require("../utils/logger");
+
+/**
+ * Shared discount calculation
+ */
+function calculateDiscount(promo, total) {
+	if (promo.type === "percentage") {
+		let discount = Math.round((total * promo.value) / 100);
+		if (promo.maxDiscount != null) {
+			discount = Math.min(discount, promo.maxDiscount);
+		}
+		return discount;
+	} else if (promo.type === "fixed_amount") {
+		return Math.min(promo.value, total);
+	}
+	return 0;
+}
+
+/**
+ * Shared promo validation logic (does not mutate DB)
+ * Returns { error, status } if invalid, or null if valid
+ */
+function getPromoError(promo, userId, total) {
+	if (!promo || !promo.isActive) {
+		return { status: 400, message: "Invalid or inactive promo code" };
+	}
+
+	const now = new Date();
+	if (promo.startsAt && promo.startsAt > now) {
+		return { status: 400, message: "This promo code is not yet valid" };
+	}
+	if (promo.expiresAt && promo.expiresAt < now) {
+		return { status: 400, message: "This promo code has expired" };
+	}
+	if (promo.usageLimit != null && promo.usedCount >= promo.usageLimit) {
+		return {
+			status: 400,
+			message: "This promo code has reached its usage limit",
+		};
+	}
+
+	const alreadyUsed = promo.usedBy.some(
+		(id) => id.toString() === userId.toString(),
+	);
+	if (alreadyUsed) {
+		return { status: 400, message: "You have already used this promo code" };
+	}
+
+	if (total < promo.minOrderValue) {
+		return {
+			status: 400,
+			message: `Minimum order value of ₦${promo.minOrderValue.toLocaleString()} required for this promo`,
+		};
+	}
+
+	return null;
+}
+
+/**
+ * POST /api/promo/create
+ * Body: { description, type, value, maxDiscount, minOrderValue, usageLimit, startsAt, expiresAt }
+ * Admin-only.Create promo code on ounje kitchen
+ */
+exports.createPromoCode = async (req, res) => {
+	try {
+		const {
+			description,
+			type,
+			value,
+			maxDiscount,
+			minOrderValue,
+			usageLimit,
+			startsAt,
+			expiresAt,
+		} = req.body;
+
+		// Only type and value are truly required — all other fields are optional
+		if (!type || !value) {
+			return res
+				.status(400)
+				.json({ success: false, message: "type and value are required" });
+		}
+
+		if (!["percentage", "fixed_amount"].includes(type)) {
+			return res.status(400).json({
+				success: false,
+				message: "type must be 'percentage' or 'fixed_amount'",
+			});
+		}
+
+		const code = generatePromoCode();
+		const newPromo = new Promotion({
+			code,
+			description,
+			type,
+			value,
+			maxDiscount,
+			minOrderValue,
+			usageLimit,
+			startsAt,
+			expiresAt,
+		});
+
+		await newPromo.save();
+		return res.json({ success: true, promo: newPromo });
+	} catch (err) {
+		console.error("createPromoCode error:", err);
+		return res.status(500).json({ success: false, message: "Server error" });
+	}
+};
 
 /**
  * POST /api/promo/validate
- * Check if a promo code is valid without applying it.
  * Body: { code, orderTotal }
- * Returns: { valid, discount, type, message }
+ * Auth: requires req.user._id
+ * Dry-run — does not mark the promo as used
  */
 exports.validatePromoCode = async (req, res) => {
 	try {
 		const { code, orderTotal } = req.body;
+		const userId = req.user._id;
 
 		if (!code) {
-			return res.status(400).json({ success: false, message: "Promo code is required" });
+			return res
+				.status(400)
+				.json({ success: false, message: "Promo code is required" });
 		}
 
 		const promo = await Promotion.findOne({ code: code.trim().toUpperCase() });
-
-		if (!promo) {
-			return res.status(404).json({ success: false, message: "Invalid promo code" });
-		}
-
-		if (!promo.isActive) {
-			return res.status(400).json({ success: false, message: "This promo code is no longer active" });
-		}
-
-		const now = new Date();
-		if (promo.startsAt && promo.startsAt > now) {
-			return res.status(400).json({ success: false, message: "This promo code is not yet valid" });
-		}
-		if (promo.expiresAt && promo.expiresAt < now) {
-			return res.status(400).json({ success: false, message: "This promo code has expired" });
-		}
-
-		if (promo.usageLimit != null && promo.usedCount >= promo.usageLimit) {
-			return res.status(400).json({ success: false, message: "This promo code has reached its usage limit" });
-		}
-
 		const total = Number(orderTotal) || 0;
-		if (total < promo.minOrderValue) {
-			return res.status(400).json({
-				success: false,
-				message: `Minimum order value of ₦${promo.minOrderValue.toLocaleString()} required for this promo`,
-			});
+
+		const error = getPromoError(promo, userId, total);
+		if (error) {
+			return res
+				.status(error.status)
+				.json({ success: false, message: error.message });
 		}
 
-		// Calculate discount amount
-		let discount = 0;
-		if (promo.type === "percentage") {
-			discount = Math.round((total * promo.value) / 100);
-			if (promo.maxDiscount != null) {
-				discount = Math.min(discount, promo.maxDiscount);
-			}
-		} else if (promo.type === "fixed_amount") {
-			discount = Math.min(promo.value, total);
-		}
+		const discount = calculateDiscount(promo, total);
 
 		return res.json({
 			success: true,
@@ -72,54 +157,37 @@ exports.validatePromoCode = async (req, res) => {
 
 /**
  * POST /api/promo/apply
- * Validate the promo against the actual cart total and return confirmed discount.
- * Increments usedCount on success.
  * Body: { code, orderTotal }
- * Returns: { success, discount, finalTotal }
+ * Auth: requires req.user._id
+ * Commits the promo — increments usedCount and records the user
  */
 exports.applyPromoCode = async (req, res) => {
 	try {
 		const { code, orderTotal } = req.body;
+		const userId = req.user._id;
 
 		if (!code) {
-			return res.status(400).json({ success: false, message: "Promo code is required" });
+			return res
+				.status(400)
+				.json({ success: false, message: "Promo code is required" });
 		}
 
 		const promo = await Promotion.findOne({ code: code.trim().toUpperCase() });
-
-		if (!promo || !promo.isActive) {
-			return res.status(400).json({ success: false, message: "Invalid or inactive promo code" });
-		}
-
-		const now = new Date();
-		if (promo.expiresAt && promo.expiresAt < now) {
-			return res.status(400).json({ success: false, message: "This promo code has expired" });
-		}
-
-		if (promo.usageLimit != null && promo.usedCount >= promo.usageLimit) {
-			return res.status(400).json({ success: false, message: "This promo code has reached its usage limit" });
-		}
-
 		const total = Number(orderTotal) || 0;
-		if (total < promo.minOrderValue) {
-			return res.status(400).json({
-				success: false,
-				message: `Minimum order value of ₦${promo.minOrderValue.toLocaleString()} required`,
-			});
+
+		const error = getPromoError(promo, userId, total);
+		if (error) {
+			return res
+				.status(error.status)
+				.json({ success: false, message: error.message });
 		}
 
-		let discount = 0;
-		if (promo.type === "percentage") {
-			discount = Math.round((total * promo.value) / 100);
-			if (promo.maxDiscount != null) {
-				discount = Math.min(discount, promo.maxDiscount);
-			}
-		} else if (promo.type === "fixed_amount") {
-			discount = Math.min(promo.value, total);
-		}
+		const discount = calculateDiscount(promo, total);
 
-		// Increment usage count
-		await Promotion.findByIdAndUpdate(promo._id, { $inc: { usedCount: 1 } });
+		await Promotion.findByIdAndUpdate(promo._id, {
+			$inc: { usedCount: 1 },
+			$addToSet: { usedBy: userId },
+		});
 
 		return res.json({
 			success: true,
@@ -132,4 +200,9 @@ exports.applyPromoCode = async (req, res) => {
 		console.error("applyPromoCode error:", err);
 		return res.status(500).json({ success: false, message: "Server error" });
 	}
+};
+
+exports.applyReferralCode = async (req, res) => {
+	try {
+	} catch {}
 };
