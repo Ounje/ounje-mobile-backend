@@ -18,6 +18,7 @@ const ORDER_SUB_STATUS = {
 	RIDER_ASSIGNED: "rider_assigned",
 	PICKED_UP: "picked_up",
 	ON_THE_WAY: "on_the_way",
+	RIDER_ARRIVED: "rider_arrived",
 	DELIVERED: "delivered",
 	CANCELLED: "cancelled",
 	DECLINED: "declined",
