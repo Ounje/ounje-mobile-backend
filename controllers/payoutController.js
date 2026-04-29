@@ -98,48 +98,65 @@ const getTransactionHistory = async (req, res) => {
  * Body: { amount, bankDetails: { accountNumber, bankCode, accountName } }
  */
 const requestPayout = async (req, res) => {
+	logger.info("🔴 STEP 1 HIT", { body: req.body });
 	try {
 		const userId = req.user.id;
 		const userType = req.user.role;
 		const { amount, bankDetails, withdrawalType = "next_day" } = req.body;
+
+		logger.info("🔴 STEP 2 — parsed", { userId, userType, amount });
 
 		if (!["rider", "vendor"].includes(userType)) {
 			return res
 				.status(403)
 				.json({ error: "Only riders and vendors can request payouts" });
 		}
-
 		if (!amount || amount <= 0) {
 			return res.status(400).json({ error: "Amount must be greater than 0" });
 		}
-
 		if (!bankDetails || !bankDetails.accountNumber || !bankDetails.bankCode) {
 			return res.status(400).json({ error: "Bank details required" });
 		}
+
+		logger.info("🔴 STEP 3 — about to find profile");
 
 		const INSTANT_FEE = 100;
 		const instantFee = withdrawalType === "instant" ? INSTANT_FEE : 0;
 		const totalDebit = amount + instantFee;
 
-		// Resolve profile for balance check
 		let accountUserId;
 		if (userType === "vendor") {
 			const vp = await VendorProfile.findOne({ owner: userId });
+			logger.info("🔴 STEP 4 — vendor profile result", {
+				profileId: vp?._id ?? "NOT FOUND",
+			});
 			if (!vp)
 				return res.status(404).json({ error: "Vendor profile not found" });
 			accountUserId = vp._id;
 		} else {
 			const rp = await RiderProfile.findOne({ user: userId });
+			logger.info("🔴 STEP 4 — rider profile result", {
+				profileId: rp?._id ?? "NOT FOUND",
+			});
 			if (!rp)
 				return res.status(404).json({ error: "Rider profile not found" });
 			accountUserId = rp._id;
 		}
 
-		// Balance check before handing off to service
+		logger.info("🔴 STEP 5 — about to call getAccountBalance", {
+			accountUserId,
+			userType,
+		});
+
 		const balance = await ledgerService.getAccountBalance(
 			accountUserId,
 			userType.toUpperCase(),
 		);
+
+		logger.info("🔴 STEP 6 — balance fetched", {
+			availableBalance: balance?.availableBalance,
+		});
+
 		if (balance.availableBalance < totalDebit) {
 			return res.status(400).json({
 				error:
@@ -150,7 +167,12 @@ const requestPayout = async (req, res) => {
 			});
 		}
 
-		// Hand off to payout service — this handles reserve + Paystack transfer + payout record
+		logger.info("🔴 STEP 7 — about to call processSinglePayout", {
+			userId,
+			userType,
+			totalDebit,
+		});
+
 		const result = await payoutService.processSinglePayout({
 			userId,
 			userType: userType.toUpperCase(),
@@ -159,8 +181,12 @@ const requestPayout = async (req, res) => {
 			name: bankDetails.accountName || "",
 		});
 
+		logger.info("🔴 STEP 8 — processSinglePayout result", {
+			success: result.success,
+			reason: result.reason,
+		});
+
 		if (!result.success) {
-			// reason comes from payout.service — map to appropriate HTTP response
 			const statusMap = {
 				insufficient_funds: 400,
 				duplicate_payout: 409,
@@ -177,6 +203,11 @@ const requestPayout = async (req, res) => {
 			});
 		}
 
+		logger.info("🔴 STEP 9 — payout success", {
+			payoutId: result.payout._id,
+			transferCode: result.payout.transactionRef,
+		});
+
 		return res.status(201).json({
 			message: "Payout initiated successfully",
 			payout: {
@@ -191,11 +222,13 @@ const requestPayout = async (req, res) => {
 			},
 		});
 	} catch (error) {
-		console.error("Payout request error:", error.message);
+		logger.error("🔴 requestPayout CRASHED", {
+			message: error.message,
+			stack: error.stack,
+		});
 		res.status(500).json({ error: error.message });
 	}
 };
-
 /**
  * Get pending payout requests
  * GET /api/payouts/pending
