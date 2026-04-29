@@ -508,7 +508,13 @@ const getRiderOrders = async (riderId, statusFilter) => {
 	} else if (statusFilter === "active") {
 		// Orders currently being delivered (assigned, in transit, or picked up)
 		filter.status = ORDER_STATUS.RIDING;
-		filter.subStatus = { $in: [ORDER_SUB_STATUS.RIDER_ASSIGNED, ORDER_SUB_STATUS.PICKED_UP, ORDER_SUB_STATUS.ON_THE_WAY] };
+		filter.subStatus = {
+			$in: [
+				ORDER_SUB_STATUS.RIDER_ASSIGNED,
+				ORDER_SUB_STATUS.PICKED_UP,
+				ORDER_SUB_STATUS.ON_THE_WAY,
+			],
+		};
 		filter.subStatus = {
 			$in: [
 				ORDER_SUB_STATUS.RIDER_ASSIGNED,
@@ -570,28 +576,42 @@ const riderMarkArrived = async (orderId, riderId) => {
 		throw new Error("Order is not in riding status");
 	}
 
+	// Idempotency — already marked arrived, return early
+	if (order.subStatus === ORDER_SUB_STATUS.RIDER_ARRIVED) {
+		return order;
+	}
+
 	if (
 		order.subStatus !== ORDER_SUB_STATUS.ON_THE_WAY &&
 		order.subStatus !== ORDER_SUB_STATUS.PICKED_UP
 	) {
-		throw new Error("Order must be picked_up or on_the_way before marking arrived");
+		throw new Error(
+			"Order must be picked_up or on_the_way before marking arrived",
+		);
 	}
+
+	if (!order.customer) throw new Error("Order has no customer assigned");
 
 	order.subStatus = ORDER_SUB_STATUS.RIDER_ARRIVED;
 	await order.save();
 
-	if (global.io) {
-		global.io.to(order.customer.toString()).emit("orderUpdate", {
-			orderId: order._id,
-			status: order.status,
-			subStatus: order.subStatus,
-		});
+	try {
+		if (global.io) {
+			global.io.to(order.customer.toString()).emit("orderUpdate", {
+				orderId: order._id,
+				status: order.status,
+				subStatus: order.subStatus,
+			});
+		}
+		await notificationService.notifyCustomerRiderArrived(
+			order.customer.toString(),
+			order,
+		);
+	} catch (notifyErr) {
+		logger.warn(
+			`Notification failed for order ${orderId}: ${notifyErr.message}`,
+		);
 	}
-
-	await notificationService.notifyCustomerRiderArrived(
-		order.customer.toString(),
-		order,
-	);
 
 	logger.info(`Order ${orderId} — rider ${riderId} has arrived`);
 	return order;
