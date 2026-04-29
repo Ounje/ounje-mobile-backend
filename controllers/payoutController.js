@@ -121,72 +121,73 @@ const requestPayout = async (req, res) => {
 		const instantFee = withdrawalType === "instant" ? INSTANT_FEE : 0;
 		const totalDebit = amount + instantFee;
 
-		// ✅ Resolve profile _id — ledger is keyed on profile _id, NOT User._id
-		let accountUserId, recipientId, recipientType;
+		// Resolve profile for balance check
+		let accountUserId;
 		if (userType === "vendor") {
 			const vp = await VendorProfile.findOne({ owner: userId });
 			if (!vp)
 				return res.status(404).json({ error: "Vendor profile not found" });
 			accountUserId = vp._id;
-			recipientId = vp._id;
-			recipientType = "VendorProfile";
 		} else {
 			const rp = await RiderProfile.findOne({ user: userId });
 			if (!rp)
 				return res.status(404).json({ error: "Rider profile not found" });
 			accountUserId = rp._id;
-			recipientId = rp._id;
-			recipientType = "RiderProfile";
 		}
 
-		// ✅ Balance check — must cover payout amount plus instant fee
+		// Balance check before handing off to service
 		const balance = await ledgerService.getAccountBalance(
 			accountUserId,
 			userType.toUpperCase(),
 		);
 		if (balance.availableBalance < totalDebit) {
 			return res.status(400).json({
-				error: instantFee > 0
-					? `Insufficient balance. You need ₦${totalDebit} (₦${amount} + ₦${instantFee} instant fee). Available: ₦${balance.availableBalance}`
-					: `Insufficient balance. Available: ₦${balance.availableBalance}`,
+				error:
+					instantFee > 0
+						? `Insufficient balance. You need ₦${totalDebit} (₦${amount} + ₦${instantFee} instant fee). Available: ₦${balance.availableBalance}`
+						: `Insufficient balance. Available: ₦${balance.availableBalance}`,
 				availableBalance: balance.availableBalance,
 			});
 		}
 
-		// ✅ Reserve full debit (payout amount + instant fee) atomically
-		const reserved = await ledgerService.reserveBalance(
-			accountUserId,
-			userType.toUpperCase(),
-			totalDebit,
-		);
-
-		const payout = await Payout.create({
-			recipientId,
-			recipientType,
-			amount,
-			withdrawalType,
-			feeDeducted: instantFee,
-			bankDetails: {
-				bankName: bankDetails.bankName || "",
-				accountNumber: bankDetails.accountNumber,
-				accountName: bankDetails.accountName || "",
-			},
-			status: "pending",
+		// Hand off to payout service — this handles reserve + Paystack transfer + payout record
+		const result = await payoutService.processSinglePayout({
+			userId,
+			userType: userType.toUpperCase(),
+			amount: totalDebit,
+			bankDetails,
+			name: bankDetails.accountName || "",
 		});
 
-		res.status(201).json({
-			message: "Payout request submitted successfully",
+		if (!result.success) {
+			// reason comes from payout.service — map to appropriate HTTP response
+			const statusMap = {
+				insufficient_funds: 400,
+				duplicate_payout: 409,
+				profile_not_found: 404,
+				amount_too_low: 400,
+				no_bank: 400,
+				transfer_failed: 502,
+			};
+			const httpStatus = statusMap[result.reason] || 500;
+			return res.status(httpStatus).json({
+				error: result.detail || result.error || result.reason,
+				reason: result.reason,
+				payout: result.payout,
+			});
+		}
+
+		return res.status(201).json({
+			message: "Payout initiated successfully",
 			payout: {
-				payoutId: payout._id,
-				amount: payout.amount,
-				feeDeducted: payout.feeDeducted,
-				withdrawalType: payout.withdrawalType,
-				status: payout.status,
-				requestedAt: payout.createdAt,
-			},
-			updatedBalance: {
-				availableBalance: reserved.availableBalance,
-				pendingBalance: reserved.pendingBalance,
+				payoutId: result.payout._id,
+				amount: result.payout.amount,
+				feeDeducted: result.payout.feeDeducted,
+				netAmount: result.payout.netAmount,
+				withdrawalType,
+				status: result.payout.status,
+				transactionRef: result.payout.transactionRef,
+				requestedAt: result.payout.createdAt,
 			},
 		});
 	} catch (error) {
