@@ -565,19 +565,34 @@ const riderMarkOnTheWay = async (orderId, riderId) => {
 };
 
 const riderMarkArrived = async (orderId, riderId) => {
+	logger.info(
+		`riderMarkArrived called — orderId: ${orderId}, riderId: ${riderId}`,
+	);
+
 	const order = await Order.findById(orderId);
-	if (!order) throw new Error("Order not found");
+	if (!order) {
+		logger.warn(`riderMarkArrived — order not found: ${orderId}`);
+		throw new Error("Order not found");
+	}
+
+	logger.info(
+		`Order found — status: ${order.status}, subStatus: ${order.subStatus}, rider: ${order.rider}`,
+	);
 
 	if (!order.rider || order.rider.toString() !== riderId) {
+		logger.warn(
+			`riderMarkArrived — rider mismatch. order.rider: ${order.rider}, riderId: ${riderId}`,
+		);
 		throw new Error("You are not assigned to this order");
 	}
 
 	if (order.status !== ORDER_STATUS.RIDING) {
+		logger.warn(`riderMarkArrived — wrong status: ${order.status}`);
 		throw new Error("Order is not in riding status");
 	}
 
-	// Idempotency — already marked arrived, return early
 	if (order.subStatus === ORDER_SUB_STATUS.RIDER_ARRIVED) {
+		logger.info(`riderMarkArrived — already RIDER_ARRIVED, returning early`);
 		return order;
 	}
 
@@ -585,45 +600,56 @@ const riderMarkArrived = async (orderId, riderId) => {
 		order.subStatus !== ORDER_SUB_STATUS.ON_THE_WAY &&
 		order.subStatus !== ORDER_SUB_STATUS.PICKED_UP
 	) {
+		logger.warn(
+			`riderMarkArrived — invalid subStatus for transition: ${order.subStatus}`,
+		);
 		throw new Error(
 			"Order must be picked_up or on_the_way before marking arrived",
 		);
 	}
 
-	if (!order.customer) throw new Error("Order has no customer assigned");
+	if (!order.customer) {
+		logger.warn(`riderMarkArrived — order has no customer: ${orderId}`);
+		throw new Error("Order has no customer assigned");
+	}
 
 	order.subStatus = ORDER_SUB_STATUS.RIDER_ARRIVED;
-	await order.save();
 
 	try {
+		await order.save();
+		logger.info(`Order ${orderId} saved with subStatus RIDER_ARRIVED`);
+
 		if (global.io) {
 			const payload = {
 				orderId: order._id,
 				status: order.status,
 				subStatus: order.subStatus,
 			};
-
-			// Notify customer
 			global.io.to(order.customer.toString()).emit("orderUpdate", payload);
-
-			// Notify rider — keeps active ride screen in sync
 			global.io.to(riderId).emit("orderUpdate", payload);
+			logger.info(
+				`Socket events emitted to customer and rider for order ${orderId}`,
+			);
+		} else {
+			logger.warn(
+				`global.io not available — socket events skipped for order ${orderId}`,
+			);
 		}
 
 		await notificationService.notifyCustomerRiderArrived(
 			order.customer.toString(),
 			order,
 		);
-	} catch (notifyErr) {
+		logger.info(`Notification sent for order ${orderId}`);
+	} catch (err) {
 		logger.warn(
-			`Notification failed for order ${orderId}: ${notifyErr.message}`,
+			`riderMarkArrived post-save error for order ${orderId}: ${err.message}`,
 		);
 	}
 
-	logger.info(`Order ${orderId} — rider ${riderId} has arrived`);
+	logger.info(`riderMarkArrived complete — order ${orderId}, rider ${riderId}`);
 	return order;
 };
-
 module.exports = {
 	startDispatch,
 	cancelDispatch,

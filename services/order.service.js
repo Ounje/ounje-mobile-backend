@@ -1005,16 +1005,16 @@ const completeDelivery = async (orderId, riderId, otp) => {
 	// 	throw new AppError("Order is not ready for delivery confirmation", 400);
 	// }
 
-	try {
-		await notificationService.notifyCustomerRiderArrived(order.customer, order);
-		logger.info(
-			`Rider has arrived notification sent to customer ${order.customer}`,
-		);
-	} catch (error) {
-		logger.error(
-			`Failed to send rider has arrived notification: ${error.message}`,
-		);
-	}
+	// try {
+	// 	await notificationService.notifyCustomerRiderArrived(order.customer, order);
+	// 	logger.info(
+	// 		`Rider has arrived notification sent to customer ${order.customer}`,
+	// 	);
+	// } catch (error) {
+	// 	logger.error(
+	// 		`Failed to send rider has arrived notification: ${error.message}`,
+	// 	);
+	// }
 
 	await verifyDeliveryOtp(order, otp, riderId);
 
