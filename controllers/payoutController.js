@@ -3,6 +3,7 @@ const { Payout } = require("../models");
 const payoutService = require("../services/payout.service");
 const RiderProfile = require("../models/RiderProfile");
 const VendorProfile = require("../models/VendorProfile");
+const logger = require("../utils/logger");
 
 /**
  * Get current balance for rider/vendor
@@ -143,19 +144,11 @@ const requestPayout = async (req, res) => {
 			accountUserId = rp._id;
 		}
 
-		logger.info("🔴 STEP 5 — about to call getAccountBalance", {
-			accountUserId,
-			userType,
-		});
-
+		// Balance check — must cover withdrawal amount plus instant fee
 		const balance = await ledgerService.getAccountBalance(
 			accountUserId,
 			userType.toUpperCase(),
 		);
-
-		logger.info("🔴 STEP 6 — balance fetched", {
-			availableBalance: balance?.availableBalance,
-		});
 
 		if (balance.availableBalance < totalDebit) {
 			return res.status(400).json({
@@ -167,65 +160,111 @@ const requestPayout = async (req, res) => {
 			});
 		}
 
-		logger.info("🔴 STEP 7 — about to call processSinglePayout", {
-			userId,
-			userType,
-			totalDebit,
-		});
+		// ── INSTANT: fire transfer immediately ───────────────────────────────
+		if (withdrawalType === "instant") {
+			// Debit the ₦100 instant fee as platform revenue first
+			await ledgerService.debitAccount(
+				accountUserId,
+				userType.toUpperCase(),
+				instantFee,
+				"INSTANT_WITHDRAWAL_FEE",
+			);
 
-		const result = await payoutService.processSinglePayout({
-			userId,
-			userType: userType.toUpperCase(),
-			amount: totalDebit,
-			bankDetails,
-			name: bankDetails.accountName || "",
-		});
+			const result = await payoutService.processSinglePayout({
+				userId,
+				userType: userType.toUpperCase(),
+				amount,
+				bankDetails,
+				name: bankDetails.accountName || "",
+			});
 
-		logger.info("🔴 STEP 8 — processSinglePayout result", {
-			success: result.success,
-			reason: result.reason,
-		});
+			if (!result.success) {
+				// Refund the instant fee — transfer never left
+				await ledgerService.creditAccount(
+					accountUserId,
+					userType.toUpperCase(),
+					instantFee,
+					"REFUND",
+					null,
+					{ note: "instant fee refund — transfer failed to initiate" },
+				);
+				const statusMap = {
+					insufficient_funds: 400,
+					duplicate_payout: 409,
+					profile_not_found: 404,
+					amount_too_low: 400,
+					no_bank: 400,
+					transfer_failed: 502,
+				};
+				return res.status(statusMap[result.reason] || 500).json({
+					error: result.detail || result.error || result.reason,
+					reason: result.reason,
+				});
+			}
 
-		if (!result.success) {
-			const statusMap = {
-				insufficient_funds: 400,
-				duplicate_payout: 409,
-				profile_not_found: 404,
-				amount_too_low: 400,
-				no_bank: 400,
-				transfer_failed: 502,
-			};
-			const httpStatus = statusMap[result.reason] || 500;
-			return res.status(httpStatus).json({
-				error: result.detail || result.error || result.reason,
-				reason: result.reason,
-				payout: result.payout,
+			// Tag the payout record with withdrawalType and the instant fee
+			result.payout.withdrawalType = "instant";
+			result.payout.feeDeducted = (result.payout.feeDeducted || 0) + instantFee;
+			await result.payout.save();
+
+			logger.info(`[Payout] instant initiated | payoutId=${result.payout._id} userId=${userId} amount=${amount}`);
+
+			return res.status(201).json({
+				message: "Instant payout initiated — transfer is being processed",
+				payout: {
+					payoutId: result.payout._id,
+					amount: result.payout.amount,
+					feeDeducted: result.payout.feeDeducted,
+					netAmount: result.payout.netAmount,
+					withdrawalType: "instant",
+					status: result.payout.status,
+					transactionRef: result.payout.transactionRef,
+					requestedAt: result.payout.createdAt,
+				},
 			});
 		}
 
-		logger.info("🔴 STEP 9 — payout success", {
-			payoutId: result.payout._id,
-			transferCode: result.payout.transactionRef,
+		// ── NEXT_DAY: queue for batch processing ─────────────────────────────
+		const reserved = await ledgerService.reserveBalance(
+			accountUserId,
+			userType.toUpperCase(),
+			amount,
+		);
+
+		const payout = await Payout.create({
+			recipientId,
+			recipientType,
+			amount,
+			withdrawalType: "next_day",
+			feeDeducted: 0,
+			bankDetails: {
+				bankName: bankDetails.bankName || "",
+				accountNumber: bankDetails.accountNumber,
+				accountName: bankDetails.accountName || "",
+				bankCode: bankDetails.bankCode,
+			},
+			status: "pending",
 		});
 
+		logger.info(`[Payout] next_day queued | payoutId=${payout._id} userId=${userId} amount=${amount}`);
+
 		return res.status(201).json({
-			message: "Payout initiated successfully",
+			message: "Payout request submitted — will be processed next business day",
 			payout: {
-				payoutId: result.payout._id,
-				amount: result.payout.amount,
-				feeDeducted: result.payout.feeDeducted,
-				netAmount: result.payout.netAmount,
-				withdrawalType,
-				status: result.payout.status,
-				transactionRef: result.payout.transactionRef,
-				requestedAt: result.payout.createdAt,
+				payoutId: payout._id,
+				amount: payout.amount,
+				feeDeducted: payout.feeDeducted,
+				withdrawalType: payout.withdrawalType,
+				status: payout.status,
+				requestedAt: payout.createdAt,
+			},
+			updatedBalance: {
+				availableBalance: reserved.availableBalance,
+				pendingBalance: reserved.pendingBalance,
 			},
 		});
 	} catch (error) {
-		logger.error("🔴 requestPayout CRASHED", {
-			message: error.message,
-			stack: error.stack,
-		});
+		logger.error("Payout request error:", error.message);
 		res.status(500).json({ error: error.message });
 	}
 };
