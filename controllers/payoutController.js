@@ -3,6 +3,7 @@ const { Payout } = require("../models");
 const payoutService = require("../services/payout.service");
 const RiderProfile = require("../models/RiderProfile");
 const VendorProfile = require("../models/VendorProfile");
+const logger = require("../utils/logger");
 
 /**
  * Get current balance for rider/vendor
@@ -139,7 +140,7 @@ const requestPayout = async (req, res) => {
 			recipientType = "RiderProfile";
 		}
 
-		// ✅ Balance check — must cover payout amount plus instant fee
+		// Balance check — must cover withdrawal amount plus instant fee
 		const balance = await ledgerService.getAccountBalance(
 			accountUserId,
 			userType.toUpperCase(),
@@ -153,19 +154,83 @@ const requestPayout = async (req, res) => {
 			});
 		}
 
-		// ✅ Reserve full debit (payout amount + instant fee) atomically
+		// ── INSTANT: fire transfer immediately ───────────────────────────────
+		if (withdrawalType === "instant") {
+			// Debit the ₦100 instant fee as platform revenue first
+			await ledgerService.debitAccount(
+				accountUserId,
+				userType.toUpperCase(),
+				instantFee,
+				"INSTANT_WITHDRAWAL_FEE",
+			);
+
+			const result = await payoutService.processSinglePayout({
+				userId,
+				userType: userType.toUpperCase(),
+				amount,
+				bankDetails,
+				name: bankDetails.accountName || "",
+			});
+
+			if (!result.success) {
+				// Refund the instant fee — transfer never left
+				await ledgerService.creditAccount(
+					accountUserId,
+					userType.toUpperCase(),
+					instantFee,
+					"REFUND",
+					null,
+					{ note: "instant fee refund — transfer failed to initiate" },
+				);
+				const statusMap = {
+					insufficient_funds: 400,
+					duplicate_payout: 409,
+					profile_not_found: 404,
+					amount_too_low: 400,
+					no_bank: 400,
+					transfer_failed: 502,
+				};
+				return res.status(statusMap[result.reason] || 500).json({
+					error: result.detail || result.error || result.reason,
+					reason: result.reason,
+				});
+			}
+
+			// Tag the payout record with withdrawalType and the instant fee
+			result.payout.withdrawalType = "instant";
+			result.payout.feeDeducted = (result.payout.feeDeducted || 0) + instantFee;
+			await result.payout.save();
+
+			logger.info(`[Payout] instant initiated | payoutId=${result.payout._id} userId=${userId} amount=${amount}`);
+
+			return res.status(201).json({
+				message: "Instant payout initiated — transfer is being processed",
+				payout: {
+					payoutId: result.payout._id,
+					amount: result.payout.amount,
+					feeDeducted: result.payout.feeDeducted,
+					netAmount: result.payout.netAmount,
+					withdrawalType: "instant",
+					status: result.payout.status,
+					transactionRef: result.payout.transactionRef,
+					requestedAt: result.payout.createdAt,
+				},
+			});
+		}
+
+		// ── NEXT_DAY: queue for batch processing ─────────────────────────────
 		const reserved = await ledgerService.reserveBalance(
 			accountUserId,
 			userType.toUpperCase(),
-			totalDebit,
+			amount,
 		);
 
 		const payout = await Payout.create({
 			recipientId,
 			recipientType,
 			amount,
-			withdrawalType,
-			feeDeducted: instantFee,
+			withdrawalType: "next_day",
+			feeDeducted: 0,
 			bankDetails: {
 				bankName: bankDetails.bankName || "",
 				accountNumber: bankDetails.accountNumber,
@@ -175,8 +240,10 @@ const requestPayout = async (req, res) => {
 			status: "pending",
 		});
 
-		res.status(201).json({
-			message: "Payout request submitted successfully",
+		logger.info(`[Payout] next_day queued | payoutId=${payout._id} userId=${userId} amount=${amount}`);
+
+		return res.status(201).json({
+			message: "Payout request submitted — will be processed next business day",
 			payout: {
 				payoutId: payout._id,
 				amount: payout.amount,
@@ -191,7 +258,7 @@ const requestPayout = async (req, res) => {
 			},
 		});
 	} catch (error) {
-		console.error("Payout request error:", error.message);
+		logger.error("Payout request error:", error.message);
 		res.status(500).json({ error: error.message });
 	}
 };
