@@ -131,7 +131,7 @@ const getRiderProfile = async (userId) => {
 	const riderProfile = await RiderProfile.findOne({ user: userId })
 		.populate("user", "name phone email")
 		.select(
-			"modeOfDelivery guarantor driversLicense nin status operatingArea isActive currentLocation earnings ratings averageRating ratingCount setupComplete",
+			"modeOfDelivery guarantor driversLicense nin status operatingArea isActive currentLocation earnings ratings averageRating ratingCount totalDeliveries rankingScore tier profilePicture setupComplete",
 		);
 
 	if (!riderProfile) throw new Error("Rider profile not found");
@@ -163,6 +163,7 @@ const getRiderProfile = async (userId) => {
 	}
 
 	return {
+		userId: riderProfile.user._id.toString(),
 		name: riderProfile.user.name,
 		phone: riderProfile.user.phone,
 		email: riderProfile.user.email,
@@ -174,6 +175,11 @@ const getRiderProfile = async (userId) => {
 		setupComplete,
 		missingFields: setupComplete ? undefined : missingFields,
 		earnings: riderProfile.earnings || 0,
+		totalDeliveries: riderProfile.totalDeliveries ?? 0,
+		averageRating: riderProfile.averageRating ?? riderProfile.ratings?.average ?? 0,
+		rankingScore: riderProfile.rankingScore ?? 0,
+		tier: riderProfile.tier ?? "STARTER",
+		profilePicture: riderProfile.profilePicture ?? null,
 		ratings: {
 			average: riderProfile.ratings?.average || riderProfile.averageRating || 0,
 			count: riderProfile.ratings?.count || riderProfile.ratingCount || 0,
