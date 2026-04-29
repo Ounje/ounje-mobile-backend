@@ -170,6 +170,7 @@ const requestPayout = async (req, res) => {
 				bankName: bankDetails.bankName || "",
 				accountNumber: bankDetails.accountNumber,
 				accountName: bankDetails.accountName || "",
+				bankCode: bankDetails.bankCode,
 			},
 			status: "pending",
 		});

@@ -23,6 +23,8 @@ const initialisePayment = async (req, res) => {
 		const { orderId, cartData } = req.body;
 		const userId = req.user.id;
 
+		logger.info(`[Payment] initialise | userId=${userId} orderId=${orderId ?? "cart"}`);
+
 		const customer = await Customer.findOne({ user: userId }).populate("user");
 		if (!customer) return res.status(400).json({ error: "Customer not found" });
 
@@ -73,6 +75,8 @@ const initialisePayment = async (req, res) => {
 			status: "pending",
 		});
 
+		logger.info(`[Payment] initialised | ref=${reference} customerId=${customer._id} amount=${amountInKobo / 100}`);
+
 		return res.status(200).json({
 			...response.data,
 			totalPrice: priceBreakdown?.totalPrice ?? null,
@@ -94,6 +98,8 @@ const initialisePayment = async (req, res) => {
 const verifyPayment = async (req, res) => {
 	const { reference } = req.query;
 	if (!reference) return res.status(400).json({ error: "Missing reference" });
+
+	logger.info(`[Payment] verify | ref=${reference}`);
 
 	try {
 		const response = await paystack.get(`/transaction/verify/${reference}`);
@@ -159,6 +165,8 @@ const verifyPayment = async (req, res) => {
 		}
 
 		await payment.save();
+
+		logger.info(`[Payment] verified | ref=${reference} status=${data.status} orderId=${createdOrder?._id ?? payment.orderId ?? "none"}`);
 
 		return res.status(200).json({
 			success: true,
@@ -494,6 +502,8 @@ const walletPayment = async (req, res) => {
 		const { orderId, cartData } = req.body;
 		const userId = req.user.id;
 
+		logger.info(`[Payment] wallet | userId=${userId} orderId=${orderId ?? "cart"}`);
+
 		if (!orderId && !cartData) {
 			return res
 				.status(400)
@@ -594,6 +604,8 @@ const walletPayment = async (req, res) => {
 				message: "New order received!",
 			});
 		}
+
+		logger.info(`[Payment] wallet success | orderId=${order._id} customerId=${customer._id} amount=${order.totalPrice}`);
 
 		return res.status(200).json({ success: true, order });
 	} catch (error) {
