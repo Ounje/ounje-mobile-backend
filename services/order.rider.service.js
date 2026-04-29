@@ -597,12 +597,19 @@ const riderMarkArrived = async (orderId, riderId) => {
 
 	try {
 		if (global.io) {
-			global.io.to(order.customer.toString()).emit("orderUpdate", {
+			const payload = {
 				orderId: order._id,
 				status: order.status,
 				subStatus: order.subStatus,
-			});
+			};
+
+			// Notify customer
+			global.io.to(order.customer.toString()).emit("orderUpdate", payload);
+
+			// Notify rider — keeps active ride screen in sync
+			global.io.to(riderId).emit("orderUpdate", payload);
 		}
+
 		await notificationService.notifyCustomerRiderArrived(
 			order.customer.toString(),
 			order,
