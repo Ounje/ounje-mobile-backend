@@ -323,9 +323,18 @@ const getSpecificPlate = async (req, res) => {
 		// Resolve SubCategoryItems manually since they're embedded subdocs
 		const resolvedItems = await resolveSubCategoryItems(plate.items);
 
+		// Fallback: if stored IDs are parent FoodItem IDs (older plates), populate them so
+		// the client can reconstruct which food categories were in the plate
+		let foodItems = [];
+		if (resolvedItems.length === 0 && plate.items.length > 0) {
+			foodItems = await FoodItem.find({ _id: { $in: plate.items } })
+				.select("category subCategory");
+		}
+
 		res.status(200).json({
 			...plate.toObject(),
 			items: resolvedItems,
+			foodItems,
 		});
 	} catch (error) {
 		res.status(500).json({ error: error.message });
