@@ -2,6 +2,7 @@ const Admin = require("./Admin");
 const Announcement = require("./Announcement");
 const Category = require("./Category");
 const Combo = require("./Combo");
+const Comment = require("./comments");
 const Counter = require("./Counter");
 const ComboGroup = require("./ComboGroup");
 const Customer = require("./Customer");

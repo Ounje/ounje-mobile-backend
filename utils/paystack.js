@@ -37,7 +37,6 @@ exports.transaction = {
 			"transaction.initialize",
 		);
 	},
-
 	verify: async (reference) => {
 		logger.info(`[Paystack.transaction.verify] reference=${reference}`);
 		return safeRequest(
@@ -49,10 +48,9 @@ exports.transaction = {
 
 exports.bank = {
 	list: async () => {
-		logger.info(`[Paystack.bank.list] Fetching bank list`);
+		logger.info("[Paystack.bank.list] Fetching bank list");
 		return safeRequest(paystack.get("/bank"), "bank.list");
 	},
-
 	resolveAccount: async (account_number, bank_code) => {
 		logger.info(
 			`[Paystack.bank.resolveAccount] account=${account_number} bank_code=${bank_code}`,
@@ -96,15 +94,15 @@ exports.transfer = {
 		idempotencyKey,
 	}) => {
 		logger.info(
-			`[Paystack.transfer.initiate] recipient=${recipient} amount=${amount} reference=${reference} reason="${reason}"`,
+			`[Paystack.transfer.initiate] recipient=${recipient} amountKobo=${amount} reference=${reference} reason="${reason}"`,
 		);
 		if (!reference)
 			logger.warn(
-				`[Paystack.transfer.initiate] ⚠️ No reference provided — idempotency not guaranteed`,
+				"[Paystack.transfer.initiate] ⚠️ No reference — idempotency not guaranteed",
 			);
 		if (!recipient)
 			logger.error(
-				`[Paystack.transfer.initiate] ❌ recipient is missing — transfer will fail`,
+				"[Paystack.transfer.initiate] ❌ recipient missing — transfer will fail",
 			);
 
 		const result = await safeRequest(
@@ -112,7 +110,7 @@ exports.transfer = {
 				"/transfer",
 				{
 					source: "balance",
-					amount,
+					amount, // kobo
 					recipient,
 					reason,
 					reference,
@@ -129,13 +127,30 @@ exports.transfer = {
 		);
 		return result;
 	},
-
 	finalize: async ({ transfer_code, otp }) => {
 		logger.info(`[Paystack.transfer.finalize] transfer_code=${transfer_code}`);
 		return safeRequest(
 			paystack.post("/transfer/finalize_transfer", { transfer_code, otp }),
 			"transfer.finalize",
 		);
+	},
+};
+
+/**
+ * Fetch Ounje's current Paystack balance.
+ * Used to validate that Ounje can cover the withdrawal before queuing it.
+ * Returns balance in KOBO.
+ */
+exports.balance = {
+	fetch: async () => {
+		logger.info("[Paystack.balance.fetch] Fetching Ounje Paystack balance");
+		const result = await safeRequest(paystack.get("/balance"), "balance.fetch");
+		const ngn = result?.data?.find((b) => b.currency === "NGN");
+		const balanceKobo = ngn?.balance ?? 0;
+		logger.info(
+			`[Paystack.balance.fetch] NGN balance=${balanceKobo} kobo (₦${balanceKobo / 100})`,
+		);
+		return balanceKobo;
 	},
 };
 
@@ -147,7 +162,6 @@ exports.customer = {
 			"customer.create",
 		);
 	},
-
 	fetch: async (customerCode) => {
 		logger.info(`[Paystack.customer.fetch] customerCode=${customerCode}`);
 		return safeRequest(
@@ -180,7 +194,6 @@ exports.dedicatedAccount = {
 			"dedicatedAccount.assign",
 		);
 	},
-
 	fetch: async (accountNumber) => {
 		logger.info(
 			`[Paystack.dedicatedAccount.fetch] accountNumber=${accountNumber}`,
@@ -190,7 +203,6 @@ exports.dedicatedAccount = {
 			"dedicatedAccount.fetch",
 		);
 	},
-
 	deactivate: async (dedicatedAccountId) => {
 		logger.info(
 			`[Paystack.dedicatedAccount.deactivate] id=${dedicatedAccountId}`,

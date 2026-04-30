@@ -11,6 +11,7 @@ const TYPES = [
 	"vendor_declined_order",
 	"order_preparing",
 	"food_ready",
+	"rider_arrived",
 	"ready_for_pickup",
 	"order_delivered",
 	"rider_assigned",

@@ -1,4 +1,11 @@
-const { Plate, FoodItem, Combo, Customer, VendorProfile } = require("../models");
+const {
+	Plate,
+	FoodItem,
+	Combo,
+	Customer,
+	VendorProfile,
+	Comment,
+} = require("../models");
 const { deleteImage } = require("../config/cloudinary");
 const { paginate } = require("../utils/paginate");
 const logger = require("../utils/logger");
@@ -64,8 +71,12 @@ const buildPlate = async (req, res) => {
 
 		// Allow plate creation when an explicit price snapshot is provided (e.g. order total),
 		// even if the individual item IDs cannot be resolved from SubCategoryItems.
-		const overridePrice = totalPrice !== undefined ? parseFloat(totalPrice) : null;
-		if (selectedItems.length + selectedCombos.length === 0 && overridePrice === null) {
+		const overridePrice =
+			totalPrice !== undefined ? parseFloat(totalPrice) : null;
+		if (
+			selectedItems.length + selectedCombos.length === 0 &&
+			overridePrice === null
+		) {
 			return res
 				.status(400)
 				.json({ error: "No valid food items or combos selected" });
@@ -229,7 +240,9 @@ const getPopularPlates = async (req, res) => {
 		if (zone) {
 			const nearbyVendors = await VendorProfile.find({
 				zone: { $regex: zone, $options: "i" },
-			}).select("_id").lean();
+			})
+				.select("_id")
+				.lean();
 			if (nearbyVendors.length > 0) {
 				vendorFilter = { vendor: { $in: nearbyVendors.map((v) => v._id) } };
 			}
@@ -327,8 +340,9 @@ const getSpecificPlate = async (req, res) => {
 		// the client can reconstruct which food categories were in the plate
 		let foodItems = [];
 		if (resolvedItems.length === 0 && plate.items.length > 0) {
-			foodItems = await FoodItem.find({ _id: { $in: plate.items } })
-				.select("category subCategory");
+			foodItems = await FoodItem.find({ _id: { $in: plate.items } }).select(
+				"category subCategory",
+			);
 		}
 
 		res.status(200).json({

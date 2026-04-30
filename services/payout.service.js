@@ -1,458 +1,664 @@
 const mongoose = require("mongoose");
 const Payout = require("../models/Payout");
-
 const VendorProfile = require("../models/VendorProfile");
 const RiderProfile = require("../models/RiderProfile");
-
 const paystack = require("../utils/paystack");
 const ledgerService = require("./ledger.service");
+const logger = require("../utils/logger");
 
-const logger = require("../utils/logger"); // FIX #6: use logger
-
-// Ensure critical models are registered
 if (!mongoose.models.VendorProfile) {
 	try {
 		require("../models/VendorProfile");
 	} catch (e) {
-		logger.warn("VendorProfile model load error:", e.message);
+		logger.warn("VendorProfile load error:", e.message);
 	}
 }
 if (!mongoose.models.RiderProfile) {
 	try {
 		require("../models/RiderProfile");
 	} catch (e) {
-		logger.warn("RiderProfile model load error:", e.message);
+		logger.warn("RiderProfile load error:", e.message);
 	}
 }
 
+// ─── CONFIG ───────────────────────────────────────────────────────────────────
+
 /**
- * HELPER: Calculates total deductions (Paystack Fee + 2026 Stamp Duty)
- * Based on Paystack Nigeria Transfer Rates and 2026 Tax Laws.
+ * How long after a withdrawal request before the Paystack transfer fires (ms).
+ * Default: 2 hours. Configurable via env for testing.
  */
-const calculateTotalFees = (amount) => {
+const WITHDRAWAL_HOLD_MS = parseInt(
+	process.env.WITHDRAWAL_HOLD_MS || String(2 * 60 * 60 * 1000),
+	10,
+);
+
+/**
+ * Maximum cron retries before a payout is permanently failed and funds reversed.
+ */
+const MAX_RETRIES = 3;
+
+// ─── FEE CALCULATOR ───────────────────────────────────────────────────────────
+
+/**
+ * Calculate Paystack transfer fee + 2026 EMTL stamp duty.
+ * All inputs and outputs are in KOBO.
+ *
+ * Paystack transfer fee bands (Nigeria):
+ *   ≤ ₦5,000  (≤ 500,000 kobo)  → ₦10  (1,000 kobo)
+ *   ≤ ₦50,000 (≤ 5,000,000 kobo) → ₦25  (2,500 kobo)
+ *   > ₦50,000 (> 5,000,000 kobo) → ₦50  (5,000 kobo)
+ *
+ * 2026 Electronic Money Transfer Levy (stamp duty):
+ *   ≥ ₦10,000 (≥ 1,000,000 kobo) → ₦50  (5,000 kobo)
+ *
+ * @param {number} amountKobo - gross withdrawal amount in kobo
+ * @returns {{ paystackFee: number, stampDuty: number, total: number }} all in kobo
+ */
+const calculateFees = (amountKobo) => {
 	let paystackFee = 0;
-	let stampDuty = 0;
 
-	// 1. Paystack Transfer Fee Bands
-	if (amount <= 5000) {
-		paystackFee = 10;
-	} else if (amount <= 50000) {
-		paystackFee = 25;
+	if (amountKobo <= 500_000) {
+		// ≤ ₦5,000
+		paystackFee = 1_000; //   ₦10
+	} else if (amountKobo <= 5_000_000) {
+		// ≤ ₦50,000
+		paystackFee = 2_500; //   ₦25
 	} else {
-		paystackFee = 50;
+		// > ₦50,000
+		paystackFee = 5_000; //   ₦50
 	}
 
-	// 2. 2026 Electronic Money Transfer Levy (Stamp Duty)
-	if (amount >= 10000) {
-		stampDuty = 50;
+	const stampDuty = amountKobo >= 1_000_000 ? 5_000 : 0; // ≥ ₦10,000 → ₦50
+
+	const total = paystackFee + stampDuty;
+
+	logger.info(
+		`[calculateFees] amount=₦${amountKobo / 100} paystackFee=₦${paystackFee / 100} stampDuty=₦${stampDuty / 100} totalFee=₦${total / 100}`,
+	);
+
+	return { paystackFee, stampDuty, total };
+};
+
+// ─── PRIVATE HELPERS ──────────────────────────────────────────────────────────
+
+/**
+ * Resolve VendorProfile or RiderProfile from a User._id.
+ * Vendors are stored under `owner`, riders under `user`.
+ */
+const _resolveProfile = async (userId, userType) => {
+	const Model = userType === "VENDOR" ? VendorProfile : RiderProfile;
+	const userField = userType === "VENDOR" ? "owner" : "user";
+
+	logger.debug(
+		`[_resolveProfile] userType=${userType} field=${userField} userId=${userId}`,
+	);
+
+	const profile = await Model.findOne({ [userField]: userId });
+	if (!profile) {
+		logger.warn(
+			`[_resolveProfile] No ${userType} profile for userId=${userId}`,
+		);
+		return null;
 	}
 
-	return {
-		paystackFee,
-		stampDuty,
-		total: paystackFee + stampDuty,
-	};
+	logger.debug(`[_resolveProfile] Resolved profile._id=${profile._id}`);
+	return profile;
 };
 
 /**
- * Process a single payout to a user's BANK account via Paystack
+ * Ensure a Paystack Transfer Recipient exists for the profile.
+ * Creates one on first call and caches recipient_code on the profile.
  */
-const processSinglePayout = async ({
-	userId,
-	userType,
-	amount,
-	bankDetails,
-	name,
-	orderId,
-}) => {
+const _ensureRecipientCode = async (profile, bankDetails, name) => {
+	if (profile.paystackRecipientCode) {
+		logger.debug(
+			`[_ensureRecipientCode] Using cached code=${profile.paystackRecipientCode}`,
+		);
+		return profile.paystackRecipientCode;
+	}
+
 	logger.info(
-		`Processing withdrawal for ${userType} ${userId} amount: ${amount}`,
+		`[_ensureRecipientCode] Creating Paystack recipient for profile=${profile._id}`,
 	);
 
-	const fees = calculateTotalFees(amount);
-	const netAmount = amount - fees.total;
+	const recipient = await paystack.recipients.create({
+		name: name || profile.name || "Recipient",
+		account_number: bankDetails.accountNumber,
+		bank_code: bankDetails.bankCode,
+	});
 
-	if (netAmount <= 0) {
+	const code = recipient?.data?.recipient_code;
+	if (!code) throw new Error("Paystack did not return a recipient_code");
+
+	profile.paystackRecipientCode = code;
+	await profile.save();
+
+	logger.info(
+		`[_ensureRecipientCode] Created and saved recipient_code=${code}`,
+	);
+	return code;
+};
+
+/**
+ * Generate a unique traceable withdrawal reference.
+ * Format: WD-{VND|RDR}-{last 6 of profileId}-{timestamp}
+ */
+const _generateReference = (userType, profileId) => {
+	const prefix = userType === "VENDOR" ? "WD-VND" : "WD-RDR";
+	const suffix = String(profileId).slice(-6).toUpperCase();
+	return `${prefix}-${suffix}-${Date.now()}`;
+};
+
+// ─── PUBLIC API ───────────────────────────────────────────────────────────────
+
+/**
+ * REQUEST WITHDRAWAL (user-initiated, on-demand)
+ *
+ * Validates ledger balance and Paystack balance, calculates tiered fees,
+ * reserves funds, and queues the withdrawal for processing after WITHDRAWAL_HOLD_MS.
+ *
+ * @param {string} userId      - User._id
+ * @param {string} userType    - "VENDOR" | "RIDER"
+ * @param {number} amountKobo  - Gross withdrawal amount in KOBO
+ * @param {object} bankDetails - { accountNumber, bankCode, accountName, bankName }
+ * @param {string} name        - Account holder name
+ *
+ * @returns {{ success: boolean, payout?: object, fees?: object, reason?: string, detail?: string }}
+ */
+const requestWithdrawal = async ({
+	userId,
+	userType,
+	amountKobo,
+	bankDetails,
+	name,
+}) => {
+	logger.info(
+		`[requestWithdrawal] START — userType=${userType} userId=${userId} amountKobo=${amountKobo} (₦${amountKobo / 100})`,
+	);
+
+	// ── 1. Validate inputs ────────────────────────────────────────────────────
+	if (!amountKobo || amountKobo <= 0) {
 		return {
 			success: false,
-			reason: "amount_too_low",
-			detail: `Amount NGN ${amount} cannot cover fees of NGN ${fees.total}`,
+			reason: "invalid_amount",
+			detail: "Amount must be greater than 0",
+		};
+	}
+	if (!bankDetails?.accountNumber || !bankDetails?.bankCode) {
+		return {
+			success: false,
+			reason: "no_bank",
+			detail: "Bank details required",
 		};
 	}
 
-	// Resolve profile first — ledger and Payout are keyed on profile._id, not User._id
-	const model = userType === "VENDOR" ? VendorProfile : RiderProfile;
-	const userField = userType === "VENDOR" ? "owner" : "user";
-	const profile = await model.findOne({ [userField]: userId });
+	// ── 2. Calculate tiered fees ──────────────────────────────────────────────
+	const fees = calculateFees(amountKobo);
+	const totalDebitKobo = amountKobo + fees.total; // what leaves the user's available balance
+	const netAmountKobo = amountKobo; // what actually gets sent to their bank
+
+	logger.info(
+		`[requestWithdrawal] Fee breakdown — gross=₦${amountKobo / 100} paystackFee=₦${fees.paystackFee / 100} stampDuty=₦${fees.stampDuty / 100} totalFee=₦${fees.total / 100} totalDebit=₦${totalDebitKobo / 100} netSentToBank=₦${netAmountKobo / 100}`,
+	);
+
+	// ── 3. Resolve profile (recipientId = profile._id, not user._id) ──────────
+	const profile = await _resolveProfile(userId, userType);
 	if (!profile) {
 		return {
 			success: false,
 			reason: "profile_not_found",
-			detail: `${userType} profile not found for userId ${userId}`,
+			detail: `${userType} profile not found for userId=${userId}`,
 		};
 	}
 
 	const recipientId = profile._id;
-	const recipientType = userType === "VENDOR" ? "VendorProfile" : "RiderProfile";
+	const recipientType =
+		userType === "VENDOR" ? "VendorProfile" : "RiderProfile";
 
-	if (!bankDetails || !bankDetails.accountNumber || !bankDetails.bankCode) {
-		const pending = await Payout.create({
-			recipientId,
-			recipientType,
-			amount,
-			feeDeducted: fees.total,
-			netAmount,
-			bankDetails: bankDetails || {},
-			status: "pending",
-		});
-		return { success: false, reason: "no_bank", payout: pending };
-	}
-
-	// Deduplication — prevent concurrent duplicate payouts
-	const existingPayout = await Payout.findOne({
+	// ── 4. Double-spend guard — one active withdrawal at a time ───────────────
+	const existingPending = await Payout.findOne({
 		recipientId,
 		recipientType,
-		status: { $in: ["processing", "processed"] },
+		status: { $in: ["pending", "processing"] },
 	});
-	if (existingPayout) {
+	if (existingPending) {
+		logger.warn(
+			`[requestWithdrawal] Concurrent withdrawal detected — payoutId=${existingPending._id} status=${existingPending.status}`,
+		);
 		return {
 			success: false,
-			reason: "duplicate_payout",
-			payout: existingPayout,
+			reason: "withdrawal_in_progress",
+			detail:
+				"You already have a pending withdrawal. Please wait for it to complete before requesting another.",
+			payout: existingPending,
 		};
 	}
 
-	// Reserve balance using profile._id (moves from available → pending in ledger)
+	// ── 5. Fetch authoritative ledger balance ─────────────────────────────────
+	const balance = await ledgerService.getAccountBalance(recipientId, userType);
+
+	logger.info(
+		`[requestWithdrawal] Ledger — available=${balance.availableBalance} kobo (₦${balance.availableBalance / 100}) | needed=${totalDebitKobo} kobo (₦${totalDebitKobo / 100})`,
+	);
+
+	if (balance.availableBalance < totalDebitKobo) {
+		return {
+			success: false,
+			reason: "insufficient_funds",
+			detail: `Insufficient balance. You need ₦${totalDebitKobo / 100} (₦${amountKobo / 100} + ₦${fees.total / 100} fees). Available: ₦${balance.availableBalance / 100}`,
+			availableBalance: balance.availableBalance,
+			fees,
+		};
+	}
+
+	// ── 6. Check Paystack balance (Ounje must have enough to fund the transfer) ─
+	try {
+		const paystackBalanceKobo = await paystack.balance.fetch();
+		logger.info(
+			`[requestWithdrawal] Paystack balance=₦${paystackBalanceKobo / 100} | needed=₦${netAmountKobo / 100}`,
+		);
+
+		if (paystackBalanceKobo < netAmountKobo) {
+			logger.error(
+				`[requestWithdrawal] ⚠️ Paystack balance insufficient — balance=₦${paystackBalanceKobo / 100} needed=₦${netAmountKobo / 100}`,
+			);
+			return {
+				success: false,
+				reason: "platform_balance_insufficient",
+				detail:
+					"Withdrawals are temporarily unavailable. Please try again shortly or contact support.",
+			};
+		}
+	} catch (err) {
+		// Balance check failure is non-fatal — log and proceed
+		// Cron will handle any transfer failure gracefully via retry/reversal
+		logger.warn(
+			`[requestWithdrawal] Paystack balance check failed: ${err.message} — proceeding`,
+		);
+	}
+
+	// ── 7. Atomically reserve funds (available → pending in ledger) ────────────
+	logger.info(
+		`[requestWithdrawal] Reserving ${totalDebitKobo} kobo (₦${totalDebitKobo / 100}) for recipientId=${recipientId}`,
+	);
+
 	let reserved;
 	try {
-		reserved = await ledgerService.reserveBalance(recipientId, userType, amount);
-	} catch {
-		const failed = await Payout.create({
-			recipientId,
-			recipientType,
-			amount,
-			bankDetails,
-			status: "failed",
-			failureReason: "insufficient_funds",
-		});
-		return { success: false, reason: "insufficient_funds", payout: failed };
-	}
-
-	const stableKey = `payout_${recipientId}_${orderId ?? reserved.entry._id}`;
-
-	let payout = await Payout.create({
-		recipientId,
-		recipientType,
-		amount,
-		feeDeducted: fees.total,
-		netAmount,
-		bankDetails,
-		status: "processing",
-		ledgerEntry: reserved.entry._id,
-		idempotencyKey: stableKey,
-	});
-
-	try {
-		let recipientCode;
-		if (profile.paystackRecipientCode) {
-			recipientCode = profile.paystackRecipientCode;
-		} else {
-			const recipient = await paystack.recipients.create({
-				name: name || profile.name || "Recipient",
-				account_number: bankDetails.accountNumber,
-				bank_code: bankDetails.bankCode,
-			});
-			recipientCode = recipient?.data?.recipient_code;
-			if (!recipientCode) throw new Error("Failed to get recipient code");
-			profile.paystackRecipientCode = recipientCode;
-			await profile.save();
-		}
-
-		// webhook on transfer.success calls completePayout; transfer.failed/reversed calls reverseReserve
-		const transfer = await paystack.transfer.initiate({
-			amount: Math.round(netAmount * 100),
-			recipient: recipientCode,
-			reason: `Wallet Withdrawal`,
-			reference: stableKey,
-		});
-
-		const transferCode = transfer?.data?.transfer_code;
-
-		payout.status = "processing";
-		payout.transactionRef = transferCode;
-		await payout.save();
-
-		return { success: true, payout };
-	} catch (err) {
-		logger.error("Transfer failed:", err.message);
-		await ledgerService.reverseReserve(
+		reserved = await ledgerService.reserveBalance(
 			recipientId,
 			userType,
-			amount,
-			`Withdrawal failed: ${err.message}`,
+			totalDebitKobo,
 		);
-		payout.status = "failed";
-		payout.failureReason = err.message;
-		await payout.save();
+		logger.info(
+			`[requestWithdrawal] Reserve success — ledgerEntryId=${reserved.entry._id} remaining=₦${reserved.availableBalance / 100}`,
+		);
+	} catch (err) {
+		logger.error(`[requestWithdrawal] Reserve failed: ${err.message}`);
 		return {
 			success: false,
-			reason: "transfer_failed",
-			error: err.message,
-			payout,
+			reason: "insufficient_funds",
+			detail: err.message,
 		};
 	}
-};
 
-const processAutoPayoutsForOrder = async (orderId) => {
-	logger.info(
-		`Skipping auto-bank transfer for order ${orderId}. Funds are managed in internal wallets.`,
-	);
-	return { vendor: "MANAGED_IN_WALLET", rider: "MANAGED_IN_WALLET" };
-};
+	// ── 8. Create Payout record ────────────────────────────────────────────────
+	const reference = _generateReference(userType, recipientId);
+	const idempotencyKey = `wd_${recipientId}_${Date.now()}`;
+	const processAt = new Date(Date.now() + WITHDRAWAL_HOLD_MS);
 
-const processPendingPayout = async (payoutId) => {
-	const payout = await Payout.findById(payoutId);
-
-	if (!payout) {
-		throw new Error(`processPendingPayout: payout ${payoutId} not found`);
-	}
-
-	if (payout.status !== "pending") {
-		logger.warn(
-			`processPendingPayout: payout ${payoutId} has status '${payout.status}', skipping`,
-		);
-		return { success: false, reason: "not_pending", payout };
-	}
-
-	const { recipientId, recipientType, amount, bankDetails } = payout;
-
-	if (!bankDetails?.accountNumber || !bankDetails?.bankCode) {
-		logger.warn(`processPendingPayout: payout ${payoutId} has no bank details`);
-		return { success: false, reason: "no_bank", payout };
-	}
-
-	const fees = calculateTotalFees(amount);
-	const netAmount = amount - fees.total;
-
-	if (netAmount <= 0) {
-		payout.status = "failed";
-		payout.failureReason = `Amount NGN ${amount} cannot cover fees of NGN ${fees.total}`;
-		await payout.save();
-		return { success: false, reason: "amount_too_low", payout };
-	}
-
-	try {
-		const model = recipientType === "VendorProfile" ? VendorProfile : RiderProfile;
-		const profile = await model.findById(recipientId);
-		if (!profile) throw new Error(`${recipientType} not found for id ${recipientId}`);
-
-		let recipientCode;
-		if (profile.paystackRecipientCode) {
-			recipientCode = profile.paystackRecipientCode;
-		} else {
-			const recipient = await paystack.recipients.create({
-				name: profile.name || "Recipient",
-				account_number: bankDetails.accountNumber,
-				bank_code: bankDetails.bankCode,
-			});
-			recipientCode = recipient?.data?.recipient_code;
-			if (!recipientCode) throw new Error("Failed to get recipient code");
-			profile.paystackRecipientCode = recipientCode;
-			await profile.save();
-		}
-
-		const stableKey = payout.idempotencyKey ?? `payout_pending_${payoutId}`;
-		if (!payout.idempotencyKey) {
-			payout.idempotencyKey = stableKey;
-			await payout.save();
-		}
-
-		const transfer = await paystack.transfer.initiate({
-			amount: Math.round(netAmount * 100),
-			recipient: recipientCode,
-			reason: "Wallet Withdrawal",
-			reference: stableKey,
-		});
-
-		const transferCode = transfer?.data?.transfer_code;
-		if (!transferCode) throw new Error("No transfer_code returned from Paystack");
-
-		// Stay as "pending" — webhook sets it to "processed" on success
-		payout.transactionRef = transferCode;
-		payout.feeDeducted = fees.total;
-		payout.netAmount = netAmount;
-		await payout.save();
-
-		logger.info(
-			`[PAYOUT] Pending payout initiated: payoutId=${payoutId} transferCode=${transferCode}`,
-		);
-		return { success: true, payout };
-	} catch (err) {
-		logger.error(`processPendingPayout: transfer failed for ${payoutId}: ${err.message}`);
-		payout.status = "failed";
-		payout.failureReason = err.message;
-		await payout.save();
-		return { success: false, reason: "transfer_failed", error: err.message, payout };
-	}
-};
-
-const processPendingPayoutsForUser = async (userId, userType) => {
-	// Resolve profile _id — Payout stores recipientId (profile._id), not User._id
-	const model = userType === "VENDOR" ? VendorProfile : RiderProfile;
-	const userField = userType === "VENDOR" ? "owner" : "user";
-	const profile = await model.findOne({ [userField]: userId });
-
-	if (!profile) {
-		logger.warn(`processPendingPayoutsForUser: no ${userType} profile for userId=${userId}`);
-		return { processed: 0, results: [] };
-	}
-
-	const recipientType = userType === "VENDOR" ? "VendorProfile" : "RiderProfile";
-
-	const pendingPayouts = await Payout.find({
-		recipientId: profile._id,
+	const payout = await Payout.create({
+		recipientId,
 		recipientType,
+		amount: totalDebitKobo, // gross amount reserved from ledger (kobo)
+		feeDeducted: fees.total, // total fee charged to user (kobo)
+		netAmount: netAmountKobo, // what lands in their bank account (kobo)
 		status: "pending",
-	}).sort({ createdAt: 1 });
-
-	if (pendingPayouts.length === 0) {
-		logger.info(
-			`processPendingPayoutsForUser: no pending payouts for ${userType} ${userId}`,
-		);
-		return { processed: 0, results: [] };
-	}
+		bankDetails: {
+			bankName: bankDetails.bankName || "",
+			accountNumber: bankDetails.accountNumber,
+			accountName: bankDetails.accountName || "",
+			bankCode: bankDetails.bankCode,
+		},
+		reference,
+		idempotencyKey,
+		ledgerEntry: reserved.entry._id,
+		processAt,
+		retryCount: 0,
+	});
 
 	logger.info(
-		`processPendingPayoutsForUser: processing ${pendingPayouts.length} payout(s) for ${userType} ${userId}`,
+		`[requestWithdrawal] SUCCESS — payoutId=${payout._id} reference=${reference} processAt=${processAt.toISOString()} gross=₦${amountKobo / 100} fee=₦${fees.total / 100} net=₦${netAmountKobo / 100}`,
 	);
 
-	const results = [];
-	for (const payout of pendingPayouts) {
-		const result = await processPendingPayout(payout._id);
-		results.push({ payoutId: payout._id, ...result });
+	return { success: true, payout, fees };
+};
 
-		if (result.reason === "insufficient_funds") {
-			logger.warn(
-				`processPendingPayoutsForUser: stopping — insufficient funds at payoutId=${payout._id}`,
-			);
+/**
+ * PROCESS QUEUED WITHDRAWALS (cron job — every 15 minutes)
+ *
+ * Finds all pending withdrawals where processAt ≤ now,
+ * fires the Paystack transfer, then settles the ledger on success.
+ * Uses lockedAt for safe concurrent processing.
+ */
+const processQueuedWithdrawals = async () => {
+	logger.info("[processQueuedWithdrawals] START");
+
+	// Unlock payouts stuck in "processing" > 15 min (crash recovery)
+	const staleThreshold = new Date(Date.now() - 15 * 60 * 1000);
+	const unlocked = await Payout.updateMany(
+		{ status: "processing", lockedAt: { $lt: staleThreshold } },
+		{ $set: { status: "pending", processAt: new Date() }, $unset: { lockedAt: "" } },
+	);
+	if (unlocked.modifiedCount > 0) {
+		logger.warn(
+			`[processQueuedWithdrawals] Unlocked ${unlocked.modifiedCount} stale processing payout(s) — likely a prior crash`,
+		);
+	}
+
+	let processed = 0;
+	let failed = 0;
+
+	while (true) {
+		// Atomically claim one payout — set status=processing + lockedAt
+		const payout = await Payout.findOneAndUpdate(
+			{
+				status: "pending",
+				processAt: { $lte: new Date() }, // hold window has elapsed
+				lockedAt: { $exists: false }, // not already being processed
+				retryCount: { $lt: MAX_RETRIES },
+			},
+			{
+				$set: {
+					status: "processing",
+					lockedAt: new Date(),
+				},
+			},
+			{
+				new: true,
+				sort: { processAt: 1 }, // oldest first (FIFO)
+			},
+		);
+
+		if (!payout) {
+			logger.info("[processQueuedWithdrawals] No eligible payouts found");
 			break;
 		}
-	}
 
-	const succeeded = results.filter((r) => r.success).length;
-	const failed = results.filter((r) => !r.success).length;
+		logger.info(
+			`[processQueuedWithdrawals] Processing payoutId=${payout._id} reference=${payout.reference} grossKobo=${payout.amount} (₦${payout.amount / 100}) feeKobo=${payout.feeDeducted} (₦${payout.feeDeducted / 100}) netKobo=${payout.netAmount} (₦${payout.netAmount / 100})`,
+		);
+
+		try {
+			await _fireTransfer(payout);
+			processed++;
+		} catch (err) {
+			logger.error(
+				`[processQueuedWithdrawals] payoutId=${payout._id} error: ${err.message}`,
+			);
+
+			const newRetryCount = (payout.retryCount || 0) + 1;
+
+			if (newRetryCount >= MAX_RETRIES) {
+				// Max retries exceeded — reverse the ledger reserve and permanently fail
+				logger.warn(
+					`[processQueuedWithdrawals] MAX_RETRIES (${MAX_RETRIES}) exceeded for payoutId=${payout._id} — reversing reserve`,
+				);
+
+				try {
+					const ledgerType =
+						payout.recipientType === "VendorProfile" ? "VENDOR" : "RIDER";
+					await ledgerService.reverseReserve(
+						payout.recipientId,
+						ledgerType,
+						payout.amount,
+						`Max retries exceeded: ${err.message}`,
+					);
+					logger.info(
+						`[processQueuedWithdrawals] Reserve reversed for payoutId=${payout._id} — ₦${payout.amount / 100} returned to available`,
+					);
+				} catch (reverseErr) {
+					logger.error(
+						`[processQueuedWithdrawals] CRITICAL — reserve reversal failed for payoutId=${payout._id}: ${reverseErr.message}`,
+					);
+				}
+
+				await Payout.findByIdAndUpdate(payout._id, {
+					$set: {
+						status: "failed",
+						failureReason: `Max retries (${MAX_RETRIES}) exceeded: ${err.message}`,
+						retryCount: newRetryCount,
+						lastRetryAt: new Date(),
+						processedAt: new Date(),
+					},
+					$unset: { lockedAt: "" },
+				});
+			} else {
+				// Requeue for retry in 15 minutes
+				const retryProcessAt = new Date(Date.now() + 15 * 60 * 1000);
+				await Payout.findByIdAndUpdate(payout._id, {
+					$inc: { retryCount: 1 },
+					$set: {
+						status: "pending",
+						lastRetryAt: new Date(),
+						processAt: retryProcessAt,
+					},
+					$unset: { lockedAt: "" },
+				});
+				logger.info(
+					`[processQueuedWithdrawals] payoutId=${payout._id} requeued for retry ${newRetryCount}/${MAX_RETRIES} at ${retryProcessAt.toISOString()}`,
+				);
+			}
+
+			failed++;
+		}
+	}
 
 	logger.info(
-		`processPendingPayoutsForUser: done — ${succeeded} succeeded, ${failed} failed for ${userType} ${userId}`,
+		`[processQueuedWithdrawals] DONE — processed=${processed} failed=${failed}`,
 	);
-
-	return { processed: results.length, succeeded, failed, results };
+	return { processed, failed };
 };
 
 /**
- * Fetch user bank details (used by rider/vendor profile)
+ * PRIVATE: Fire the actual Paystack transfer for a locked payout.
+ *
+ * Strict order:
+ *   1. Resolve profile + ensure recipient_code
+ *   2. Fire Paystack transfer (netAmount in kobo — NO × 100)
+ *   3. Confirm transfer_code returned
+ *   4. Debit ledger (completePayout)
+ *   5. Mark payout success
+ *
+ * If step 2 or 3 throws → ledger is never touched → caller retries or reverses.
  */
-const getUserBankDetails = async (userId, userType = "RIDER") => {
-	const Model = userType === "VENDOR" ? VendorProfile : RiderProfile;
+const _fireTransfer = async (payout) => {
+	const {
+		recipientId,
+		recipientType,
+		netAmount,
+		bankDetails,
+		reference,
+		idempotencyKey,
+	} = payout;
 
-	// FIX #5: consistent use of findOne({ user: userId })
-	const profile = await Model.findOne({ user: userId }).select(
-		"bankDetails paystackRecipientCode",
+	const Model =
+		recipientType === "VendorProfile" ? VendorProfile : RiderProfile;
+	const profile = await Model.findById(recipientId);
+	if (!profile)
+		throw new Error(`${recipientType} not found for id ${recipientId}`);
+
+	const recipientCode = await _ensureRecipientCode(
+		profile,
+		bankDetails,
+		profile.name,
 	);
 
-	if (!profile || !profile.bankDetails) {
-		return null;
-	}
+	logger.info(
+		`[_fireTransfer] Initiating — reference=${reference} recipient=${recipientCode} netAmountKobo=${netAmount} (₦${netAmount / 100})`,
+	);
 
-	return {
-		accountNumber: profile.bankDetails.accountNumber,
-		bankCode: profile.bankDetails.bankCode,
-		bankName: profile.bankDetails.bankName,
-		accountName: profile.bankDetails.accountName,
-		paystackRecipientCode: profile.paystackRecipientCode || null,
-	};
+	// netAmount is already in kobo — Paystack expects kobo — NO × 100
+	const transfer = await paystack.transfer.initiate({
+		amount: netAmount,
+		recipient: recipientCode,
+		reason: "Wallet Withdrawal",
+		reference,
+		idempotencyKey,
+	});
+
+	const transferCode = transfer?.data?.transfer_code;
+	if (!transferCode) throw new Error("Paystack did not return a transfer_code");
+
+	logger.info(
+		`[_fireTransfer] Transfer initiated — transferCode=${transferCode} status=${transfer?.data?.status}`,
+	);
+
+	// Save transferCode FIRST — if completePayout crashes, the webhook can
+	// find this payout by transactionRef and settle the ledger itself.
+	await Payout.findByIdAndUpdate(payout._id, {
+		$set: { transactionRef: transferCode },
+	});
+
+	// Transfer confirmed — now safe to debit the ledger
+	const ledgerType = recipientType === "VendorProfile" ? "VENDOR" : "RIDER";
+	const ledgerEntry = await ledgerService.completePayout(
+		recipientId,
+		ledgerType,
+		payout.amount, // full reserved amount (gross + fee) in kobo
+	);
+
+	await Payout.findByIdAndUpdate(payout._id, {
+		$set: {
+			status: "success",
+			ledgerEntry: ledgerEntry.entry._id,
+			processedAt: new Date(),
+		},
+		$unset: { lockedAt: "" },
+	});
+
+	logger.info(
+		`[_fireTransfer] ✅ SUCCESS — payoutId=${payout._id} transferCode=${transferCode} reference=${reference} netSent=₦${netAmount / 100} fee=₦${payout.feeDeducted / 100}`,
+	);
 };
 
 /**
- * NEW: Called by Paystack webhook on transfer.success
- * Finalizes the ledger — debits pendingBalance (money has left the system).
+ * WEBHOOK: transfer.success
+ *
+ * Safety net in case cron settled the ledger but the payout record
+ * wasn't updated (e.g. server crashed between steps).
+ * Idempotent — no-op if already marked success.
  */
 const handleTransferSuccess = async (transferCode) => {
+	logger.info(`[handleTransferSuccess] transferCode=${transferCode}`);
+
 	const payout = await Payout.findOne({ transactionRef: transferCode });
 	if (!payout) {
 		logger.warn(
-			`handleTransferSuccess: no payout found for transferCode=${transferCode}`,
+			`[handleTransferSuccess] No payout found for transferCode=${transferCode}`,
 		);
 		return;
 	}
-	if (payout.status === "processed") {
-		logger.warn(
-			`handleTransferSuccess: already processed for transferCode=${transferCode}`,
+	if (payout.status === "success") {
+		logger.info(
+			`[handleTransferSuccess] Already success — payoutId=${payout._id}`,
 		);
 		return;
 	}
-
-	const successLedgerType =
-		payout.recipientType === "VendorProfile" ? "VENDOR" : "RIDER";
-	await ledgerService.completePayout(
-		payout.recipientId,
-		successLedgerType,
-		payout.amount,
-	);
-	payout.status = "processed";
-	payout.processedAt = new Date();
-	await payout.save();
 
 	logger.info(
-		`[PAYOUT] Completed: transferCode=${transferCode} recipientId=${payout.recipientId} amount=${payout.amount}`,
+		`[handleTransferSuccess] Settling ledger for payoutId=${payout._id} amountKobo=${payout.amount} (₦${payout.amount / 100})`,
 	);
+
+	const ledgerType =
+		payout.recipientType === "VendorProfile" ? "VENDOR" : "RIDER";
+
+	try {
+		const ledgerEntry = await ledgerService.completePayout(
+			payout.recipientId,
+			ledgerType,
+			payout.amount,
+		);
+
+		await Payout.findByIdAndUpdate(payout._id, {
+			$set: {
+				status: "success",
+				ledgerEntry: ledgerEntry.entry._id,
+				processedAt: new Date(),
+			},
+			$unset: { lockedAt: "" },
+		});
+
+		logger.info(
+			`[handleTransferSuccess] ✅ Settled — payoutId=${payout._id} ₦${payout.amount / 100}`,
+		);
+	} catch (err) {
+		logger.error(
+			`[handleTransferSuccess] Ledger settlement failed: ${err.message}`,
+		);
+	}
 };
 
 /**
- * NEW: Called by Paystack webhook on transfer.failed / transfer.reversed
- * Moves money back from pending → available in the ledger.
+ * WEBHOOK: transfer.failed / transfer.reversed
+ *
+ * Returns reserved funds from pendingBalance → availableBalance.
+ * Idempotent — no-op if already marked failed.
  */
 const handleTransferFailure = async (
 	transferCode,
 	reason = "Transfer failed",
 ) => {
+	logger.info(
+		`[handleTransferFailure] transferCode=${transferCode} reason="${reason}"`,
+	);
+
 	const payout = await Payout.findOne({ transactionRef: transferCode });
 	if (!payout) {
 		logger.warn(
-			`handleTransferFailure: no payout found for transferCode=${transferCode}`,
+			`[handleTransferFailure] No payout found for transferCode=${transferCode}`,
 		);
 		return;
 	}
 	if (payout.status === "failed") {
-		logger.warn(
-			`handleTransferFailure: already failed for transferCode=${transferCode}`,
+		logger.info(
+			`[handleTransferFailure] Already failed — payoutId=${payout._id}`,
 		);
 		return;
 	}
 
-	const failureLedgerType =
+	const ledgerType =
 		payout.recipientType === "VendorProfile" ? "VENDOR" : "RIDER";
-	await ledgerService.reverseReserve(
-		payout.recipientId,
-		failureLedgerType,
-		payout.amount,
-		reason,
-	);
-	payout.status = "failed";
-	payout.failureReason = reason;
-	await payout.save();
 
-	logger.info(
-		`[PAYOUT] Reversed: transferCode=${transferCode} recipientId=${payout.recipientId} amount=${payout.amount}`,
-	);
+	try {
+		await ledgerService.reverseReserve(
+			payout.recipientId,
+			ledgerType,
+			payout.amount,
+			reason,
+		);
+
+		await Payout.findByIdAndUpdate(payout._id, {
+			$set: {
+				status: "failed",
+				failureReason: reason,
+				processedAt: new Date(),
+			},
+			$unset: { lockedAt: "" },
+		});
+
+		logger.info(
+			`[handleTransferFailure] ✅ Reversed — payoutId=${payout._id} ₦${payout.amount / 100} returned to available`,
+		);
+	} catch (err) {
+		logger.error(`[handleTransferFailure] Reversal failed: ${err.message}`);
+	}
 };
 
 module.exports = {
-	processAutoPayoutsForOrder,
-	processSinglePayout,
-	processPendingPayout,
-	processPendingPayoutsForUser,
-	getUserBankDetails,
-	handleTransferSuccess, // wire these up in your webhook handler
+	requestWithdrawal,
+	processQueuedWithdrawals,
+	handleTransferSuccess,
 	handleTransferFailure,
+	WITHDRAWAL_HOLD_MS,
+	calculateFees, // exported so controller can use it for display without calling the service
 };
