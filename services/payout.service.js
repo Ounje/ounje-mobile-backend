@@ -343,6 +343,18 @@ const requestWithdrawal = async ({
 const processQueuedWithdrawals = async () => {
 	logger.info("[processQueuedWithdrawals] START");
 
+	// Unlock payouts stuck in "processing" > 15 min (crash recovery)
+	const staleThreshold = new Date(Date.now() - 15 * 60 * 1000);
+	const unlocked = await Payout.updateMany(
+		{ status: "processing", lockedAt: { $lt: staleThreshold } },
+		{ $set: { status: "pending", processAt: new Date() }, $unset: { lockedAt: "" } },
+	);
+	if (unlocked.modifiedCount > 0) {
+		logger.warn(
+			`[processQueuedWithdrawals] Unlocked ${unlocked.modifiedCount} stale processing payout(s) — likely a prior crash`,
+		);
+	}
+
 	let processed = 0;
 	let failed = 0;
 
@@ -501,6 +513,12 @@ const _fireTransfer = async (payout) => {
 		`[_fireTransfer] Transfer initiated — transferCode=${transferCode} status=${transfer?.data?.status}`,
 	);
 
+	// Save transferCode FIRST — if completePayout crashes, the webhook can
+	// find this payout by transactionRef and settle the ledger itself.
+	await Payout.findByIdAndUpdate(payout._id, {
+		$set: { transactionRef: transferCode },
+	});
+
 	// Transfer confirmed — now safe to debit the ledger
 	const ledgerType = recipientType === "VendorProfile" ? "VENDOR" : "RIDER";
 	const ledgerEntry = await ledgerService.completePayout(
@@ -512,7 +530,6 @@ const _fireTransfer = async (payout) => {
 	await Payout.findByIdAndUpdate(payout._id, {
 		$set: {
 			status: "success",
-			transactionRef: transferCode,
 			ledgerEntry: ledgerEntry.entry._id,
 			processedAt: new Date(),
 		},
