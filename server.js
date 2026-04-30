@@ -2,17 +2,20 @@ const express = require("express");
 const mongoose = require("mongoose");
 const cors = require("cors");
 const http = require("http");
+const cron = require("node-cron");
+const { processAllPendingPayouts } = require("./jobs/payoutProcessor");
 require("dotenv").config();
-console.log("Resend Key present:", !!process.env.RESEND_API_KEY);
+
 const httpLogger = require("./middleware/httpLogger");
 const logger = require("./utils/logger");
 
-// Load all models early so Mongoose model registration is guaranteed
+// Load models early
 require("./models");
 
-// Initialize Firebase Admin SDK early so push notifications are ready before any request
+// Firebase init
 require("./utils/firebase");
 
+// Routes
 const authRoutes = require("./routes/authRoutes");
 const foodItemRoutes = require("./routes/foodItemRoutes");
 const comboRoutes = require("./routes/comboRoutes");
@@ -34,32 +37,31 @@ const promoRouter = require("./routes/promo.routes");
 const app = express();
 const server = http.createServer(app);
 
-// Initialize Socket.io
+// Socket.io
 const io = require("socket.io")(server, {
 	cors: { origin: "*" },
 });
 
 global.io = io;
-logger.info("✅ Socket.IO initialized and available globally");
 
+logger.info("[SOCKET] initialized");
+
+// Middleware
 app.use(httpLogger);
 app.use(cors());
 
-// ── Webhook route MUST be before express.json() ───────────────────────────────
-// express.raw() captures the raw buffer Paystack needs for signature verification.
-// If express.json() runs first, the raw body is gone and the sig check fails.
+// Webhooks BEFORE JSON parser
 app.use("/api/webhooks", require("./routes/webhookRoutes"));
 
-// ── Global JSON parser (all other routes) ────────────────────────────────────
 app.use(express.json());
 app.set("trust proxy", 1);
 
-// Swagger Documentation
+// Swagger
 const swaggerUi = require("swagger-ui-express");
 const swaggerSpecs = require("./config/swagger");
 app.use("/api-docs", swaggerUi.serve, swaggerUi.setup(swaggerSpecs));
 
-// API Routes
+// Routes
 app.use("/api/auth", authRoutes);
 app.use("/api/food-items", foodItemRoutes);
 app.use("/api/combos", comboRoutes);
@@ -81,51 +83,64 @@ app.use("/api/announcements", require("./routes/announcementRoutes"));
 app.use("/api/finance", require("./routes/financeRoutes"));
 app.use("/api/dva", require("./routes/dvaRoutes"));
 
-// ── Deep-link fallback ────────────────────────────────────────────────────────
-// When someone taps a share link (https://ounje.app/VendorMenu/:id) on a device
-// that doesn't have the app installed, this route sends them to the right store.
+// Deep link fallback
 app.get("/VendorMenu/:id", (req, res) => {
 	const ua = req.headers["user-agent"] || "";
-	const playStore = "https://play.google.com/store/apps/details?id=com.ounjefood.Ounje";
+	const playStore =
+		"https://play.google.com/store/apps/details?id=com.ounjefood.Ounje";
 	const appStore = "https://apps.apple.com/app/ounje/id6762204959";
+
 	if (/android/i.test(ua)) return res.redirect(302, playStore);
 	if (/iphone|ipad|ipod/i.test(ua)) return res.redirect(302, appStore);
-	// Desktop or unknown — show both options
-	return res.send(`
-		<!DOCTYPE html>
-		<html>
-		<head>
-			<meta charset="utf-8">
-			<meta name="viewport" content="width=device-width,initial-scale=1">
-			<title>Download Ounje</title>
-			<style>
-				body { font-family: sans-serif; display: flex; flex-direction: column;
-					   align-items: center; justify-content: center; min-height: 100vh;
-					   margin: 0; background: #F0FDF4; color: #1A3F1C; }
-				h1 { font-size: 1.5rem; margin-bottom: 8px; }
-				p { color: #555; margin-bottom: 32px; }
-				.links { display: flex; gap: 16px; flex-wrap: wrap; justify-content: center; }
-				a { background: #1A3F1C; color: #fff; text-decoration: none;
-					padding: 14px 28px; border-radius: 12px; font-weight: 700; font-size: 1rem; }
-			</style>
-		</head>
-		<body>
-			<h1>Get the Ounje app</h1>
-			<p>Download Ounje to view this vendor's menu and order food.</p>
-			<div class="links">
-				<a href="${playStore}">Google Play</a>
-				<a href="${appStore}">App Store</a>
-			</div>
-		</body>
-		</html>
-	`);
+
+	return res.send("Download Ounje App");
 });
 
-logger.info(`Frontend URL: ${process.env.FRONTEND_URL}`);
+// ─────────────────────────────────────────────
+// CRON JOB (SAFE WITH LOCK)
+// ─────────────────────────────────────────────
 
-// Socket.IO Connection Handler
+// ─────────────────────────────────────────────
+// CRON JOB — Process queued withdrawals
+// Runs every 15 minutes.
+// Picks up withdrawals whose 2-hour hold has elapsed and fires Paystack transfers.
+// ─────────────────────────────────────────────
+
+let isProcessingPayouts = false;
+
+cron.schedule(
+	"*/15 * * * *",
+	async () => {
+		if (isProcessingPayouts) {
+			logger.warn("[CRON] Skipped — previous run still in progress");
+			return;
+		}
+
+		isProcessingPayouts = true;
+		logger.info("[CRON] Withdrawal processor triggered");
+
+		try {
+			await processAllPendingPayouts();
+			logger.info("[CRON] Withdrawal processor completed");
+		} catch (err) {
+			logger.error("[CRON] Withdrawal processor error", {
+				message: err.message,
+			});
+		} finally {
+			isProcessingPayouts = false;
+		}
+	},
+	{ timezone: "Africa/Lagos" },
+);
+
+// ─────────────────────────────────────────────
+// SOCKET.IO
+// ─────────────────────────────────────────────
+
 io.on("connection", async (socket) => {
-	logger.info(`A user connected: ${socket.id}`);
+	logger.info("[SOCKET] user connected", {
+		socketId: socket.id,
+	});
 
 	try {
 		const jwt = require("jsonwebtoken");
@@ -133,74 +148,32 @@ io.on("connection", async (socket) => {
 			socket.handshake.auth.token,
 			process.env.ACCESS_SECRET,
 		);
+
 		const userId = decoded.id;
+
 		if (userId) {
 			socket.join(userId);
-			logger.info(`Socket auto-joined userId room: ${userId}`);
+
+			logger.info("[SOCKET] user room joined", {
+				userId,
+				socketId: socket.id,
+			});
 
 			const { Customer, VendorProfile, RiderProfile } = require("./models");
 
 			const [customer, vendor, rider] = await Promise.all([
 				Customer.findOne({ user: userId }).select("_id").lean(),
 				VendorProfile.findOne({ owner: userId }).select("_id").lean(),
-				RiderProfile.findOne({ user: userId })
-					.select("_id status isActive operatingArea")
-					.lean(),
+				RiderProfile.findOne({ user: userId }).select("_id status").lean(),
 			]);
 
-			if (customer) {
-				socket.join(customer._id.toString());
-				logger.info(`Socket auto-joined customerProfile room: ${customer._id}`);
-			}
-			if (vendor) {
-				socket.join(vendor._id.toString());
-				logger.info(`Socket auto-joined vendorProfile room: ${vendor._id}`);
-			}
-			if (rider) {
-				socket.join(rider._id.toString());
-				logger.info(
-					`Socket auto-joined riderProfile room: ${rider._id} | status=${rider.status} isActive=${rider.isActive} zones=${JSON.stringify(rider.operatingArea)}`,
-				);
-			}
+			if (customer) socket.join(customer._id.toString());
+			if (vendor) socket.join(vendor._id.toString());
+			if (rider) socket.join(rider._id.toString());
 		}
 	} catch {
-		// Unauthenticated socket — fine
+		// ignore unauthenticated sockets
 	}
-
-	socket.on("join", async (userId) => {
-		socket.join(userId);
-		logger.info(`User ${userId} joined their private room`);
-
-		try {
-			const { Customer, VendorProfile, RiderProfile } = require("./models");
-
-			const customer = await Customer.findOne({ user: userId })
-				.select("_id")
-				.lean();
-			if (customer) {
-				socket.join(customer._id.toString());
-				logger.info(`Socket auto-joined customerProfile room: ${customer._id}`);
-			}
-
-			const vendor = await VendorProfile.findOne({ owner: userId })
-				.select("_id")
-				.lean();
-			if (vendor) {
-				socket.join(vendor._id.toString());
-				logger.info(`Socket auto-joined vendorProfile room: ${vendor._id}`);
-			}
-
-			const rider = await RiderProfile.findOne({ user: userId })
-				.select("_id")
-				.lean();
-			if (rider) {
-				socket.join(rider._id.toString());
-				logger.info(`Socket auto-joined riderProfile room: ${rider._id}`);
-			}
-		} catch (err) {
-			logger.error(`Auto-join profile room failed: ${err.message}`);
-		}
-	});
 
 	socket.on("update-location", async (data) => {
 		try {
@@ -216,40 +189,68 @@ io.on("connection", async (socket) => {
 				},
 			);
 
-			logger.info(
-				`Rider ${data.riderId} location updated: [${data.lng}, ${data.lat}]`,
-			);
-
-			io.emit("rider-moved", {
+			logger.info("[SOCKET] rider location updated", {
 				riderId: data.riderId,
-				lat: data.lat,
-				lng: data.lng,
+				coordinates: [data.lng, data.lat],
 			});
-		} catch (error) {
-			logger.error(`Database update failed: ${error.message}`);
+
+			io.emit("rider-moved", data);
+		} catch (err) {
+			logger.error("[SOCKET] location update failed", {
+				error: err.message,
+			});
 		}
 	});
 
 	socket.on("disconnect", () => {
-		logger.info(`User disconnected: ${socket.id}`);
+		logger.info("[SOCKET] user disconnected", {
+			socketId: socket.id,
+		});
 	});
 });
+
+// ─────────────────────────────────────────────
+// ERROR HANDLER
+// ─────────────────────────────────────────────
 
 const errorHandler = require("./middleware/errorHandler");
 app.use(errorHandler);
 
-app.get("/", (req, res) => res.send("Food Service API running 🚀"));
+// ─────────────────────────────────────────────
+// HEALTH CHECK
+// ─────────────────────────────────────────────
+
+app.get("/", (req, res) => {
+	res.send("Food Service API running 🚀");
+});
+
+// ─────────────────────────────────────────────
+// DB + SERVER START
+// ─────────────────────────────────────────────
 
 const PORT = process.env.PORT || 5000;
 const keepAlive = require("./utils/keepAlive");
 
-mongoose.connect(process.env.MONGO_DB_URI).then(() => {
-	logger.info("✅ MongoDB connected");
-	server.listen(PORT, () => {
-		logger.info(`🚀 Server running on port ${PORT}`);
+mongoose
+	.connect(process.env.MONGO_DB_URI)
+	.then(() => {
+		logger.info("[DB] MongoDB connected");
 
-		if (process.env.NODE_ENV === "production" || process.env.RENDER) {
-			keepAlive("https://ounje-mobile-backend.onrender.com/");
-		}
+		server.listen(PORT, () => {
+			logger.info("[SERVER] started", {
+				port: PORT,
+				env: process.env.NODE_ENV,
+			});
+
+			if (process.env.NODE_ENV === "production" || process.env.RENDER) {
+				keepAlive("https://ounje-mobile-backend.onrender.com/");
+			}
+		});
+	})
+	.catch((err) => {
+		logger.error("[DB] connection failed", {
+			error: err.message,
+		});
+
+		process.exit(1);
 	});
-});
