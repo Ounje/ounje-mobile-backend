@@ -5,7 +5,6 @@ const { authMiddleware } = require("../middleware/auth");
 
 // All routes require authentication
 
-
 /**
  * @swagger
  * tags:
@@ -147,7 +146,11 @@ router.put("/:payoutId/cancel", authMiddleware, payoutController.cancelPayout);
  *       200:
  *         description: Payout processed
  */
-router.put("/:payoutId/process", authMiddleware, payoutController.processPayout);
+router.put(
+	"/:payoutId/process",
+	authMiddleware,
+	payoutController.processPayout,
+);
 
 /**
  * @swagger
@@ -168,5 +171,7 @@ router.put("/:payoutId/process", authMiddleware, payoutController.processPayout)
  *         description: Payout retried
  */
 router.post("/:payoutId/retry", authMiddleware, payoutController.retryPayout);
+
+router.get("/fee-estimate", authMiddleware, payoutController.getFeeEstimate);
 
 module.exports = router;

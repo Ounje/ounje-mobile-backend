@@ -7,6 +7,7 @@ const logger = require("../utils/logger");
 
 // ─── HELPERS ──────────────────────────────────────────────────────────────────
 
+/** Convert kobo → naira for frontend display */
 const toNaira = (kobo) => (kobo != null ? Math.round(kobo) / 100 : null);
 
 const balanceToNaira = (b) => ({
@@ -31,8 +32,14 @@ const payoutToNaira = (p) => ({
 	failureReason: p.failureReason,
 });
 
+const feesToNaira = (fees) => ({
+	paystackFee: toNaira(fees.paystackFee),
+	stampDuty: toNaira(fees.stampDuty),
+	total: toNaira(fees.total),
+});
+
 /**
- * Resolve profile _id from req.user.
+ * Resolve profile _id and recipientType from req.user.
  * Vendors use `owner`, riders use `user`.
  */
 const resolveRecipient = async (userId, userType) => {
@@ -126,8 +133,9 @@ const getTransactionHistory = async (req, res) => {
  * POST /api/payouts/request
  * Body: { amount (naira), bankDetails: { accountNumber, bankCode, accountName, bankName } }
  *
- * On-demand withdrawal — no instant vs next_day distinction.
- * Funds are validated, reserved, and queued for processing after a 2-hour hold.
+ * On-demand withdrawal with 2-hour hold before Paystack transfer fires.
+ * Fees are calculated per Paystack tiered bands + 2026 stamp duty.
+ * Frontend sends naira → controller converts to kobo → service works in kobo.
  */
 const requestPayout = async (req, res) => {
 	logger.info("[requestPayout] START", {
@@ -152,14 +160,18 @@ const requestPayout = async (req, res) => {
 				.json({ error: "Bank details are required (accountNumber, bankCode)" });
 		}
 
-		// Convert frontend naira → kobo for all internal processing
+		// Convert naira → kobo at the controller boundary
 		const amountKobo = Math.round(amountNaira * 100);
+
+		// Show user what fees will apply before calling service
+		const estimatedFees = payoutService.calculateFees(amountKobo);
 
 		logger.info("[requestPayout] Calling requestWithdrawal", {
 			userId,
 			userType,
 			amountKobo,
-			fee: `₦${payoutService.TRANSFER_FEE_KOBO / 100}`,
+			estimatedFeeKobo: estimatedFees.total,
+			estimatedFeeNaira: `₦${estimatedFees.total / 100}`,
 			holdMinutes: payoutService.WITHDRAWAL_HOLD_MS / 60000,
 		});
 
@@ -186,19 +198,24 @@ const requestPayout = async (req, res) => {
 				...(result.availableBalance != null && {
 					availableBalance: toNaira(result.availableBalance),
 				}),
+				...(result.fees && { fees: feesToNaira(result.fees) }),
 				...(result.payout && { payout: payoutToNaira(result.payout) }),
 			});
 		}
 
 		const holdMinutes = Math.round(payoutService.WITHDRAWAL_HOLD_MS / 60000);
+		const holdDisplay =
+			holdMinutes < 60 ? `${holdMinutes} minutes` : `${holdMinutes / 60} hours`;
 
 		return res.status(201).json({
-			message: `Withdrawal queued. Funds will be transferred in approximately ${holdMinutes < 60 ? holdMinutes + " minutes" : holdMinutes / 60 + " hours"}.`,
+			message: `Withdrawal queued. Funds will be transferred in approximately ${holdDisplay}.`,
 			payout: payoutToNaira(result.payout),
 			fees: {
 				grossAmount: toNaira(amountKobo),
-				transferFee: toNaira(payoutService.TRANSFER_FEE_KOBO),
-				totalDeducted: toNaira(amountKobo + payoutService.TRANSFER_FEE_KOBO),
+				paystackFee: toNaira(result.fees.paystackFee),
+				stampDuty: toNaira(result.fees.stampDuty),
+				totalFee: toNaira(result.fees.total),
+				totalDeducted: toNaira(amountKobo + result.fees.total),
 				netAmountSent: toNaira(amountKobo),
 			},
 		});
@@ -207,6 +224,38 @@ const requestPayout = async (req, res) => {
 			message: err.message,
 			stack: err.stack,
 		});
+		res.status(500).json({ error: err.message });
+	}
+};
+
+/**
+ * GET /api/payouts/fee-estimate?amount=5000
+ * Returns the fee breakdown for a given withdrawal amount (naira).
+ * Useful for showing users what they'll be charged before confirming.
+ */
+const getFeeEstimate = async (req, res) => {
+	try {
+		const amountNaira = parseFloat(req.query.amount);
+
+		if (!amountNaira || amountNaira <= 0) {
+			return res
+				.status(400)
+				.json({ error: "amount query param required and must be > 0" });
+		}
+
+		const amountKobo = Math.round(amountNaira * 100);
+		const fees = payoutService.calculateFees(amountKobo);
+
+		return res.json({
+			grossAmount: amountNaira,
+			paystackFee: toNaira(fees.paystackFee),
+			stampDuty: toNaira(fees.stampDuty),
+			totalFee: toNaira(fees.total),
+			totalDeducted: toNaira(amountKobo + fees.total),
+			netAmountSent: amountNaira,
+		});
+	} catch (err) {
+		logger.error("[getFeeEstimate]", { message: err.message });
 		res.status(500).json({ error: err.message });
 	}
 };
@@ -243,7 +292,7 @@ const getPendingPayouts = async (req, res) => {
 
 /**
  * PUT /api/payouts/:payoutId/cancel
- * Only cancellable if still pending (processAt not yet reached or not yet locked).
+ * Only cancellable if status is still "pending".
  */
 const cancelPayout = async (req, res) => {
 	try {
@@ -259,12 +308,10 @@ const cancelPayout = async (req, res) => {
 			});
 		}
 
-		// Ownership check
 		if (userType !== "admin") {
 			const recipient = await resolveRecipient(userId, userType);
 			if (!recipient)
 				return res.status(404).json({ error: `${userType} profile not found` });
-
 			if (payout.recipientId.toString() !== recipient.profileId.toString()) {
 				return res.status(403).json({ error: "Unauthorized" });
 			}
@@ -299,7 +346,6 @@ const cancelPayout = async (req, res) => {
 
 /**
  * PUT /api/payouts/:payoutId/process  (admin)
- * Manual admin override to mark a payout as completed or failed.
  */
 const processPayout = async (req, res) => {
 	try {
@@ -347,12 +393,12 @@ const processPayout = async (req, res) => {
 			});
 		}
 
-		// Mark success — debit pending balance
 		const completed = await ledgerService.completePayout(
 			payout.recipientId,
 			ledgerType,
 			payout.amount,
 		);
+
 		payout.status = "success";
 		payout.transactionRef = transactionRef;
 		payout.processedAt = new Date();
@@ -373,6 +419,7 @@ const processPayout = async (req, res) => {
 
 /**
  * POST /api/payouts/:payoutId/retry  (admin)
+ * Resets a failed or stuck payout and requeues it for immediate processing.
  */
 const retryPayout = async (req, res) => {
 	try {
@@ -390,7 +437,6 @@ const retryPayout = async (req, res) => {
 			});
 		}
 
-		// Reset and requeue immediately
 		await Payout.findByIdAndUpdate(payoutId, {
 			$set: {
 				status: "pending",
@@ -503,6 +549,7 @@ module.exports = {
 	getBalance,
 	getTransactionHistory,
 	requestPayout,
+	getFeeEstimate,
 	getPendingPayouts,
 	cancelPayout,
 	processPayout,
