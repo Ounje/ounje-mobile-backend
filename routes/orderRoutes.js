@@ -641,14 +641,14 @@ router.put(
 	riderMarkOnTheWay,
 );
 
-// router.put(
-// 	"/rider/:orderId/arrived",
-// 	authMiddleware,
-// 	checkActiveUser,
-// 	roleGuard(["rider"]),
-// 	requireRider,
-// 	riderMarkArrived,
-// );
+router.put(
+	"/rider/:orderId/arrived",
+	authMiddleware,
+	checkActiveUser,
+	roleGuard(["rider"]),
+	requireRider,
+	riderMarkArrived,
+);
 
 router.put(
 	"/rider/:orderId/complete",
