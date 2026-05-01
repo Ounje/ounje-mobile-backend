@@ -61,11 +61,7 @@ const _holdRiderFee = async (order) => {
 	const deliveryFeeNaira = order.deliveryFee ?? 0;
 
 	if (order.rider && deliveryFeeNaira > 0) {
-		await ledgerService.holdRiderFee(
-			order.rider,
-			deliveryFeeNaira,
-			order._id,
-		);
+		await ledgerService.holdRiderFee(order.rider, deliveryFeeNaira, order._id);
 		logger.info(
 			`[Payment] holdRiderFee | orderId=${order._id} riderId=${order.rider} amountKobo=${toKobo(deliveryFeeNaira)} (₦${deliveryFeeNaira})`,
 		);
@@ -440,11 +436,10 @@ const webhookHandler = async (req, res) => {
 					const result = await ledgerService.creditAccount(
 						customer._id,
 						"CUSTOMER",
-				amountKobo,
-				"DVA_TRANSFER",
-				null,
-				{ paystackReference: reference, channel: event.data.channel },
-			);
+						amountKobo,
+						"DVA_TRANSFER",
+						null,
+						{ paystackReference: reference, channel: event.data.channel },
 					);
 
 					Customer.findById(customer._id)
