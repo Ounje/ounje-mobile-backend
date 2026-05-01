@@ -576,10 +576,9 @@ const walletPayment = async (req, res) => {
 		let order;
 
 		if (cartData) {
-			// estimateOrderPrice returns naira
+			// estimateOrderPrice returns naira; customer ledger is stored in naira
 			const estimate = await orderService.estimateOrderPrice(cartData);
 			const totalNaira = estimate.totalPrice;
-			const totalKobo = toKobo(totalNaira);
 
 			// Debug: log the estimate breakdown and live wallet balance before debit
 			const liveBalance = await ledgerService.getAccountBalance(
@@ -593,20 +592,19 @@ const walletPayment = async (req, res) => {
 			await ledgerService.debitAccount(
 				customer._id,
 				"CUSTOMER",
-				totalKobo, // ✅ kobo
+				totalNaira, // naira — customer ledger stores naira (DVA credits in naira)
 				"WALLET_PAYMENT",
-				null,
 				{ note: "pre-order debit" },
 			);
 
 			try {
 				order = await orderService.createOrder(userId, cartData);
 			} catch (createErr) {
-				// Refund if order creation fails — credit kobo back
+				// Refund if order creation fails
 				await ledgerService.creditAccount(
 					customer._id,
 					"CUSTOMER",
-					totalKobo, // ✅ kobo
+					totalNaira, // naira
 					"REFUND",
 					null,
 					{ note: "wallet_payment_order_creation_failed" },
