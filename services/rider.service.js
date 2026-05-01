@@ -136,10 +136,7 @@ const getRiderProfile = async (userId) => {
 
 	if (!riderProfile) throw new Error("Rider profile not found");
 
-	const bankDetails = await payoutService.getUserBankDetails(
-		userId,
-		"RIDER",
-	);
+	const bankDetails = riderProfile.bankDetails || null;
 
 	// Trust the persisted setupComplete flag
 	// The operating area update is the final step and sets this flag.
@@ -176,7 +173,8 @@ const getRiderProfile = async (userId) => {
 		missingFields: setupComplete ? undefined : missingFields,
 		earnings: riderProfile.earnings || 0,
 		totalDeliveries: riderProfile.totalDeliveries ?? 0,
-		averageRating: riderProfile.averageRating ?? riderProfile.ratings?.average ?? 0,
+		averageRating:
+			riderProfile.averageRating ?? riderProfile.ratings?.average ?? 0,
 		rankingScore: riderProfile.rankingScore ?? 0,
 		tier: riderProfile.tier ?? "STARTER",
 		profilePicture: riderProfile.profilePicture ?? null,
@@ -361,7 +359,12 @@ const updateBankDetails = async (userId, bankDetails) => {
 	if (!riderProfile) throw new Error("Rider profile not found");
 
 	// Save the bank details onto the profile
-	riderProfile.bankDetails = { accountNumber, bankCode, accountName, bankName: bankName || null };
+	riderProfile.bankDetails = {
+		accountNumber,
+		bankCode,
+		accountName,
+		bankName: bankName || null,
+	};
 	riderProfile.paystackRecipientCode = undefined; // invalidate stale recipient
 	await riderProfile.save();
 
