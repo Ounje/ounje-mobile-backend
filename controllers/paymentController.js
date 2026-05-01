@@ -440,11 +440,11 @@ const webhookHandler = async (req, res) => {
 					const result = await ledgerService.creditAccount(
 						customer._id,
 						"CUSTOMER",
-				amountKobo / 100,
-					);
-
-					logger.info(
-						`[Webhook] DVA credited ${amountKobo} kobo (₦${amountKobo / 100}) to customer ${customer._id} | newBalance=${result?.newBalance}`,
+				amountKobo,
+				"DVA_TRANSFER",
+				null,
+				{ paystackReference: reference, channel: event.data.channel },
+			);
 					);
 
 					Customer.findById(customer._id)
