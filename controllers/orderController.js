@@ -325,19 +325,40 @@ exports.riderMarkOnTheWay = asyncHandler(async (req, res) => {
 // Rider marks arrived at customer
 exports.riderMarkArrived = asyncHandler(async (req, res) => {
 	const { orderId } = req.params;
-	const riderId = req.rider._id;
+	const riderId = req.rider?._id;
+
+	if (!orderId) {
+		return res.status(400).json({
+			success: false,
+			message: "orderId is required",
+		});
+	}
+
+	if (!riderId) {
+		return res.status(401).json({
+			success: false,
+			message: "Unauthorized rider",
+		});
+	}
 
 	const order = await orderRiderService.riderMarkArrived(
 		orderId,
 		riderId.toString(),
 	);
-	res.status(200).json({
+
+	if (!order) {
+		return res.status(404).json({
+			success: false,
+			message: "Order not found or update failed",
+		});
+	}
+
+	return res.status(200).json({
 		success: true,
 		message: "Status updated: rider arrived at customer",
 		order: formatRiderOrder(order),
 	});
 });
-
 // Rider completes delivery
 exports.completeDelivery = asyncHandler(async (req, res) => {
 	const { orderId } = req.params;
