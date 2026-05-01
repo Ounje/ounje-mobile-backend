@@ -474,6 +474,7 @@ const getCurrentRiderOrder = async (riderId) => {
 				ORDER_SUB_STATUS.RIDER_ASSIGNED,
 				ORDER_SUB_STATUS.PICKED_UP,
 				ORDER_SUB_STATUS.ON_THE_WAY,
+				ORDER_SUB_STATUS.RIDER_ARRIVED,
 			],
 		},
 	})
