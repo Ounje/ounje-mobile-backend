@@ -7,6 +7,7 @@ const {
 	Customer,
 	RiderProfile,
 	Payment,
+	User,
 } = require("../models");
 const { calculateOunjeFee, identifyZone } = require("../utils/delivery");
 const { parseTime: _parseTime } = require("../utils/time");
@@ -20,6 +21,7 @@ const { sendPushNotification } = require("./push.notification.service");
 const { refundTransaction } = require("./dva.service");
 const ledgerService = require("./ledger.service");
 const notificationService = require("./notification.service");
+const EmailService = require("./email/EmailService");
 const { ORDER_STATUS, ORDER_SUB_STATUS } = require("../utils/constants");
 const { generateOrderNumber } = require("../utils/orderNumber");
 const logger = require("../utils/logger");
@@ -593,6 +595,49 @@ const createOrder = async (userId, data) => {
 		logger.info(`New order notification sent to vendor ${vendorId}`);
 	} catch (error) {
 		logger.error(`Failed to send new order notification: ${error.message}`);
+	}
+	// 9. Send order confirmation email
+	try {
+		const user = await User.findById(userId).select("email firstName").lean();
+		if (user?.email) {
+			const orderCount = await Order.countDocuments({ customer: customer._id });
+			const emailPayload = {
+				customerName: user.firstName,
+				orderNumber: order.orderNumber,
+				status: order.status,
+				vendorName: vendor.storeName,
+				paymentMethod: order.paymentMethod,
+				paymentStatus: order.paymentStatus,
+				orderDate: order.createdAt.toLocaleDateString("en-NG", {
+					day: "numeric",
+					month: "short",
+					year: "numeric",
+				}),
+				items: orderItems,
+				foodTotal: order.foodTotal,
+				deliveryFee: order.deliveryFee,
+				serviceFee: order.serviceFee,
+				totalPrice: order.totalPrice,
+				deliveryAddress: order.deliveryAddress,
+				deliveryZone: order.zone,
+			};
+
+			if (orderCount === 1) {
+				await emailService.sendFirstOrderConfirmationEmail(
+					user.email,
+					emailPayload,
+				);
+				logger.info(`First order confirmation email sent to ${user.email}`);
+			} else if (orderCount === 10) {
+				await emailService.sendTenthOrderEmail(user.email, emailPayload);
+				logger.info(`10th order milestone email sent to ${user.email}`);
+			} else {
+				await emailService.sendOrderConfirmationEmail(user.email, emailPayload);
+				logger.info(`Order confirmation email sent to ${user.email}`);
+			}
+		}
+	} catch (error) {
+		logger.error(`Failed to send order confirmation email: ${error.message}`);
 	}
 
 	return order;
