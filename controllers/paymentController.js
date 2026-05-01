@@ -674,7 +674,9 @@ const walletPayment = async (req, res) => {
 
 		return res.status(200).json({ success: true, order });
 	} catch (error) {
-		logger.error("[Payment] wallet error:", error.message);
+		logger.error(
+			`[Payment] wallet error: ${error?.message || error?.toString() || JSON.stringify(error)}`,
+		);
 		if (error.message?.includes("Insufficient")) {
 			return res
 				.status(400)
