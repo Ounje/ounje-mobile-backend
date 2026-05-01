@@ -581,11 +581,13 @@ const walletPayment = async (req, res) => {
 			const totalNaira = estimate.totalPrice;
 			const totalKobo = toKobo(totalNaira);
 
+			// Debug: log the estimate breakdown and live wallet balance before debit
+			const liveBalance = await ledgerService.getAccountBalance(customer._id, "CUSTOMER");
 			logger.info(
-				`[Payment] wallet cart | totalNaira=₦${totalNaira} totalKobo=${totalKobo}`,
+				`[Payment] wallet debug | customerId=${customer._id} estimateFoodTotal=${estimate.foodTotal} estimateDelivery=${estimate.deliveryFee} estimateService=${estimate.serviceFee} estimateTotal=${totalPrice} cartPromoDiscount=${cartData.promoDiscount ?? 0} liveBalance=${liveBalance.availableBalance}`,
 			);
 
-			// Debit customer ledger in kobo
+
 			await ledgerService.debitAccount(
 				customer._id,
 				"CUSTOMER",
