@@ -396,6 +396,7 @@ const webhookHandler = async (req, res) => {
 
 			// amount from Paystack is ALWAYS in kobo — use directly for ledger
 			const amountKobo = amount;
+			const amountNaira = amountKobo / 100;
 
 			logger.info(
 				`[Webhook] charge.success | ref=${reference} amountKobo=${amountKobo} (₦${amountKobo / 100}) channel=${event.data.channel}`,
@@ -428,7 +429,7 @@ const webhookHandler = async (req, res) => {
 					await Payment.create({
 						reference,
 						customer: customer._id,
-						amount: amountKobo / 100, // Payment model stores naira (legacy)
+						amount: amountNaira, // Payment model stores naira (legacy)
 						status: "success",
 						paidAt: event.data.paid_at,
 					});
@@ -436,7 +437,7 @@ const webhookHandler = async (req, res) => {
 					const result = await ledgerService.creditAccount(
 						customer._id,
 						"CUSTOMER",
-						amountKobo,
+						amountNaira,
 						"DVA_TRANSFER",
 						null,
 						{ paystackReference: reference, channel: event.data.channel },
