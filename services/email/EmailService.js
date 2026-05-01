@@ -216,10 +216,7 @@ class EmailService {
 			delivery_zone: orderDetails.deliveryZone,
 		};
 
-		const html = await this.loadTemplate(
-			"order-confirmation.html",
-			replacements,
-		);
+		const html = await this.loadTemplate("normal-receipt.html", replacements);
 
 		return this.provider.sendEmail(
 			email,
@@ -266,10 +263,7 @@ class EmailService {
 			delivery_zone: orderDetails.deliveryZone,
 		};
 
-		const html = await this.loadTemplate(
-			"first-order-email.html",
-			replacements,
-		);
+		const html = await this.loadTemplate("first-order.html", replacements);
 
 		return this.provider.sendEmail(
 			email,
@@ -336,10 +330,7 @@ class EmailService {
 			delivery_zone: orderDetails.deliveryZone,
 		};
 
-		const html = await this.loadTemplate(
-			"tenth-order-email.html",
-			replacements,
-		);
+		const html = await this.loadTemplate("ten-orders.html", replacements);
 
 		return this.provider.sendEmail(
 			email,
