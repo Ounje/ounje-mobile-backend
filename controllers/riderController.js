@@ -2,6 +2,11 @@ const riderService = require("../services/rider.service");
 const ledgerService = require("../services/ledger.service");
 const logger = require("../utils/logger");
 const RiderProfile = require("../models/RiderProfile");
+const {
+	toNaira,
+	formatBalance,
+	formatTransaction,
+} = require("../utils/formatMoney");
 
 /**
  * Get Rider Wallet/Dashboard
@@ -9,9 +14,13 @@ const RiderProfile = require("../models/RiderProfile");
  */
 const getRiderWallet = async (req, res) => {
 	try {
-		const riderProfile = await RiderProfile.findOne({ user: req.user.id }).select("_id");
+		const riderProfile = await RiderProfile.findOne({
+			user: req.user.id,
+		}).select("_id");
 		if (!riderProfile) {
-			return res.status(404).json({ success: false, message: "Rider profile not found" });
+			return res
+				.status(404)
+				.json({ success: false, message: "Rider profile not found" });
 		}
 		const riderId = riderProfile._id;
 
@@ -21,17 +30,19 @@ const getRiderWallet = async (req, res) => {
 			ledgerService.getTransactionHistory(riderId, "RIDER", 20, 0),
 		]);
 
+		const naira = formatBalance(balance);
+
 		res.status(200).json({
 			success: true,
 			wallet: {
-				availableBalance: balance.availableBalance,
-				pendingBalance: balance.pendingBalance,
-				holdBalance: balance.holdBalance,
-				totalBalance: balance.totalBalance,
-				todayEarnings,
+				availableBalance: naira.availableBalance,
+				pendingBalance: naira.pendingBalance,
+				holdBalance: naira.holdBalance,
+				totalBalance: naira.totalBalance,
+				todayEarnings: toNaira(todayEarnings),
 				currency: "NGN",
 			},
-			transactions,
+			transactions: transactions.map(formatTransaction),
 		});
 	} catch (err) {
 		logger.error(`Get Rider Wallet Error: ${err.message}`);
@@ -49,20 +60,29 @@ const getRiderWallet = async (req, res) => {
  */
 const getRiderWalletTransactions = async (req, res) => {
 	try {
-		const riderProfile = await RiderProfile.findOne({ user: req.user.id }).select("_id");
+		const riderProfile = await RiderProfile.findOne({
+			user: req.user.id,
+		}).select("_id");
 		if (!riderProfile) {
-			return res.status(404).json({ success: false, message: "Rider profile not found" });
+			return res
+				.status(404)
+				.json({ success: false, message: "Rider profile not found" });
 		}
 		const riderId = riderProfile._id;
 
 		const limit = Math.min(parseInt(req.query.limit) || 20, 100);
 		const offset = parseInt(req.query.offset) || 0;
 
-		const result = await ledgerService.getTransactionHistory(riderId, "RIDER", limit, offset);
+		const result = await ledgerService.getTransactionHistory(
+			riderId,
+			"RIDER",
+			limit,
+			offset,
+		);
 
 		res.status(200).json({
 			success: true,
-			transactions: result.transactions,
+			transactions: result.transactions.map(formatTransaction),
 			total: result.total,
 			hasMore: result.hasMore,
 			limit,
@@ -81,7 +101,6 @@ const getRiderWalletTransactions = async (req, res) => {
 /**
  * Update Rider Operating Area
  * PUT /api/riders/profile/operating-area
- * Body: { operatingArea: ["Zone1", "Zone2"] }
  */
 const updateOperatingArea = async (req, res) => {
 	try {
@@ -168,12 +187,10 @@ const riderLeaderBoard = async (req, res) => {
 
 /**
  * Complete Rider Registration
- * Handles document uploads
  */
 const completeRiderRegistration = async (req, res) => {
 	try {
 		const riderId = req.user.id;
-		// Pass req.files as well
 		const result = await riderService.completeRiderRegistration(
 			riderId,
 			req.body,
@@ -207,7 +224,6 @@ const getRiderProfile = async (req, res) => {
 		});
 	} catch (err) {
 		logger.error(`Get Rider Profile Error: ${err.message}`);
-		// Handle 404 specifically if needed, or generic 500
 		const status = err.message === "Rider not found" ? 404 : 500;
 		res.status(status).json({
 			success: false,
@@ -216,9 +232,9 @@ const getRiderProfile = async (req, res) => {
 		});
 	}
 };
+
 /**
  * Deactivate Rider Account
- * Sets accountStatus to 'deactivated' and prevents future logins.
  */
 const deactivateRiderAccount = async (req, res) => {
 	try {
@@ -242,7 +258,6 @@ const deactivateRiderAccount = async (req, res) => {
 /**
  * Change Rider Zone (weekly restriction)
  * PUT /api/riders/profile/zone
- * Body: { zones: ["Ogba"] }
  */
 const changeZone = async (req, res) => {
 	try {
@@ -259,7 +274,6 @@ const changeZone = async (req, res) => {
 /**
  * Update Notification Preferences
  * PUT /api/riders/notification-preferences
- * Body: { newRequests?: boolean, earnings?: boolean, promotions?: boolean }
  */
 const updateNotificationPreferences = async (req, res) => {
 	try {
@@ -267,9 +281,12 @@ const updateNotificationPreferences = async (req, res) => {
 		const { newRequests, earnings, promotions } = req.body;
 
 		const update = {};
-		if (typeof newRequests === "boolean") update["notificationPreferences.newRequests"] = newRequests;
-		if (typeof earnings === "boolean") update["notificationPreferences.earnings"] = earnings;
-		if (typeof promotions === "boolean") update["notificationPreferences.promotions"] = promotions;
+		if (typeof newRequests === "boolean")
+			update["notificationPreferences.newRequests"] = newRequests;
+		if (typeof earnings === "boolean")
+			update["notificationPreferences.earnings"] = earnings;
+		if (typeof promotions === "boolean")
+			update["notificationPreferences.promotions"] = promotions;
 
 		const profile = await RiderProfile.findOneAndUpdate(
 			{ user: riderId },
@@ -283,33 +300,41 @@ const updateNotificationPreferences = async (req, res) => {
 		});
 	} catch (err) {
 		logger.error(`Update Notification Preferences Error: ${err.message}`);
-		res.status(500).json({ success: false, message: "Failed to update preferences" });
+		res
+			.status(500)
+			.json({ success: false, message: "Failed to update preferences" });
 	}
 };
 
 /**
  * Upload Profile Picture
- * POST /api/riders/profile/picture  (multipart/form-data, field: profilePicture)
+ * POST /api/riders/profile/picture
  */
 const uploadProfilePicture = async (req, res) => {
 	try {
 		const riderId = req.user.id;
 		if (!req.file) {
-			return res.status(400).json({ success: false, message: "No image file provided" });
+			return res
+				.status(400)
+				.json({ success: false, message: "No image file provided" });
 		}
-		const imageUrl = req.file.path; // Cloudinary URL set by multer-storage-cloudinary
-		await RiderProfile.findOneAndUpdate({ user: riderId }, { profilePicture: imageUrl });
+		const imageUrl = req.file.path;
+		await RiderProfile.findOneAndUpdate(
+			{ user: riderId },
+			{ profilePicture: imageUrl },
+		);
 		res.status(200).json({ success: true, profilePicture: imageUrl });
 	} catch (err) {
 		logger.error(`Upload Profile Picture Error: ${err.message}`);
-		res.status(500).json({ success: false, message: "Failed to upload profile picture" });
+		res
+			.status(500)
+			.json({ success: false, message: "Failed to upload profile picture" });
 	}
 };
 
 /**
  * Save Expo Push Token
  * POST /api/riders/push-token
- * Body: { fcmToken: string }
  */
 const updatePushToken = async (req, res) => {
 	try {
@@ -317,27 +342,33 @@ const updatePushToken = async (req, res) => {
 		const { fcmToken } = req.body;
 
 		if (!fcmToken) {
-			return res.status(400).json({ success: false, message: "fcmToken is required" });
+			return res
+				.status(400)
+				.json({ success: false, message: "fcmToken is required" });
 		}
 
 		await RiderProfile.findOneAndUpdate({ user: userId }, { fcmToken });
 		res.status(200).json({ success: true, message: "Push token saved" });
 	} catch (err) {
 		logger.error(`Update Push Token Error: ${err.message}`);
-		res.status(500).json({ success: false, message: "Failed to save push token" });
+		res
+			.status(500)
+			.json({ success: false, message: "Failed to save push token" });
 	}
 };
 
 /**
  * Update rider online/offline status
  * PUT /api/riders/status
- * Body: { status: "available" | "offline" }
  */
 const updateRiderOnlineStatus = async (req, res) => {
 	try {
 		const { status } = req.body;
 		if (!["available", "offline"].includes(status)) {
-			return res.status(400).json({ success: false, message: "Status must be 'available' or 'offline'" });
+			return res.status(400).json({
+				success: false,
+				message: "Status must be 'available' or 'offline'",
+			});
 		}
 		const result = await riderService.updateRiderStatus(req.user.id, status);
 		res.json(result);

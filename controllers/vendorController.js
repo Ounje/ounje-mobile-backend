@@ -1,16 +1,24 @@
 const vendorService = require("../services/vendor.service");
-const mongoose = require("mongoose"); // needed only for ObjectId validation in userGetVendor (or move validation to service)
+const mongoose = require("mongoose");
 const { VendorProfile } = require("../models");
 const { paginate } = require("../utils/paginate");
 const logger = require("../utils/logger");
 const ledgerService = require("../services/ledger.service");
+const {
+	toNaira,
+	formatBalance,
+	formatTransaction,
+} = require("../utils/formatMoney");
 
 // GET /api/vendors/all — all active vendors for "See All" listing
 // Optional query params: lat, lng — when provided, returns vendors with distanceMeters
 const getAllVendors = async (req, res) => {
 	try {
 		const { lat, lng } = req.query;
-		const baseFilter = { isActive: true, storeDetails: { $exists: true, $not: { $size: 0 } } };
+		const baseFilter = {
+			isActive: true,
+			storeDetails: { $exists: true, $not: { $size: 0 } },
+		};
 
 		if (lat && lng) {
 			const coordinates = [parseFloat(lng), parseFloat(lat)];
@@ -26,10 +34,18 @@ const getAllVendors = async (req, res) => {
 				},
 				{
 					$project: {
-						name: 1, bannerUrl: 1, logoUrl: 1, profileImage: 1,
-						location: 1, storeDetails: 1, averageRating: 1,
-						ratingCount: 1, rankingScore: 1, fulfillmentSettings: 1,
-						operatingHours: 1, distanceMeters: 1,
+						name: 1,
+						bannerUrl: 1,
+						logoUrl: 1,
+						profileImage: 1,
+						location: 1,
+						storeDetails: 1,
+						averageRating: 1,
+						ratingCount: 1,
+						rankingScore: 1,
+						fulfillmentSettings: 1,
+						operatingHours: 1,
+						distanceMeters: 1,
 					},
 				},
 				{ $sort: { rankingScore: -1, averageRating: -1 } },
@@ -62,9 +78,6 @@ const getPopularVendors = async (req, res) => {
 	}
 };
 
-//Vendor side
-//This is for getting the vendor's own details along with their menu
-//you can only access this route if you're logged in as a vendor
 const getVendor = async (req, res) => {
 	try {
 		const vendor = await vendorService.getVendorProfile(req.user.id);
@@ -85,8 +98,6 @@ const getVendors = async (req, res) => {
 	}
 };
 
-//Customer side
-//with this you'll get the vendor details along with their menu and options
 const userGetVendor = async (req, res) => {
 	try {
 		const vendorId = req.params.id;
@@ -101,13 +112,18 @@ const userGetVendor = async (req, res) => {
 			customerLocation = customer?.savedAddresses?.[0]?.address || null;
 		}
 
-		const vendor = await vendorService.getVendorWithProducts(vendorId, customerLocation);
+		const vendor = await vendorService.getVendorWithProducts(
+			vendorId,
+			customerLocation,
+		);
 		res.status(200).json(vendor);
 	} catch (err) {
 		logger.error(`USER_GET_VENDOR_ERROR: ${err.message}`);
 		if (err.message === "Vendor not found")
 			return res.status(404).json({ message: err.message });
-		res.status(500).json({ message: "Internal Server Error", error: err.message });
+		res
+			.status(500)
+			.json({ message: "Internal Server Error", error: err.message });
 	}
 };
 
@@ -123,7 +139,6 @@ const updateBankDetails = async (req, res) => {
 	}
 };
 
-// NEW: Get Nearby Vendors
 const getNearbyVendors = async (req, res) => {
 	try {
 		const { lat, lng } = req.query;
@@ -161,7 +176,10 @@ const completeVendorRegistration = async (req, res) => {
 	} catch (error) {
 		logger.error(`Error completing vendor registration: ${error.message}`);
 
-		if (error.message.includes("required") || error.message.includes("Invalid")) {
+		if (
+			error.message.includes("required") ||
+			error.message.includes("Invalid")
+		) {
 			return res.status(400).json({ success: false, message: error.message });
 		}
 		if (error.message === "Vendor not found") {
@@ -226,10 +244,11 @@ const updateVendorLocation = async (req, res) => {
 			});
 		}
 
-		// Resolve zone: use explicit zone from request, else infer from address
 		const { identifyZone } = require("../utils/delivery");
 		const resolvedZone = zone || identifyZone(address);
-		logger.info(`[VendorLocation] Resolved zone="${resolvedZone}" for vendor ${req.user.id}`);
+		logger.info(
+			`[VendorLocation] Resolved zone="${resolvedZone}" for vendor ${req.user.id}`,
+		);
 
 		await VendorProfile.findOneAndUpdate(
 			{ owner: req.user.id },
@@ -243,7 +262,9 @@ const updateVendorLocation = async (req, res) => {
 			},
 			{ new: true },
 		);
-		return res.status(200).json({ success: true, message: "Location updated", zone: resolvedZone });
+		return res
+			.status(200)
+			.json({ success: true, message: "Location updated", zone: resolvedZone });
 	} catch (error) {
 		logger.error(`Update Vendor Location Error: ${error.message}`);
 		return res.status(500).json({
@@ -257,18 +278,28 @@ const updateVendorProfile = async (req, res) => {
 	try {
 		const { storeName } = req.body;
 		if (!storeName || !storeName.trim()) {
-			return res.status(400).json({ success: false, message: "Store name is required" });
+			return res
+				.status(400)
+				.json({ success: false, message: "Store name is required" });
 		}
 		const vendor = await VendorProfile.findOneAndUpdate(
 			{ owner: req.user.id },
 			{ $set: { "storeDetails.0.storeName": storeName.trim() } },
 			{ new: true },
 		);
-		if (!vendor) return res.status(404).json({ success: false, message: "Vendor not found" });
-		return res.status(200).json({ success: true, message: "Profile updated", vendor });
+		if (!vendor)
+			return res
+				.status(404)
+				.json({ success: false, message: "Vendor not found" });
+		return res
+			.status(200)
+			.json({ success: true, message: "Profile updated", vendor });
 	} catch (error) {
 		logger.error(`Update Vendor Profile Error: ${error.message}`);
-		return res.status(500).json({ success: false, message: error.message || "Error updating profile" });
+		return res.status(500).json({
+			success: false,
+			message: error.message || "Error updating profile",
+		});
 	}
 };
 
@@ -288,7 +319,10 @@ const deactivateVendorAccount = async (req, res) => {
 const toggleVendorOnlineStatus = async (req, res) => {
 	try {
 		const vendor = await VendorProfile.findOne({ owner: req.user.id });
-		if (!vendor) return res.status(404).json({ success: false, message: "Vendor not found" });
+		if (!vendor)
+			return res
+				.status(404)
+				.json({ success: false, message: "Vendor not found" });
 
 		const currentlyOnline = vendor.storeDetails?.[0]?.status === "active";
 		const newStatus = currentlyOnline ? "deactivated" : "active";
@@ -298,12 +332,15 @@ const toggleVendorOnlineStatus = async (req, res) => {
 			const activeOrder = await Order.findOne({
 				vendor: vendor._id,
 				status: { $in: ["confirming", "pending"] },
-			}).select("_id").lean();
+			})
+				.select("_id")
+				.lean();
 			if (activeOrder) {
 				return res.status(400).json({
 					success: false,
 					blocked: true,
-					message: "You have an active order. Complete it before going offline.",
+					message:
+						"You have an active order. Complete it before going offline.",
 				});
 			}
 		}
@@ -330,9 +367,13 @@ const toggleVendorOnlineStatus = async (req, res) => {
 
 const getVendorWallet = async (req, res) => {
 	try {
-		const vendorProfile = await VendorProfile.findOne({ owner: req.user.id }).select("_id");
+		const vendorProfile = await VendorProfile.findOne({
+			owner: req.user.id,
+		}).select("_id");
 		if (!vendorProfile) {
-			return res.status(404).json({ success: false, message: "Vendor profile not found" });
+			return res
+				.status(404)
+				.json({ success: false, message: "Vendor profile not found" });
 		}
 
 		const [balance, todayEarnings, { transactions }] = await Promise.all([
@@ -341,17 +382,19 @@ const getVendorWallet = async (req, res) => {
 			ledgerService.getTransactionHistory(vendorProfile._id, "VENDOR", 20, 0),
 		]);
 
+		const naira = formatBalance(balance);
+
 		return res.status(200).json({
 			success: true,
 			wallet: {
-				availableBalance: balance.availableBalance,
-				pendingBalance: balance.pendingBalance,
-				holdBalance: balance.holdBalance,
-				totalBalance: balance.totalBalance,
-				todayEarnings,
+				availableBalance: naira.availableBalance,
+				pendingBalance: naira.pendingBalance,
+				holdBalance: naira.holdBalance,
+				totalBalance: naira.totalBalance,
+				todayEarnings: toNaira(todayEarnings),
 				currency: "NGN",
 			},
-			transactions,
+			transactions: transactions.map(formatTransaction),
 		});
 	} catch (err) {
 		logger.error(`Get Vendor Wallet Error: ${err.message}`);
@@ -365,8 +408,6 @@ const getVendorWallet = async (req, res) => {
 
 /**
  * PUT /api/vendors/profile/periods
- * Replace the entire operating schedule (timePeriod or preorderPeriods).
- * Send an empty array [] to clear.
  */
 const updateOperatingPeriods = async (req, res) => {
 	try {
@@ -391,8 +432,6 @@ const updateOperatingPeriods = async (req, res) => {
 
 /**
  * POST /api/vendors/profile/periods
- * Append a single period entry to the existing schedule without touching
- * the rest. Validates using the same rules as updateOperatingPeriods.
  */
 const addOperatingPeriod = async (req, res) => {
 	try {
@@ -408,15 +447,19 @@ const addOperatingPeriod = async (req, res) => {
 
 /**
  * DELETE /api/vendors/profile/periods/:index
- * Remove a single period entry by its array index.
  */
 const deleteOperatingPeriod = async (req, res) => {
 	try {
 		const index = parseInt(req.params.index, 10);
 		if (isNaN(index) || index < 0) {
-			return res.status(400).json({ success: false, message: "Invalid period index" });
+			return res
+				.status(400)
+				.json({ success: false, message: "Invalid period index" });
 		}
-		const result = await vendorService.deleteOperatingPeriod(req.user.id, index);
+		const result = await vendorService.deleteOperatingPeriod(
+			req.user.id,
+			index,
+		);
 		return res.status(200).json({ success: true, data: result });
 	} catch (error) {
 		return res.status(400).json({ success: false, message: error.message });
