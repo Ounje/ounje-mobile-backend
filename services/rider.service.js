@@ -131,12 +131,12 @@ const getRiderProfile = async (userId) => {
 	const riderProfile = await RiderProfile.findOne({ user: userId })
 		.populate("user", "name phone email")
 		.select(
-			"modeOfDelivery guarantor driversLicense nin status operatingArea isActive currentLocation earnings ratings averageRating ratingCount totalDeliveries rankingScore tier profilePicture setupComplete",
+			"modeOfDelivery guarantor driversLicense nin status operatingArea isActive currentLocation earnings ratings averageRating ratingCount totalDeliveries rankingScore tier profilePicture setupComplete bankDetails",
 		);
 
 	if (!riderProfile) throw new Error("Rider profile not found");
 
-	const bankDetails = riderProfile.bankDetails || null;
+	const bankDetails = riderProfile.bankDetails?.accountNumber ? riderProfile.bankDetails : null;
 
 	// Trust the persisted setupComplete flag
 	// The operating area update is the final step and sets this flag.
