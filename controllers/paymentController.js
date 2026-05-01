@@ -253,7 +253,9 @@ const verifyPayment = async (req, res) => {
 	} catch (err) {
 		const paystackError =
 			err.response?.data?.message || err.response?.data?.error || err.message;
-		logger.error("[Payment] verify error:", err.response?.data || err.message);
+		logger.error(
+			`[Payment] verify error: ${err.response?.data?.message || err.response?.data?.error || err.message}`,
+		);
 		res
 			.status(500)
 			.json({ error: paystackError || "Payment verification failed" });
@@ -592,8 +594,9 @@ const walletPayment = async (req, res) => {
 			await ledgerService.debitAccount(
 				customer._id,
 				"CUSTOMER",
-				totalNaira, // naira — customer ledger stores naira (DVA credits in naira)
+				totalNaira,
 				"WALLET_PAYMENT",
+				null, // orderId — not known yet at pre-debit stage
 				{ note: "pre-order debit" },
 			);
 
