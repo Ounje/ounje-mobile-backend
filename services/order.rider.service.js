@@ -570,85 +570,82 @@ const riderMarkArrived = async (orderId, riderId) => {
 		`riderMarkArrived called — orderId: ${orderId}, riderId: ${riderId}`,
 	);
 
-	const order = await Order.findById(orderId);
+	const riderIdStr = riderId.toString();
+
+	// 1. Atomic state transition (prevents race conditions)
+	const order = await Order.findOneAndUpdate(
+		{
+			_id: orderId,
+			rider: riderIdStr,
+			status: ORDER_STATUS.RIDING,
+			subStatus: {
+				$in: [
+					ORDER_SUB_STATUS.ON_THE_WAY,
+					ORDER_SUB_STATUS.PICKED_UP,
+					ORDER_SUB_STATUS.RIDER_ARRIVED, // allows idempotency
+				],
+			},
+		},
+		{
+			$set: { subStatus: ORDER_SUB_STATUS.RIDER_ARRIVED },
+		},
+		{
+			new: true,
+		},
+	);
+
 	if (!order) {
-		logger.warn(`riderMarkArrived — order not found: ${orderId}`);
-		throw new Error("Order not found");
+		logger.warn(
+			`riderMarkArrived — invalid transition or order not found: orderId=${orderId}, riderId=${riderIdStr}`,
+		);
+		throw new Error("Invalid order state or unauthorized rider");
 	}
 
 	logger.info(
-		`Order found — status: ${order.status}, subStatus: ${order.subStatus}, rider: ${order.rider}`,
+		`Order updated — status: ${order.status}, subStatus: ${order.subStatus}`,
 	);
 
-	if (!order.rider || order.rider.toString() !== riderId) {
-		logger.warn(
-			`riderMarkArrived — rider mismatch. order.rider: ${order.rider}, riderId: ${riderId}`,
-		);
-		throw new Error("You are not assigned to this order");
-	}
+	// 2. Idempotent payload (safe for re-emits)
+	const payload = {
+		orderId: order._id.toString(),
+		status: order.status,
+		subStatus: order.subStatus,
+	};
 
-	if (order.status !== ORDER_STATUS.RIDING) {
-		logger.warn(`riderMarkArrived — wrong status: ${order.status}`);
-		throw new Error("Order is not in riding status");
-	}
-
-	if (order.subStatus === ORDER_SUB_STATUS.RIDER_ARRIVED) {
-		logger.info(`riderMarkArrived — already RIDER_ARRIVED, returning early`);
-		return order;
-	}
-
-	if (
-		order.subStatus !== ORDER_SUB_STATUS.ON_THE_WAY &&
-		order.subStatus !== ORDER_SUB_STATUS.PICKED_UP
-	) {
-		logger.warn(
-			`riderMarkArrived — invalid subStatus for transition: ${order.subStatus}`,
-		);
-		throw new Error(
-			"Order must be picked_up or on_the_way before marking arrived",
-		);
-	}
-
-	if (!order.customer) {
-		logger.warn(`riderMarkArrived — order has no customer: ${orderId}`);
-		throw new Error("Order has no customer assigned");
-	}
-
-	order.subStatus = ORDER_SUB_STATUS.RIDER_ARRIVED;
-
+	// 3. Socket emissions (non-blocking safety)
 	try {
-		await order.save();
-		logger.info(`Order ${orderId} saved with subStatus RIDER_ARRIVED`);
-
 		if (global.io) {
-			const payload = {
-				orderId: order._id,
-				status: order.status,
-				subStatus: order.subStatus,
-			};
-			global.io.to(order.customer.toString()).emit("orderUpdate", payload);
-			global.io.to(riderId).emit("orderUpdate", payload);
-			logger.info(
-				`Socket events emitted to customer and rider for order ${orderId}`,
-			);
-		} else {
-			logger.warn(
-				`global.io not available — socket events skipped for order ${orderId}`,
-			);
-		}
+			const rooms = [order.customer?.toString(), riderIdStr].filter(Boolean);
 
-		await notificationService.notifyCustomerRiderArrived(
-			order.customer.toString(),
-			order,
-		);
-		logger.info(`Notification sent for order ${orderId}`);
+			rooms.forEach((room) => {
+				global.io.to(room).emit("orderUpdate", payload);
+			});
+
+			logger.info(`Socket events emitted for order ${orderId}`);
+		} else {
+			logger.warn(`global.io not available — socket skipped`);
+		}
 	} catch (err) {
-		logger.warn(
-			`riderMarkArrived post-save error for order ${orderId}: ${err.message}`,
-		);
+		logger.warn(`Socket emission failed for order ${orderId}: ${err.message}`);
 	}
 
-	logger.info(`riderMarkArrived complete — order ${orderId}, rider ${riderId}`);
+	// 4. Notifications (isolated failure domain)
+	try {
+		if (order.customer) {
+			await notificationService.notifyCustomerRiderArrived(
+				order.customer.toString(),
+				order,
+			);
+			logger.info(`Notification sent for order ${orderId}`);
+		}
+	} catch (err) {
+		logger.warn(`Notification failed for order ${orderId}: ${err.message}`);
+	}
+
+	logger.info(
+		`riderMarkArrived complete — order ${orderId}, rider ${riderIdStr}`,
+	);
+
 	return order;
 };
 module.exports = {
