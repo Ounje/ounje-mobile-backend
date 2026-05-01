@@ -368,16 +368,9 @@ const updateBankDetails = async (userId, bankDetails) => {
 	riderProfile.paystackRecipientCode = undefined; // invalidate stale recipient
 	await riderProfile.save();
 
-	// Pass userId (not riderProfile._id) — Payout.user stores the user ID
-	const retryResults = await payoutService.processPendingPayoutsForUser(
-		userId,
-		"RIDER",
-	);
-
 	return {
 		success: true,
-		message: "Bank details updated and pending payouts processed",
-		retryResults,
+		message: "Bank details updated successfully",
 	};
 };
 /**
