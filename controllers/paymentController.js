@@ -580,8 +580,11 @@ const walletPayment = async (req, res) => {
 			const estimate = await orderService.estimateOrderPrice(cartData);
 			const totalNaira = estimate.totalPrice;
 
-			// Debug: log estimate breakdown and live wallet balance before debit
-			const liveBalance = await ledgerService.getAccountBalance(customer._id, "CUSTOMER");
+			// Debug: log the estimate breakdown and live wallet balance before debit
+			const liveBalance = await ledgerService.getAccountBalance(
+				customer._id,
+				"CUSTOMER",
+			);
 			logger.info(
 				`[Payment] wallet debug | customerId=${customer._id} estimateFoodTotal=${estimate.foodTotal} estimateDelivery=${estimate.deliveryFee} estimateService=${estimate.serviceFee} estimateTotal=${totalNaira} cartPromoDiscount=${cartData.promoDiscount ?? 0} liveBalance=${liveBalance.availableBalance}`,
 			);
@@ -669,7 +672,9 @@ const walletPayment = async (req, res) => {
 
 		return res.status(200).json({ success: true, order });
 	} catch (error) {
-		logger.error("[Payment] wallet error:", error.message);
+		logger.error(
+			`[Payment] wallet error: ${error?.message || error?.toString() || JSON.stringify(error)}`,
+		);
 		if (error.message?.includes("Insufficient")) {
 			return res
 				.status(400)
