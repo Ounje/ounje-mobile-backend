@@ -567,84 +567,123 @@ const riderMarkOnTheWay = async (orderId, riderId) => {
 
 const riderMarkArrived = async (orderId, riderId) => {
 	logger.info(
-		`riderMarkArrived called — orderId: ${orderId}, riderId: ${riderId}`,
+		`riderMarkArrived called — orderId=${orderId}, riderId=${riderId}`,
 	);
 
 	const riderIdStr = riderId.toString();
 
-	// 1. Atomic state transition (prevents race conditions)
+	// 1. Get current order (for validation + debugging)
+	const existingOrder = await Order.findById(orderId);
+
+	if (!existingOrder) {
+		logger.warn(`Order not found: ${orderId}`);
+		throw new Error("Order not found");
+	}
+
+	// 2. Validate rider assignment
+	if (!existingOrder.rider || existingOrder.rider.toString() !== riderIdStr) {
+		logger.warn(
+			`Rider mismatch — order.rider=${existingOrder.rider}, riderId=${riderIdStr}`,
+		);
+		throw new Error("You are not assigned to this order");
+	}
+
+	// 3. Validate order status
+	if (existingOrder.status !== ORDER_STATUS.RIDING) {
+		logger.warn(`Invalid status: ${existingOrder.status}`);
+		throw new Error("Order is not in riding status");
+	}
+
+	// 4. FIXED: Correct allowed sub-statuses (THIS was your bug)
+	const ALLOWED_PRE_ARRIVAL_STATES = [
+		ORDER_SUB_STATUS.RIDER_ASSIGNED,
+		ORDER_SUB_STATUS.PICKED_UP,
+		ORDER_SUB_STATUS.ON_THE_WAY,
+	];
+
+	// 5. Idempotent check
+	if (existingOrder.subStatus === ORDER_SUB_STATUS.RIDER_ARRIVED) {
+		logger.info(`Already marked as RIDER_ARRIVED (idempotent)`);
+		return existingOrder;
+	}
+
+	// 6. Validate transition BEFORE DB update (gives clear error)
+	if (!ALLOWED_PRE_ARRIVAL_STATES.includes(existingOrder.subStatus)) {
+		logger.warn(
+			`Invalid transition: ${existingOrder.subStatus} → RIDER_ARRIVED`,
+		);
+		throw new Error(
+			`Cannot mark arrived from status: ${existingOrder.subStatus}`,
+		);
+	}
+
+	// 7. Atomic update (safe against race conditions)
 	const order = await Order.findOneAndUpdate(
 		{
 			_id: orderId,
 			rider: riderIdStr,
 			status: ORDER_STATUS.RIDING,
 			subStatus: {
-				$in: [
-					ORDER_SUB_STATUS.ON_THE_WAY,
-					ORDER_SUB_STATUS.PICKED_UP,
-					ORDER_SUB_STATUS.RIDER_ARRIVED, // allows idempotency
-				],
+				$in: ALLOWED_PRE_ARRIVAL_STATES,
 			},
 		},
 		{
-			$set: { subStatus: ORDER_SUB_STATUS.RIDER_ARRIVED },
+			$set: {
+				subStatus: ORDER_SUB_STATUS.RIDER_ARRIVED,
+			},
 		},
-		{
-			new: true,
-		},
+		{ new: true },
 	);
 
+	// 8. HARD FAILURE DEBUG (this fixes your issue)
 	if (!order) {
-		logger.warn(
-			`riderMarkArrived — invalid transition or order not found: orderId=${orderId}, riderId=${riderIdStr}`,
+		logger.error(`Atomic update failed — debug mode`);
+
+		const debugOrder = await Order.findById(orderId);
+
+		logger.error("ORDER DEBUG STATE:", {
+			status: debugOrder?.status,
+			subStatus: debugOrder?.subStatus,
+			rider: debugOrder?.rider,
+		});
+
+		throw new Error(
+			"Failed to update status — invalid state transition or race condition",
 		);
-		throw new Error("Invalid order state or unauthorized rider");
 	}
 
-	logger.info(
-		`Order updated — status: ${order.status}, subStatus: ${order.subStatus}`,
-	);
+	logger.info(`Order updated successfully — ${orderId}`);
 
-	// 2. Idempotent payload (safe for re-emits)
-	const payload = {
-		orderId: order._id.toString(),
-		status: order.status,
-		subStatus: order.subStatus,
-	};
-
-	// 3. Socket emissions (non-blocking safety)
+	// 9. Socket updates (safe)
 	try {
 		if (global.io) {
+			const payload = {
+				orderId: order._id.toString(),
+				status: order.status,
+				subStatus: order.subStatus,
+			};
+
 			const rooms = [order.customer?.toString(), riderIdStr].filter(Boolean);
 
 			rooms.forEach((room) => {
 				global.io.to(room).emit("orderUpdate", payload);
 			});
-
-			logger.info(`Socket events emitted for order ${orderId}`);
-		} else {
-			logger.warn(`global.io not available — socket skipped`);
 		}
 	} catch (err) {
-		logger.warn(`Socket emission failed for order ${orderId}: ${err.message}`);
+		logger.warn(`Socket error: ${err.message}`);
 	}
 
-	// 4. Notifications (isolated failure domain)
+	// 10. Notifications (safe failure handling)
 	try {
 		if (order.customer) {
 			await notificationService.notifyCustomerRiderArrived(
 				order.customer.toString(),
 				order,
 			);
-			logger.info(`Notification sent for order ${orderId}`);
 		}
 	} catch (err) {
-		logger.warn(`Notification failed for order ${orderId}: ${err.message}`);
+		logger.warn(`Notification error: ${err.message}`);
 	}
-
-	logger.info(
-		`riderMarkArrived complete — order ${orderId}, rider ${riderIdStr}`,
-	);
 
 	return order;
 };
