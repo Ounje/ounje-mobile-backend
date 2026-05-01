@@ -44,7 +44,7 @@ const _holdVendorEarnings = async (order) => {
 	if (vendorAmountNaira > 0) {
 		await ledgerService.holdVendorAmount(
 			order.vendor,
-			toKobo(vendorAmountNaira),
+			vendorAmountNaira,
 			order._id,
 		);
 		logger.info(
@@ -63,7 +63,7 @@ const _holdRiderFee = async (order) => {
 	if (order.rider && deliveryFeeNaira > 0) {
 		await ledgerService.holdRiderFee(
 			order.rider,
-			toKobo(deliveryFeeNaira),
+			deliveryFeeNaira,
 			order._id,
 		);
 		logger.info(
@@ -440,10 +440,7 @@ const webhookHandler = async (req, res) => {
 					const result = await ledgerService.creditAccount(
 						customer._id,
 						"CUSTOMER",
-						amountKobo,
-						"DVA_TRANSFER",
-						null,
-						{ paystackReference: reference, channel: event.data.channel },
+				amountKobo / 100,
 					);
 
 					logger.info(
