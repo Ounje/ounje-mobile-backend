@@ -628,6 +628,9 @@ const createOrder = async (userId, data) => {
 					emailPayload,
 				);
 				logger.info(`First order confirmation email sent to ${user.email}`);
+			} else if (orderCount === 10) {
+				await emailService.sendTenthOrderEmail(user.email, emailPayload);
+				logger.info(`10th order milestone email sent to ${user.email}`);
 			} else {
 				await emailService.sendOrderConfirmationEmail(user.email, emailPayload);
 				logger.info(`Order confirmation email sent to ${user.email}`);

@@ -297,7 +297,56 @@ class EmailService {
 			html,
 		);
 	}
+	/**
+	 * Send 10th order milestone email
+	 * @param {string}   email
+	 * @param {Object}   orderDetails        - same shape as sendOrderConfirmationEmail
+	 * @param {string}   orderDetails.customerName
+	 * @param {string}   orderDetails.orderNumber    - order.orderNumber
+	 * @param {string}   orderDetails.status         - order.status
+	 * @param {string}   orderDetails.vendorName     - vendor.storeName
+	 * @param {string}   orderDetails.paymentMethod  - order.paymentMethod
+	 * @param {string}   orderDetails.paymentStatus  - order.paymentStatus
+	 * @param {string}   orderDetails.orderDate      - formatted order.createdAt
+	 * @param {Array}    orderDetails.items          - order.items[]
+	 * @param {number}   orderDetails.foodTotal      - order.foodTotal
+	 * @param {number}   orderDetails.deliveryFee    - order.deliveryFee
+	 * @param {number}   orderDetails.serviceFee     - order.serviceFee
+	 * @param {number}   orderDetails.totalPrice     - order.totalPrice
+	 * @param {string}   orderDetails.deliveryAddress
+	 * @param {string}   orderDetails.deliveryZone   - order.zone
+	 */
+	async sendTenthOrderEmail(email, orderDetails) {
+		const replacements = {
+			name: orderDetails.customerName,
+			order_number: orderDetails.orderNumber,
+			status: orderDetails.status,
+			vendor_name: orderDetails.vendorName,
+			payment_method: orderDetails.paymentMethod,
+			payment_status: orderDetails.paymentStatus,
+			order_date: orderDetails.orderDate,
+			items_html: _buildOrderItemsHtml(orderDetails.items),
+			customer_note:
+				orderDetails.items.find((i) => i.notes?.trim())?.notes ?? "",
+			food_total: _fmtNaira(orderDetails.foodTotal),
+			delivery_fee: _fmtNaira(orderDetails.deliveryFee),
+			service_fee: _fmtNaira(orderDetails.serviceFee),
+			total_amount: _fmtNaira(orderDetails.totalPrice),
+			delivery_address: orderDetails.deliveryAddress,
+			delivery_zone: orderDetails.deliveryZone,
+		};
 
+		const html = await this.loadTemplate(
+			"tenth-order-email.html",
+			replacements,
+		);
+
+		return this.provider.sendEmail(
+			email,
+			`10 Orders In — You're on a roll! 🎉`,
+			html,
+		);
+	}
 	/**
 	 * Send newsflash email to vendors
 	 */
