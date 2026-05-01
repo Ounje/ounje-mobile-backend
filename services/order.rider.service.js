@@ -566,87 +566,69 @@ const riderMarkOnTheWay = async (orderId, riderId) => {
 };
 
 const riderMarkArrived = async (orderId, riderId) => {
-	logger.info(
-		`riderMarkArrived called — orderId=${orderId}, riderId=${riderId}`,
-	);
+	console.error(`[DEBUG riderMarkArrived] START orderId=${orderId} riderId=${riderId} riderIdType=${typeof riderId}`);
 
 	const riderIdStr = riderId.toString();
 
-	// 1. Get current order (for validation + debugging)
+	// 1. Get current order
 	const existingOrder = await Order.findById(orderId);
 
 	if (!existingOrder) {
-		logger.warn(`Order not found: ${orderId}`);
+		console.error(`[DEBUG riderMarkArrived] ORDER NOT FOUND orderId=${orderId}`);
 		throw new Error("Order not found");
 	}
 
+	console.error(`[DEBUG riderMarkArrived] ORDER STATE status=${existingOrder.status} subStatus=${existingOrder.subStatus} order.rider=${existingOrder.rider} riderIdStr=${riderIdStr} riderMatch=${existingOrder.rider?.toString() === riderIdStr}`);
+
 	// 2. Validate rider assignment
 	if (!existingOrder.rider || existingOrder.rider.toString() !== riderIdStr) {
-		logger.warn(
-			`Rider mismatch — order.rider=${existingOrder.rider}, riderId=${riderIdStr}`,
-		);
+		console.error(`[DEBUG riderMarkArrived] RIDER MISMATCH order.rider=${existingOrder.rider} incoming=${riderIdStr}`);
 		throw new Error("You are not assigned to this order");
 	}
 
 	// 3. Validate order status
 	if (existingOrder.status !== ORDER_STATUS.RIDING) {
-		logger.warn(`Invalid status: ${existingOrder.status}`);
+		console.error(`[DEBUG riderMarkArrived] WRONG STATUS expected=riding actual=${existingOrder.status}`);
 		throw new Error("Order is not in riding status");
 	}
 
-	// 4. FIXED: Correct allowed sub-statuses (THIS was your bug)
 	const ALLOWED_PRE_ARRIVAL_STATES = [
 		ORDER_SUB_STATUS.RIDER_ASSIGNED,
 		ORDER_SUB_STATUS.PICKED_UP,
 		ORDER_SUB_STATUS.ON_THE_WAY,
 	];
 
-	// 5. Idempotent check
+	// 4. Idempotent check
 	if (existingOrder.subStatus === ORDER_SUB_STATUS.RIDER_ARRIVED) {
-		logger.info(`Already marked as RIDER_ARRIVED (idempotent)`);
+		console.error(`[DEBUG riderMarkArrived] ALREADY ARRIVED — idempotent return`);
 		return existingOrder;
 	}
 
-	// 6. Validate transition BEFORE DB update (gives clear error)
+	// 5. Validate sub-status transition
 	if (!ALLOWED_PRE_ARRIVAL_STATES.includes(existingOrder.subStatus)) {
-		logger.warn(
-			`Invalid transition: ${existingOrder.subStatus} → RIDER_ARRIVED`,
-		);
+		console.error(`[DEBUG riderMarkArrived] INVALID SUBSTATUS subStatus=${existingOrder.subStatus} allowed=${JSON.stringify(ALLOWED_PRE_ARRIVAL_STATES)}`);
 		throw new Error(
 			`Cannot mark arrived from status: ${existingOrder.subStatus}`,
 		);
 	}
 
-	// 7. Atomic update (safe against race conditions)
+	console.error(`[DEBUG riderMarkArrived] ALL CHECKS PASSED — firing atomic update`);
+
+	// 6. Atomic update
 	const order = await Order.findOneAndUpdate(
 		{
 			_id: orderId,
 			rider: riderIdStr,
 			status: ORDER_STATUS.RIDING,
-			subStatus: {
-				$in: ALLOWED_PRE_ARRIVAL_STATES,
-			},
+			subStatus: { $in: ALLOWED_PRE_ARRIVAL_STATES },
 		},
-		{
-			$set: {
-				subStatus: ORDER_SUB_STATUS.RIDER_ARRIVED,
-			},
-		},
+		{ $set: { subStatus: ORDER_SUB_STATUS.RIDER_ARRIVED } },
 		{ new: true },
 	);
 
-	// 8. HARD FAILURE DEBUG (this fixes your issue)
 	if (!order) {
-		logger.error(`Atomic update failed — debug mode`);
-
 		const debugOrder = await Order.findById(orderId);
-
-		logger.error("ORDER DEBUG STATE:", {
-			status: debugOrder?.status,
-			subStatus: debugOrder?.subStatus,
-			rider: debugOrder?.rider,
-		});
-
+		console.error(`[DEBUG riderMarkArrived] ATOMIC UPDATE FAILED — post-failure state: status=${debugOrder?.status} subStatus=${debugOrder?.subStatus} order.rider=${debugOrder?.rider} riderIdStr=${riderIdStr} riderMatch=${debugOrder?.rider?.toString() === riderIdStr}`);
 		throw new Error(
 			"Failed to update status — invalid state transition or race condition",
 		);
