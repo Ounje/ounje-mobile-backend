@@ -5,6 +5,8 @@ const { paginate } = require("../utils/paginate");
 const logger = require("../utils/logger");
 const ledgerService = require("../services/ledger.service");
 
+const toNaira = (kobo) => (kobo ?? 0) / 100;
+
 // GET /api/vendors/all — all active vendors for "See All" listing
 // Optional query params: lat, lng — when provided, returns vendors with distanceMeters
 const getAllVendors = async (req, res) => {
@@ -344,14 +346,17 @@ const getVendorWallet = async (req, res) => {
 		return res.status(200).json({
 			success: true,
 			wallet: {
-				availableBalance: balance.availableBalance,
-				pendingBalance: balance.pendingBalance,
-				holdBalance: balance.holdBalance,
-				totalBalance: balance.totalBalance,
-				todayEarnings,
+				availableBalance: toNaira(balance.availableBalance),
+				pendingBalance: toNaira(balance.pendingBalance),
+				holdBalance: toNaira(balance.holdBalance),
+				totalBalance: toNaira(balance.totalBalance),
+				todayEarnings: toNaira(todayEarnings),
 				currency: "NGN",
 			},
-			transactions,
+			transactions: transactions.map((tx) => ({
+				...(tx.toObject ? tx.toObject() : tx),
+				amount: toNaira(tx.amount),
+			})),
 		});
 	} catch (err) {
 		logger.error(`Get Vendor Wallet Error: ${err.message}`);
