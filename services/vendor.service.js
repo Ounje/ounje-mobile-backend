@@ -242,12 +242,7 @@ class VendorService {
 
 		if (!vendor) throw new Error("Vendor not found");
 
-		const retryResults = await payoutService.processPendingPayoutsForUser(
-			vendor._id,
-			"VENDOR",
-		);
-
-		return { vendor, retryResults };
+		return { vendor };
 	}
 
 	/**
