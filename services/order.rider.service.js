@@ -566,7 +566,9 @@ const riderMarkOnTheWay = async (orderId, riderId) => {
 };
 
 const riderMarkArrived = async (orderId, riderId) => {
-	console.error(`[DEBUG riderMarkArrived] START orderId=${orderId} riderId=${riderId} riderIdType=${typeof riderId}`);
+	logger.info(
+		`[riderMarkArrived] START orderId=${orderId} riderId=${riderId} riderIdType=${typeof riderId}`,
+	);
 
 	const riderIdStr = riderId.toString();
 
@@ -574,21 +576,27 @@ const riderMarkArrived = async (orderId, riderId) => {
 	const existingOrder = await Order.findById(orderId);
 
 	if (!existingOrder) {
-		console.error(`[DEBUG riderMarkArrived] ORDER NOT FOUND orderId=${orderId}`);
+		logger.warn(`[riderMarkArrived] ORDER NOT FOUND orderId=${orderId}`);
 		throw new Error("Order not found");
 	}
 
-	console.error(`[DEBUG riderMarkArrived] ORDER STATE status=${existingOrder.status} subStatus=${existingOrder.subStatus} order.rider=${existingOrder.rider} riderIdStr=${riderIdStr} riderMatch=${existingOrder.rider?.toString() === riderIdStr}`);
+	logger.info(
+		`[riderMarkArrived] ORDER STATE status=${existingOrder.status} subStatus=${existingOrder.subStatus} order.rider=${existingOrder.rider} riderIdStr=${riderIdStr} riderMatch=${existingOrder.rider?.toString() === riderIdStr}`,
+	);
 
 	// 2. Validate rider assignment
 	if (!existingOrder.rider || existingOrder.rider.toString() !== riderIdStr) {
-		console.error(`[DEBUG riderMarkArrived] RIDER MISMATCH order.rider=${existingOrder.rider} incoming=${riderIdStr}`);
+		logger.warn(
+			`[riderMarkArrived] RIDER MISMATCH order.rider=${existingOrder.rider} incoming=${riderIdStr}`,
+		);
 		throw new Error("You are not assigned to this order");
 	}
 
 	// 3. Validate order status
 	if (existingOrder.status !== ORDER_STATUS.RIDING) {
-		console.error(`[DEBUG riderMarkArrived] WRONG STATUS expected=riding actual=${existingOrder.status}`);
+		logger.warn(
+			`[riderMarkArrived] WRONG STATUS expected=riding actual=${existingOrder.status}`,
+		);
 		throw new Error("Order is not in riding status");
 	}
 
@@ -600,19 +608,23 @@ const riderMarkArrived = async (orderId, riderId) => {
 
 	// 4. Idempotent check
 	if (existingOrder.subStatus === ORDER_SUB_STATUS.RIDER_ARRIVED) {
-		console.error(`[DEBUG riderMarkArrived] ALREADY ARRIVED — idempotent return`);
+		logger.info(`[riderMarkArrived] ALREADY ARRIVED — idempotent return`);
 		return existingOrder;
 	}
 
 	// 5. Validate sub-status transition
 	if (!ALLOWED_PRE_ARRIVAL_STATES.includes(existingOrder.subStatus)) {
-		console.error(`[DEBUG riderMarkArrived] INVALID SUBSTATUS subStatus=${existingOrder.subStatus} allowed=${JSON.stringify(ALLOWED_PRE_ARRIVAL_STATES)}`);
+		logger.warn(
+			`[riderMarkArrived] INVALID SUBSTATUS subStatus=${existingOrder.subStatus} allowed=${JSON.stringify(
+				ALLOWED_PRE_ARRIVAL_STATES,
+			)}`,
+		);
 		throw new Error(
 			`Cannot mark arrived from status: ${existingOrder.subStatus}`,
 		);
 	}
 
-	console.error(`[DEBUG riderMarkArrived] ALL CHECKS PASSED — firing atomic update`);
+	logger.info(`[riderMarkArrived] ALL CHECKS PASSED — firing atomic update`);
 
 	// 6. Atomic update
 	const order = await Order.findOneAndUpdate(
@@ -628,7 +640,11 @@ const riderMarkArrived = async (orderId, riderId) => {
 
 	if (!order) {
 		const debugOrder = await Order.findById(orderId);
-		console.error(`[DEBUG riderMarkArrived] ATOMIC UPDATE FAILED — post-failure state: status=${debugOrder?.status} subStatus=${debugOrder?.subStatus} order.rider=${debugOrder?.rider} riderIdStr=${riderIdStr} riderMatch=${debugOrder?.rider?.toString() === riderIdStr}`);
+
+		logger.error(
+			`[riderMarkArrived] ATOMIC UPDATE FAILED — post-failure state: status=${debugOrder?.status} subStatus=${debugOrder?.subStatus} order.rider=${debugOrder?.rider} riderIdStr=${riderIdStr} riderMatch=${debugOrder?.rider?.toString() === riderIdStr}`,
+		);
+
 		throw new Error(
 			"Failed to update status — invalid state transition or race condition",
 		);
@@ -636,7 +652,7 @@ const riderMarkArrived = async (orderId, riderId) => {
 
 	logger.info(`Order updated successfully — ${orderId}`);
 
-	// 9. Socket updates (safe)
+	// 7. Socket updates (safe)
 	try {
 		if (global.io) {
 			const payload = {
@@ -652,10 +668,10 @@ const riderMarkArrived = async (orderId, riderId) => {
 			});
 		}
 	} catch (err) {
-		logger.warn(`Socket error: ${err.message}`);
+		logger.warn(`[riderMarkArrived] Socket error: ${err.message}`);
 	}
 
-	// 10. Notifications (safe failure handling)
+	// 8. Notifications (safe failure handling)
 	try {
 		if (order.customer) {
 			await notificationService.notifyCustomerRiderArrived(
@@ -664,7 +680,7 @@ const riderMarkArrived = async (orderId, riderId) => {
 			);
 		}
 	} catch (err) {
-		logger.warn(`Notification error: ${err.message}`);
+		logger.warn(`[riderMarkArrived] Notification error: ${err.message}`);
 	}
 
 	return order;
