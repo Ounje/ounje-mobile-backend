@@ -3,6 +3,8 @@ const ledgerService = require("../services/ledger.service");
 const logger = require("../utils/logger");
 const RiderProfile = require("../models/RiderProfile");
 
+const toNaira = (kobo) => (kobo ?? 0) / 100;
+
 /**
  * Get Rider Wallet/Dashboard
  * GET /api/riders/wallet
@@ -28,14 +30,17 @@ const getRiderWallet = async (req, res) => {
 		res.status(200).json({
 			success: true,
 			wallet: {
-				availableBalance: balance.availableBalance,
-				pendingBalance: balance.pendingBalance,
-				holdBalance: balance.holdBalance,
-				totalBalance: balance.totalBalance,
-				todayEarnings,
+				availableBalance: toNaira(balance.availableBalance),
+				pendingBalance: toNaira(balance.pendingBalance),
+				holdBalance: toNaira(balance.holdBalance),
+				totalBalance: toNaira(balance.totalBalance),
+				todayEarnings: toNaira(todayEarnings),
 				currency: "NGN",
 			},
-			transactions,
+			transactions: transactions.map((tx) => ({
+				...(tx.toObject ? tx.toObject() : tx),
+				amount: toNaira(tx.amount),
+			})),
 		});
 	} catch (err) {
 		logger.error(`Get Rider Wallet Error: ${err.message}`);
@@ -75,7 +80,10 @@ const getRiderWalletTransactions = async (req, res) => {
 
 		res.status(200).json({
 			success: true,
-			transactions: result.transactions,
+			transactions: result.transactions.map((tx) => ({
+				...(tx.toObject ? tx.toObject() : tx),
+				amount: toNaira(tx.amount),
+			})),
 			total: result.total,
 			hasMore: result.hasMore,
 			limit,
