@@ -2,11 +2,6 @@ const riderService = require("../services/rider.service");
 const ledgerService = require("../services/ledger.service");
 const logger = require("../utils/logger");
 const RiderProfile = require("../models/RiderProfile");
-const {
-	toNaira,
-	formatBalance,
-	formatTransaction,
-} = require("../utils/formatMoney");
 
 /**
  * Get Rider Wallet/Dashboard
@@ -30,19 +25,17 @@ const getRiderWallet = async (req, res) => {
 			ledgerService.getTransactionHistory(riderId, "RIDER", 20, 0),
 		]);
 
-		const naira = formatBalance(balance);
-
 		res.status(200).json({
 			success: true,
 			wallet: {
-				availableBalance: naira.availableBalance,
-				pendingBalance: naira.pendingBalance,
-				holdBalance: naira.holdBalance,
-				totalBalance: naira.totalBalance,
-				todayEarnings: toNaira(todayEarnings),
+				availableBalance: balance.availableBalance,
+				pendingBalance: balance.pendingBalance,
+				holdBalance: balance.holdBalance,
+				totalBalance: balance.totalBalance,
+				todayEarnings,
 				currency: "NGN",
 			},
-			transactions: transactions.map(formatTransaction),
+			transactions,
 		});
 	} catch (err) {
 		logger.error(`Get Rider Wallet Error: ${err.message}`);
@@ -82,7 +75,7 @@ const getRiderWalletTransactions = async (req, res) => {
 
 		res.status(200).json({
 			success: true,
-			transactions: result.transactions.map(formatTransaction),
+			transactions: result.transactions,
 			total: result.total,
 			hasMore: result.hasMore,
 			limit,
@@ -101,6 +94,7 @@ const getRiderWalletTransactions = async (req, res) => {
 /**
  * Update Rider Operating Area
  * PUT /api/riders/profile/operating-area
+ * Body: { operatingArea: ["Zone1", "Zone2"] }
  */
 const updateOperatingArea = async (req, res) => {
 	try {
@@ -187,10 +181,12 @@ const riderLeaderBoard = async (req, res) => {
 
 /**
  * Complete Rider Registration
+ * Handles document uploads
  */
 const completeRiderRegistration = async (req, res) => {
 	try {
 		const riderId = req.user.id;
+		// Pass req.files as well
 		const result = await riderService.completeRiderRegistration(
 			riderId,
 			req.body,
@@ -224,6 +220,7 @@ const getRiderProfile = async (req, res) => {
 		});
 	} catch (err) {
 		logger.error(`Get Rider Profile Error: ${err.message}`);
+		// Handle 404 specifically if needed, or generic 500
 		const status = err.message === "Rider not found" ? 404 : 500;
 		res.status(status).json({
 			success: false,
@@ -232,9 +229,9 @@ const getRiderProfile = async (req, res) => {
 		});
 	}
 };
-
 /**
  * Deactivate Rider Account
+ * Sets accountStatus to 'deactivated' and prevents future logins.
  */
 const deactivateRiderAccount = async (req, res) => {
 	try {
@@ -258,6 +255,7 @@ const deactivateRiderAccount = async (req, res) => {
 /**
  * Change Rider Zone (weekly restriction)
  * PUT /api/riders/profile/zone
+ * Body: { zones: ["Ogba"] }
  */
 const changeZone = async (req, res) => {
 	try {
@@ -274,6 +272,7 @@ const changeZone = async (req, res) => {
 /**
  * Update Notification Preferences
  * PUT /api/riders/notification-preferences
+ * Body: { newRequests?: boolean, earnings?: boolean, promotions?: boolean }
  */
 const updateNotificationPreferences = async (req, res) => {
 	try {
@@ -308,7 +307,7 @@ const updateNotificationPreferences = async (req, res) => {
 
 /**
  * Upload Profile Picture
- * POST /api/riders/profile/picture
+ * POST /api/riders/profile/picture  (multipart/form-data, field: profilePicture)
  */
 const uploadProfilePicture = async (req, res) => {
 	try {
@@ -318,7 +317,7 @@ const uploadProfilePicture = async (req, res) => {
 				.status(400)
 				.json({ success: false, message: "No image file provided" });
 		}
-		const imageUrl = req.file.path;
+		const imageUrl = req.file.path; // Cloudinary URL set by multer-storage-cloudinary
 		await RiderProfile.findOneAndUpdate(
 			{ user: riderId },
 			{ profilePicture: imageUrl },
@@ -335,6 +334,7 @@ const uploadProfilePicture = async (req, res) => {
 /**
  * Save Expo Push Token
  * POST /api/riders/push-token
+ * Body: { fcmToken: string }
  */
 const updatePushToken = async (req, res) => {
 	try {
@@ -360,15 +360,18 @@ const updatePushToken = async (req, res) => {
 /**
  * Update rider online/offline status
  * PUT /api/riders/status
+ * Body: { status: "available" | "offline" }
  */
 const updateRiderOnlineStatus = async (req, res) => {
 	try {
 		const { status } = req.body;
 		if (!["available", "offline"].includes(status)) {
-			return res.status(400).json({
-				success: false,
-				message: "Status must be 'available' or 'offline'",
-			});
+			return res
+				.status(400)
+				.json({
+					success: false,
+					message: "Status must be 'available' or 'offline'",
+				});
 		}
 		const result = await riderService.updateRiderStatus(req.user.id, status);
 		res.json(result);

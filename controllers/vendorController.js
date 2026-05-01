@@ -1,14 +1,9 @@
 const vendorService = require("../services/vendor.service");
-const mongoose = require("mongoose");
+const mongoose = require("mongoose"); // needed only for ObjectId validation in userGetVendor (or move validation to service)
 const { VendorProfile } = require("../models");
 const { paginate } = require("../utils/paginate");
 const logger = require("../utils/logger");
 const ledgerService = require("../services/ledger.service");
-const {
-	toNaira,
-	formatBalance,
-	formatTransaction,
-} = require("../utils/formatMoney");
 
 // GET /api/vendors/all — all active vendors for "See All" listing
 // Optional query params: lat, lng — when provided, returns vendors with distanceMeters
@@ -78,6 +73,9 @@ const getPopularVendors = async (req, res) => {
 	}
 };
 
+//Vendor side
+//This is for getting the vendor's own details along with their menu
+//you can only access this route if you're logged in as a vendor
 const getVendor = async (req, res) => {
 	try {
 		const vendor = await vendorService.getVendorProfile(req.user.id);
@@ -98,6 +96,8 @@ const getVendors = async (req, res) => {
 	}
 };
 
+//Customer side
+//with this you'll get the vendor details along with their menu and options
 const userGetVendor = async (req, res) => {
 	try {
 		const vendorId = req.params.id;
@@ -139,6 +139,7 @@ const updateBankDetails = async (req, res) => {
 	}
 };
 
+// NEW: Get Nearby Vendors
 const getNearbyVendors = async (req, res) => {
 	try {
 		const { lat, lng } = req.query;
@@ -244,6 +245,7 @@ const updateVendorLocation = async (req, res) => {
 			});
 		}
 
+		// Resolve zone: use explicit zone from request, else infer from address
 		const { identifyZone } = require("../utils/delivery");
 		const resolvedZone = zone || identifyZone(address);
 		logger.info(
@@ -296,10 +298,12 @@ const updateVendorProfile = async (req, res) => {
 			.json({ success: true, message: "Profile updated", vendor });
 	} catch (error) {
 		logger.error(`Update Vendor Profile Error: ${error.message}`);
-		return res.status(500).json({
-			success: false,
-			message: error.message || "Error updating profile",
-		});
+		return res
+			.status(500)
+			.json({
+				success: false,
+				message: error.message || "Error updating profile",
+			});
 	}
 };
 
@@ -382,19 +386,17 @@ const getVendorWallet = async (req, res) => {
 			ledgerService.getTransactionHistory(vendorProfile._id, "VENDOR", 20, 0),
 		]);
 
-		const naira = formatBalance(balance);
-
 		return res.status(200).json({
 			success: true,
 			wallet: {
-				availableBalance: naira.availableBalance,
-				pendingBalance: naira.pendingBalance,
-				holdBalance: naira.holdBalance,
-				totalBalance: naira.totalBalance,
-				todayEarnings: toNaira(todayEarnings),
+				availableBalance: balance.availableBalance,
+				pendingBalance: balance.pendingBalance,
+				holdBalance: balance.holdBalance,
+				totalBalance: balance.totalBalance,
+				todayEarnings,
 				currency: "NGN",
 			},
-			transactions: transactions.map(formatTransaction),
+			transactions,
 		});
 	} catch (err) {
 		logger.error(`Get Vendor Wallet Error: ${err.message}`);
@@ -408,6 +410,8 @@ const getVendorWallet = async (req, res) => {
 
 /**
  * PUT /api/vendors/profile/periods
+ * Replace the entire operating schedule (timePeriod or preorderPeriods).
+ * Send an empty array [] to clear.
  */
 const updateOperatingPeriods = async (req, res) => {
 	try {
@@ -432,6 +436,8 @@ const updateOperatingPeriods = async (req, res) => {
 
 /**
  * POST /api/vendors/profile/periods
+ * Append a single period entry to the existing schedule without touching
+ * the rest. Validates using the same rules as updateOperatingPeriods.
  */
 const addOperatingPeriod = async (req, res) => {
 	try {
@@ -447,6 +453,7 @@ const addOperatingPeriod = async (req, res) => {
 
 /**
  * DELETE /api/vendors/profile/periods/:index
+ * Remove a single period entry by its array index.
  */
 const deleteOperatingPeriod = async (req, res) => {
 	try {
