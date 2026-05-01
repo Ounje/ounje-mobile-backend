@@ -2,6 +2,31 @@ const fs = require("fs").promises;
 const path = require("path");
 const ResendProvider = require("./ResendProvider");
 
+// ── Order confirmation helpers ────────────────────────────────────────────────
+const _ITEM_EMOJI = { FoodItem: "🍛", Combo: "🍱", Plate: "🍽️" };
+const _fmtNaira = (n) => `₦${Number(n).toLocaleString("en-NG")}`;
+
+const _buildOrderItemsHtml = (items = []) =>
+	items
+		.map((item) => {
+			const emoji = _ITEM_EMOJI[item.itemType] ?? "🍲";
+			const lineTotal = _fmtNaira(item.price * item.quantity);
+			const noteRow = item.notes?.trim()
+				? `<tr><td colspan="2" style="padding:0 0 8px 52px;font-size:12px;color:#5c5c5c;font-style:italic;">"${item.notes.trim()}"</td></tr>`
+				: "";
+			return `
+			<tr>
+				<td style="padding:8px 0;">
+					<table cellpadding="0" cellspacing="0" role="presentation"><tr>
+						<td style="width:40px;height:40px;background:#e6f9e7;border-radius:10px;text-align:center;font-size:20px;line-height:40px;">${emoji}</td>
+						<td style="padding-left:12px;font-size:13.5px;color:#2c2c2c;">${item.name} &nbsp;×&nbsp; ${item.quantity}</td>
+					</tr></table>
+				</td>
+				<td align="right" style="font-size:13.5px;font-weight:700;color:#111111;padding:8px 0;">${lineTotal}</td>
+			</tr>${noteRow}`;
+		})
+		.join("");
+
 class EmailService {
 	constructor(provider) {
 		this.provider = provider || new ResendProvider();
@@ -90,12 +115,13 @@ class EmailService {
 
 		return this.provider.sendEmail(email, subject, html);
 	}
+
 	/**
 	 * Send transfer success email to a customer
-	 * @param {string} email
-	 * @param {string} name       - customer.firstName
-	 * @param {string|number} amount     - formatted transfer amount e.g. "₦5,000"
-	 * @param {string} accountNumber     - titan virtual account number
+	 * @param {string}       email
+	 * @param {string}       name          - customer.firstName
+	 * @param {string}       amount        - formatted transfer amount e.g. "₦5,000"
+	 * @param {string}       accountNumber - titan virtual account number
 	 */
 	async transferSuccessEmail(email, name, amount, accountNumber) {
 		const replacements = {
@@ -112,28 +138,6 @@ class EmailService {
 		return this.provider.sendEmail(
 			email,
 			"Your OunjeFood Wallet Has Been Credited – Transfer Successful",
-			html,
-		);
-	}
-	/**
-	 * Send order confirmation email
-	 */
-	async sendOrderConfirmationEmail(email, orderDetails) {
-		const replacements = {
-			customerName: orderDetails.customerName,
-			orderNumber: orderDetails.orderNumber,
-			totalAmount: orderDetails.totalAmount,
-			orderDate: orderDetails.orderDate,
-			items: orderDetails.items, // This might need special formatting in template
-		};
-
-		const html = await this.loadTemplate(
-			"order-confirmation.html",
-			replacements,
-		);
-		return this.provider.sendEmail(
-			email,
-			`Order Confirmation - ${orderDetails.orderNumber}`,
 			html,
 		);
 	}
@@ -173,6 +177,106 @@ class EmailService {
 		);
 	}
 
+	/**
+	 * Send order confirmation email
+	 * @param {string}   email
+	 * @param {Object}   orderDetails
+	 * @param {string}   orderDetails.customerName
+	 * @param {string}   orderDetails.orderNumber    - order.orderNumber
+	 * @param {string}   orderDetails.status         - order.status
+	 * @param {string}   orderDetails.vendorName     - vendor.storeName
+	 * @param {string}   orderDetails.paymentMethod  - order.paymentMethod
+	 * @param {string}   orderDetails.paymentStatus  - order.paymentStatus
+	 * @param {string}   orderDetails.orderDate      - formatted order.createdAt
+	 * @param {Array}    orderDetails.items          - order.items[]
+	 * @param {number}   orderDetails.foodTotal      - order.foodTotal
+	 * @param {number}   orderDetails.deliveryFee    - order.deliveryFee
+	 * @param {number}   orderDetails.serviceFee     - order.serviceFee
+	 * @param {number}   orderDetails.totalPrice     - order.totalPrice
+	 * @param {string}   orderDetails.deliveryAddress
+	 * @param {string}   orderDetails.deliveryZone   - order.zone
+	 */
+	async sendOrderConfirmationEmail(email, orderDetails) {
+		const replacements = {
+			name: orderDetails.customerName,
+			order_number: orderDetails.orderNumber,
+			status: orderDetails.status,
+			vendor_name: orderDetails.vendorName,
+			payment_method: orderDetails.paymentMethod,
+			payment_status: orderDetails.paymentStatus,
+			order_date: orderDetails.orderDate,
+			items_html: _buildOrderItemsHtml(orderDetails.items),
+			customer_note:
+				orderDetails.items.find((i) => i.notes?.trim())?.notes ?? "",
+			food_total: _fmtNaira(orderDetails.foodTotal),
+			delivery_fee: _fmtNaira(orderDetails.deliveryFee),
+			service_fee: _fmtNaira(orderDetails.serviceFee),
+			total_amount: _fmtNaira(orderDetails.totalPrice),
+			delivery_address: orderDetails.deliveryAddress,
+			delivery_zone: orderDetails.deliveryZone,
+		};
+
+		const html = await this.loadTemplate(
+			"order-confirmation.html",
+			replacements,
+		);
+
+		return this.provider.sendEmail(
+			email,
+			`Order Confirmed — ${orderDetails.orderNumber}`,
+			html,
+		);
+	}
+	/**
+	 * Send first order confirmation email
+	 * @param {string}   email
+	 * @param {Object}   orderDetails        - same shape as sendOrderConfirmationEmail
+	 * @param {string}   orderDetails.customerName
+	 * @param {string}   orderDetails.orderNumber    - order.orderNumber
+	 * @param {string}   orderDetails.status         - order.status
+	 * @param {string}   orderDetails.vendorName     - vendor.storeName
+	 * @param {string}   orderDetails.paymentMethod  - order.paymentMethod
+	 * @param {string}   orderDetails.paymentStatus  - order.paymentStatus
+	 * @param {string}   orderDetails.orderDate      - formatted order.createdAt
+	 * @param {Array}    orderDetails.items          - order.items[]
+	 * @param {number}   orderDetails.foodTotal      - order.foodTotal
+	 * @param {number}   orderDetails.deliveryFee    - order.deliveryFee
+	 * @param {number}   orderDetails.serviceFee     - order.serviceFee
+	 * @param {number}   orderDetails.totalPrice     - order.totalPrice
+	 * @param {string}   orderDetails.deliveryAddress
+	 * @param {string}   orderDetails.deliveryZone   - order.zone
+	 */
+	async sendFirstOrderConfirmationEmail(email, orderDetails) {
+		const replacements = {
+			name: orderDetails.customerName,
+			order_number: orderDetails.orderNumber,
+			status: orderDetails.status,
+			vendor_name: orderDetails.vendorName,
+			payment_method: orderDetails.paymentMethod,
+			payment_status: orderDetails.paymentStatus,
+			order_date: orderDetails.orderDate,
+			items_html: _buildOrderItemsHtml(orderDetails.items),
+			customer_note:
+				orderDetails.items.find((i) => i.notes?.trim())?.notes ?? "",
+			food_total: _fmtNaira(orderDetails.foodTotal),
+			delivery_fee: _fmtNaira(orderDetails.deliveryFee),
+			service_fee: _fmtNaira(orderDetails.serviceFee),
+			total_amount: _fmtNaira(orderDetails.totalPrice),
+			delivery_address: orderDetails.deliveryAddress,
+			delivery_zone: orderDetails.deliveryZone,
+		};
+
+		const html = await this.loadTemplate(
+			"first-order-email.html",
+			replacements,
+		);
+
+		return this.provider.sendEmail(
+			email,
+			`Welcome to OunjeFood — Your First Order is Confirmed! 🎉`,
+			html,
+		);
+	}
 	/**
 	 * Send vendor payout notification email
 	 */
@@ -215,7 +319,6 @@ class EmailService {
 		if (this.provider.sendBatchEmails) {
 			return this.provider.sendBatchEmails(emails);
 		} else {
-			// Fallback to sequential sending if batch not supported
 			const results = await Promise.allSettled(
 				emails.map((email) =>
 					this.provider.sendEmail(email.to, email.subject, email.html),
