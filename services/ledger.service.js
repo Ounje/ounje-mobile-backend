@@ -5,9 +5,8 @@ const logger = require("../utils/logger");
 /**
  * Ledger Service — Double-entry bookkeeping
  *
- *   ALL AMOUNTS ARE IN KOBO (1 naira = 100 kobo).
- * Every caller must pass kobo values. Controllers divide by 100 before
- * returning naira to the frontend.
+ * ALL AMOUNTS ARE IN NAIRA.
+ * The only place naira is converted to kobo is inside paystack API calls (amount * 100).
  *
  * Flow:
  * 1. Order paid         → holdVendorAmount + holdRiderFee (hold)
@@ -41,7 +40,7 @@ const ensureAccount = async (userId, type, session = null) => {
 
 /**
  * Credit an account (add funds).
- * @param {number} amount - in KOBO
+ * @param {number} amount - in NAIRA
  */
 const creditAccount = async (
 	userId,
@@ -97,14 +96,15 @@ const creditAccount = async (
 };
 
 /**
- * Debit an account (process payout).
- * @param {number} amount - in KOBO
+ * Debit an account.
+ * @param {number} amount - in NAIRA
  */
 const debitAccount = async (
 	userId,
 	userType,
 	amount,
 	reason,
+	orderId,
 	metadata = {},
 ) => {
 	if (amount <= 0) throw new Error("Amount must be positive");
@@ -151,7 +151,7 @@ const debitAccount = async (
 
 /**
  * Reserve balance for payout (available → pending).
- * @param {number} amount - in KOBO
+ * @param {number} amount - in NAIRA
  */
 const reserveBalance = async (userId, userType, amount) => {
 	if (amount <= 0) throw new Error("Amount must be positive");
@@ -199,8 +199,7 @@ const reserveBalance = async (userId, userType, amount) => {
 
 /**
  * Complete a payout — debit from pendingBalance (money has left the system).
- * Called by webhook on transfer.success.
- * @param {number} amount - in KOBO
+ * @param {number} amount - in NAIRA
  */
 const completePayout = async (userId, userType, amount) => {
 	if (amount <= 0) throw new Error("Amount must be positive");
@@ -247,8 +246,7 @@ const completePayout = async (userId, userType, amount) => {
 
 /**
  * Reverse a reserved payout (pending → available).
- * Called on payout cancel or max retries exceeded.
- * @param {number} amount - in KOBO
+ * @param {number} amount - in NAIRA
  */
 const reverseReserve = async (
 	userId,
@@ -301,7 +299,7 @@ const reverseReserve = async (
 
 /**
  * Get account balance.
- * Returns values in KOBO — controllers divide by 100 before sending to frontend.
+ * Returns values in NAIRA.
  */
 const getAccountBalance = async (userId, userType) => {
 	const account = await LedgerAccount.findOne({ userId, type: userType });
@@ -316,9 +314,9 @@ const getAccountBalance = async (userId, userType) => {
 
 	return {
 		accountId: account._id,
-		availableBalance: account.availableBalance, // kobo
-		pendingBalance: account.pendingBalance, // kobo
-		holdBalance: account.holdBalance, // kobo
+		availableBalance: account.availableBalance,
+		pendingBalance: account.pendingBalance,
+		holdBalance: account.holdBalance,
 		totalBalance: account.availableBalance + account.pendingBalance,
 		lastUpdated: account.updatedAt,
 	};
@@ -326,7 +324,7 @@ const getAccountBalance = async (userId, userType) => {
 
 /**
  * Get detailed transaction history.
- * Amounts in entries are in KOBO.
+ * Amounts in entries are in NAIRA.
  */
 const getTransactionHistory = async (
 	userId,
@@ -350,12 +348,11 @@ const getTransactionHistory = async (
 
 /**
  * Credit vendor from successful payment.
- * ⚠️  order.totalPrice and order.deliveryFee MUST be in KOBO.
- * Ensure your Order model and payment webhook pass kobo values.
+ * order.totalPrice is in NAIRA.
  */
 const creditVendorFromOrder = async (order, commission = 0.1) => {
-	const vendorGross = order.totalPrice; // kobo
-	const vendorCommission = Math.round(vendorGross * commission);
+	const vendorGross = order.totalPrice;
+	const vendorCommission = Math.round(vendorGross * commission * 100) / 100;
 	const vendorNet = vendorGross - vendorCommission;
 
 	await creditAccount(
@@ -376,7 +373,7 @@ const creditVendorFromOrder = async (order, commission = 0.1) => {
 
 /**
  * Credit rider from successful payment.
- * ⚠️  deliveryFee MUST be in KOBO.
+ * deliveryFee is in NAIRA.
  */
 const creditRiderFromOrder = async (order, deliveryFee) => {
 	await creditAccount(
@@ -391,15 +388,18 @@ const creditRiderFromOrder = async (order, deliveryFee) => {
 };
 
 /**
- * Audit statement. Amounts in entries are in KOBO.
+ * Audit statement. Amounts in entries are in NAIRA.
  */
 const getAccountStatement = async (userId, userType, startDate, endDate) => {
 	const account = await LedgerAccount.findOne({ userId, type: userType });
 	if (!account) return { entries: [] };
 
+	const end = new Date(endDate);
+	end.setHours(23, 59, 59, 999);
+
 	const entries = await LedgerEntry.find({
 		accountId: account._id,
-		createdAt: { $gte: startDate, $lte: endDate },
+		createdAt: { $gte: startDate, $lte: end },
 	})
 		.sort({ createdAt: 1 })
 		.populate("orderId");
@@ -430,7 +430,7 @@ const getAccountStatement = async (userId, userType, startDate, endDate) => {
 
 /**
  * Hold delivery fee in escrow.
- * @param {number} amount - in KOBO
+ * @param {number} amount - in NAIRA
  */
 const holdRiderFee = async (userId, amount, orderId) => {
 	const session = await mongoose.startSession();
@@ -471,7 +471,7 @@ const holdRiderFee = async (userId, amount, orderId) => {
 
 /**
  * Release rider fee hold to available on delivery OTP verified.
- * Idempotent — safe to call twice.
+ * Idempotent.
  */
 const releaseRiderFee = async (userId, orderId) => {
 	const session = await mongoose.startSession();
@@ -505,7 +505,6 @@ const releaseRiderFee = async (userId, orderId) => {
 		} else {
 			const Order = require("../models/Order");
 			const order = await Order.findById(orderId).select("deliveryFee");
-			// deliveryFee must be in kobo in the Order model
 			amount = order?.deliveryFee ?? 0;
 			if (amount <= 0) {
 				await session.commitTransaction();
@@ -550,7 +549,7 @@ const releaseRiderFee = async (userId, orderId) => {
 
 /**
  * Get total earnings for a specific date.
- * Returns value in KOBO.
+ * Returns value in NAIRA.
  */
 const getDailyEarnings = async (userId, userType, date = new Date()) => {
 	const account = await LedgerAccount.findOne({ userId, type: userType });
@@ -574,7 +573,7 @@ const getDailyEarnings = async (userId, userType, date = new Date()) => {
 		{ $group: { _id: null, total: { $sum: "$amount" } } },
 	]);
 
-	return result.length > 0 ? result[0].total : 0; // kobo
+	return result.length > 0 ? result[0].total : 0;
 };
 
 /**
@@ -614,7 +613,6 @@ const pendVendorEarning = async (vendorId, orderId) => {
 			const order = await Order.findById(orderId).select(
 				"vendorEarning foodTotal items",
 			);
-			// vendorEarning must be in kobo in the Order model
 			amount =
 				order?.vendorEarning ??
 				order?.items?.reduce((s, i) => s + (i.price ?? 0), 0) ??
@@ -656,7 +654,7 @@ const pendVendorEarning = async (vendorId, orderId) => {
 
 		await session.commitTransaction();
 		logger.info(
-			`[WALLET] pendVendorEarning: orderId=${orderId} vendorId=${vendorId} amountKobo=${amount}`,
+			`[WALLET] pendVendorEarning: orderId=${orderId} vendorId=${vendorId} amount=₦${amount}`,
 		);
 	} catch (error) {
 		await session.abortTransaction();
@@ -671,7 +669,7 @@ const pendVendorEarning = async (vendorId, orderId) => {
 
 /**
  * Hold vendor meal earnings until delivery confirmed.
- * @param {number} amount - in KOBO
+ * @param {number} amount - in NAIRA
  */
 const holdVendorAmount = async (vendorId, amount, orderId) => {
 	const session = await mongoose.startSession();
@@ -844,7 +842,7 @@ const reverseVendorHold = async (vendorId, orderId) => {
 
 		await session.commitTransaction();
 		logger.info(
-			`[WALLET] reverseVendorHold: orderId=${orderId} vendorId=${vendorId} amountKobo=${amount}`,
+			`[WALLET] reverseVendorHold: orderId=${orderId} vendorId=${vendorId} amount=₦${amount}`,
 		);
 	} catch (error) {
 		await session.abortTransaction();
@@ -915,13 +913,11 @@ const reverseOrderEarnings = async (order) => {
 	session.startTransaction();
 	try {
 		const vendorAccount = await ensureAccount(vendorId, "VENDOR", session);
-
 		const pendingEntry = await LedgerEntry.findOne({
 			orderId,
 			accountId: vendorAccount._id,
 			reason: "VENDOR_ORDER_PENDING",
 		});
-
 		const holdEntry =
 			!pendingEntry &&
 			(await LedgerEntry.findOne({
@@ -960,7 +956,7 @@ const reverseOrderEarnings = async (order) => {
 			);
 
 			logger.info(
-				`[WALLET] reverseOrderEarnings vendor: orderId=${orderId} amountKobo=${amount} from=${sourceField}`,
+				`[WALLET] reverseOrderEarnings vendor: orderId=${orderId} amount=₦${amount} from=${sourceField}`,
 			);
 		}
 
