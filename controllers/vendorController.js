@@ -5,8 +5,6 @@ const { paginate } = require("../utils/paginate");
 const logger = require("../utils/logger");
 const ledgerService = require("../services/ledger.service");
 
-const toNaira = (kobo) => (kobo ?? 0) / 100;
-
 // GET /api/vendors/all — all active vendors for "See All" listing
 // Optional query params: lat, lng — when provided, returns vendors with distanceMeters
 const getAllVendors = async (req, res) => {
@@ -300,12 +298,10 @@ const updateVendorProfile = async (req, res) => {
 			.json({ success: true, message: "Profile updated", vendor });
 	} catch (error) {
 		logger.error(`Update Vendor Profile Error: ${error.message}`);
-		return res
-			.status(500)
-			.json({
-				success: false,
-				message: error.message || "Error updating profile",
-			});
+		return res.status(500).json({
+			success: false,
+			message: error.message || "Error updating profile",
+		});
 	}
 };
 
@@ -391,16 +387,16 @@ const getVendorWallet = async (req, res) => {
 		return res.status(200).json({
 			success: true,
 			wallet: {
-				availableBalance: toNaira(balance.availableBalance),
-				pendingBalance: toNaira(balance.pendingBalance),
-				holdBalance: toNaira(balance.holdBalance),
-				totalBalance: toNaira(balance.totalBalance),
-				todayEarnings: toNaira(todayEarnings),
+				availableBalance: balance.availableBalance,
+				pendingBalance: balance.pendingBalance,
+				holdBalance: balance.holdBalance,
+				totalBalance: balance.totalBalance,
+				todayEarnings: todayEarnings,
 				currency: "NGN",
 			},
 			transactions: transactions.map((tx) => ({
 				...(tx.toObject ? tx.toObject() : tx),
-				amount: toNaira(tx.amount),
+				amount: tx.amount,
 			})),
 		});
 	} catch (err) {

@@ -3,8 +3,6 @@ const ledgerService = require("../services/ledger.service");
 const logger = require("../utils/logger");
 const RiderProfile = require("../models/RiderProfile");
 
-const toNaira = (kobo) => (kobo ?? 0) / 100;
-
 /**
  * Get Rider Wallet/Dashboard
  * GET /api/riders/wallet
@@ -30,16 +28,16 @@ const getRiderWallet = async (req, res) => {
 		res.status(200).json({
 			success: true,
 			wallet: {
-				availableBalance: toNaira(balance.availableBalance),
-				pendingBalance: toNaira(balance.pendingBalance),
-				holdBalance: toNaira(balance.holdBalance),
-				totalBalance: toNaira(balance.totalBalance),
-				todayEarnings: toNaira(todayEarnings),
+				availableBalance: balance.availableBalance,
+				pendingBalance: balance.pendingBalance,
+				holdBalance: balance.holdBalance,
+				totalBalance: balance.totalBalance,
+				todayEarnings: todayEarnings,
 				currency: "NGN",
 			},
 			transactions: transactions.map((tx) => ({
 				...(tx.toObject ? tx.toObject() : tx),
-				amount: toNaira(tx.amount),
+				amount: tx.amount,
 			})),
 		});
 	} catch (err) {
@@ -82,7 +80,7 @@ const getRiderWalletTransactions = async (req, res) => {
 			success: true,
 			transactions: result.transactions.map((tx) => ({
 				...(tx.toObject ? tx.toObject() : tx),
-				amount: toNaira(tx.amount),
+				amount: tx.amount,
 			})),
 			total: result.total,
 			hasMore: result.hasMore,
@@ -374,12 +372,10 @@ const updateRiderOnlineStatus = async (req, res) => {
 	try {
 		const { status } = req.body;
 		if (!["available", "offline"].includes(status)) {
-			return res
-				.status(400)
-				.json({
-					success: false,
-					message: "Status must be 'available' or 'offline'",
-				});
+			return res.status(400).json({
+				success: false,
+				message: "Status must be 'available' or 'offline'",
+			});
 		}
 		const result = await riderService.updateRiderStatus(req.user.id, status);
 		res.json(result);
