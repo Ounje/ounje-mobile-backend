@@ -25,10 +25,10 @@ if (!mongoose.models.RiderProfile) {
 
 /**
  * How long after a withdrawal request before the Paystack transfer fires (ms).
- * Default: 2 hours.
+ * Default: 1 hour.
  */
 const WITHDRAWAL_HOLD_MS = parseInt(
-	process.env.WITHDRAWAL_HOLD_MS || String(2 * 60 * 60 * 1000),
+	process.env.WITHDRAWAL_HOLD_MS || String(60 * 60 * 1000),
 	10,
 );
 
