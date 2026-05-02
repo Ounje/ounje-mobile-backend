@@ -245,46 +245,59 @@ const login = asyncHandler(async (req, res) => {
 
 	// TEMPORARY: App Store Review Test Account - Remove after review
 	const REVIEW_MODE = process.env.REVIEW_MODE === 'true';
-	const TEST_PHONE = '08000000000';
-	const TEST_EMAIL = 'test@ounje.com';
+	const TEST_PHONE = '8022000001';
+	const TEST_EMAIL = 'test@ounjefood.com';
 	const TEST_OTP = '123456';
 
-	let user;
-	if (identifier.includes("@"))
-		user = await User.findOne({ email: identifier });
-	else user = await User.findOne({ phone: identifier });
+	let normalizedPhone = null;
+	let isTestAccount = false;
+	let identifierType = "phone";
 
-	if (!user) throw new AppError("Invalid credentials", 400);
+	if (identifier.includes("@")) {
+		identifierType = "email";
+		isTestAccount = REVIEW_MODE && identifier.toLowerCase() === TEST_EMAIL;
+	} else {
+		normalizedPhone = normalizePhone(identifier);
+		isTestAccount = REVIEW_MODE && normalizedPhone === TEST_PHONE;
+	}
 
-	// Handle test account for App Store review
-	if (REVIEW_MODE && ((user.phone === TEST_PHONE) || (user.email === TEST_EMAIL))) {
+	// Handle test account for App Store review before normal user validation
+	if (isTestAccount) {
 		await OtpVerification.deleteMany({
 			$or: [
 				{ phone: TEST_PHONE, isPhone: true },
-				{ email: TEST_EMAIL, isEmail: true }
-			]
+				{ email: TEST_EMAIL, isEmail: true },
+			],
 		});
 
-		// Store test OTP in database
-		if (user.phone === TEST_PHONE) {
+		if (identifierType === "phone") {
 			await OtpVerification.create({
 				phone: TEST_PHONE,
 				otp: TEST_OTP,
-				isPhone: true
+				isPhone: true,
 			});
 		} else {
 			await OtpVerification.create({
 				email: TEST_EMAIL,
 				otp: TEST_OTP,
-				isEmail: true
+				isEmail: true,
 			});
 		}
 
 		logger.info(`App Store Review: Test OTP sent to ${identifier}`);
-		return res.json({ message: `OTP sent to ${identifier.includes('@') ? 'email' : 'phone'}: ${identifier}` });
+		return res.json({ message: `OTP sent to ${identifierType}` });
 	}
 
-	if (user.email && identifier.includes("@")) {
+	let user;
+	if (identifierType === "email") {
+		user = await User.findOne({ email: identifier.toLowerCase() });
+	} else {
+		user = await User.findOne({ phone: normalizedPhone });
+	}
+
+	if (!user) throw new AppError("Invalid credentials", 400);
+
+	if (user.email && identifierType === "email") {
 		const otp = generateOtp();
 		await OtpVerification.deleteMany({ email: user.email, isEmail: true });
 		await OtpVerification.create({ email: user.email, otp, isEmail: true });
@@ -325,7 +338,7 @@ const requestEmailOtp = asyncHandler(async (req, res) => {
 
 	// TEMPORARY: App Store Review Test Account - Remove after review
 	const REVIEW_MODE = process.env.REVIEW_MODE === 'true';
-	const TEST_EMAIL = 'test@ounje.com';
+	const TEST_EMAIL = 'test@ounjefood.com';
 	const TEST_OTP = '123456';
 
 	// Handle test account for App Store review
@@ -393,7 +406,7 @@ const verifyEmailOtp = asyncHandler(async (req, res) => {
 
 	// TEMPORARY: App Store Review Test Account - Remove after review
 	const REVIEW_MODE = process.env.REVIEW_MODE === 'true';
-	const TEST_EMAIL = 'test@ounje.com';
+	const TEST_EMAIL = 'test@ounjefood.com';
 	const TEST_OTP = '123456';
 
 	// Handle test account for App Store review
@@ -557,7 +570,7 @@ const requestPhoneOtp = asyncHandler(async (req, res) => {
 
 	// TEMPORARY: App Store Review Test Account - Remove after review
 	const REVIEW_MODE = process.env.REVIEW_MODE === 'true';
-	const TEST_PHONE = '08000000000';
+	const TEST_PHONE = '8022000001';
 	const TEST_OTP = '123456';
 
 	// Handle test account for App Store review
@@ -675,7 +688,7 @@ const verifyPhoneOtp = asyncHandler(async (req, res) => {
 
 	// TEMPORARY: App Store Review Test Account - Remove after review
 	const REVIEW_MODE = process.env.REVIEW_MODE === 'true';
-	const TEST_PHONE = '08000000000';
+	const TEST_PHONE = '8022000001';
 	const TEST_OTP = '123456';
 
 	// Handle test account for App Store review
