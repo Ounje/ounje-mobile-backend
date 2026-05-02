@@ -94,10 +94,12 @@ const declineOrder = async (orderId, vendorId, declineData = {}) => {
 	await order.save();
 
 	try {
+		const vendorProfile = await VendorProfile.findById(vendorId).select("storeName").lean();
+		const vendorName = vendorProfile?.storeName || "The vendor";
 		await notificationService.notifyCustomerOrderDeclined(
 			order.customer,
 			order,
-			{ reason: getDeclineReasonText(reason), note },
+			vendorName,
 		);
 		logger.info(
 			`Order ${orderId} declined by vendor ${vendorId} with reason: ${reason}`,
