@@ -94,12 +94,32 @@ const _resolveProfile = async (userId, userType) => {
 	return profile;
 };
 
-const _ensureRecipientCode = async (profile, bankDetails, name) => {
-	if (profile.paystackRecipientCode) {
+/**
+ * Ensure the profile has a valid Paystack recipient code.
+ *
+ * @param {object} profile - Mongoose profile document (VendorProfile or RiderProfile)
+ * @param {object} bankDetails - { accountNumber, bankCode, bankName?, accountName? }
+ * @param {string} name - display name for the recipient
+ * @param {boolean} forceRecreate - if true, clears any cached code and creates a fresh one
+ */
+const _ensureRecipientCode = async (
+	profile,
+	bankDetails,
+	name,
+	forceRecreate = false,
+) => {
+	if (profile.paystackRecipientCode && !forceRecreate) {
 		logger.debug(
 			`[_ensureRecipientCode] Using cached code=${profile.paystackRecipientCode}`,
 		);
 		return profile.paystackRecipientCode;
+	}
+
+	if (forceRecreate && profile.paystackRecipientCode) {
+		logger.warn(
+			`[_ensureRecipientCode] Force-recreating — clearing stale code=${profile.paystackRecipientCode} for profile=${profile._id}`,
+		);
+		profile.paystackRecipientCode = undefined;
 	}
 
 	logger.info(
@@ -427,6 +447,10 @@ const processQueuedWithdrawals = async () => {
  *
  * Amount is stored in NAIRA.
  * Paystack expects KOBO → multiply by 100 HERE and only here.
+ *
+ * If Paystack rejects the recipient code as invalid (stale/deleted/wrong env),
+ * the cached code is cleared, a fresh recipient is created, and the transfer
+ * is retried once before propagating the error.
  */
 const _fireTransfer = async (payout) => {
 	const {
@@ -444,24 +468,49 @@ const _fireTransfer = async (payout) => {
 	if (!profile)
 		throw new Error(`${recipientType} not found for id ${recipientId}`);
 
-	const recipientCode = await _ensureRecipientCode(
+	const _attemptTransfer = async (recipientCode) => {
+		logger.info(
+			`[_fireTransfer] Initiating — reference=${reference} recipient=${recipientCode} netAmount=₦${netAmount}`,
+		);
+		//  Only place naira → kobo conversion happens: Paystack API requires kobo
+		return paystack.transfer.initiate({
+			amount: Math.round(netAmount * 100),
+			recipient: recipientCode,
+			reason: "Wallet Withdrawal",
+			reference,
+			idempotencyKey,
+		});
+	};
+
+	let recipientCode = await _ensureRecipientCode(
 		profile,
 		bankDetails,
 		profile.name,
 	);
 
-	logger.info(
-		`[_fireTransfer] Initiating — reference=${reference} recipient=${recipientCode} netAmount=₦${netAmount}`,
-	);
+	let transfer;
+	try {
+		transfer = await _attemptTransfer(recipientCode);
+	} catch (err) {
+		const isInvalidRecipient =
+			err.message?.toLowerCase().includes("recipient") &&
+			err.message?.toLowerCase().includes("invalid");
 
-	// ⚠️  Only place naira → kobo conversion happens: Paystack API requires kobo
-	const transfer = await paystack.transfer.initiate({
-		amount: Math.round(netAmount * 100), // naira → kobo for Paystack
-		recipient: recipientCode,
-		reason: "Wallet Withdrawal",
-		reference,
-		idempotencyKey,
-	});
+		if (!isInvalidRecipient) throw err;
+
+		// Stale or deleted recipient code — recreate and retry once
+		logger.warn(
+			`[_fireTransfer] Invalid recipient code=${recipientCode} — recreating for profile=${profile._id}`,
+		);
+		recipientCode = await _ensureRecipientCode(
+			profile,
+			bankDetails,
+			profile.name,
+			true, // forceRecreate
+		);
+		// If this also fails, the error propagates naturally to the retry loop
+		transfer = await _attemptTransfer(recipientCode);
+	}
 
 	const transferCode = transfer?.data?.transfer_code;
 	if (!transferCode) throw new Error("Paystack did not return a transfer_code");
@@ -470,8 +519,8 @@ const _fireTransfer = async (payout) => {
 		`[_fireTransfer] Transfer initiated — transferCode=${transferCode}`,
 	);
 
-	// Save transferCode before touching ledger
-	// If ledger update crashes, webhook can still find and settle this payout
+	// Save transferCode before touching ledger.
+	// If ledger update crashes, the webhook can still find and settle this payout.
 	await Payout.findByIdAndUpdate(payout._id, {
 		$set: { transactionRef: transferCode },
 	});
