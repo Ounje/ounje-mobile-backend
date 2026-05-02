@@ -435,6 +435,8 @@ const verifyEmailOtp = asyncHandler(async (req, res) => {
 				user = new User({
 					name: "Test User",
 					email: TEST_EMAIL,
+					address: "Lagos, Nigeria",
+					location: { type: "Point", coordinates: [3.3792, 6.5244] },
 					role: role.toLowerCase(),
 					fcmToken: fcmToken || null,
 				});
@@ -739,7 +741,9 @@ const verifyPhoneOtp = asyncHandler(async (req, res) => {
 			if (!user) {
 				user = new User({
 					name: "Test User",
-					phone: TEST_PHONE,
+					phone: Number(TEST_PHONE),
+					address: "Lagos, Nigeria",
+					location: { type: "Point", coordinates: [3.3792, 6.5244] },
 					role: role.toLowerCase(),
 					fcmToken: fcmToken || null,
 				});
