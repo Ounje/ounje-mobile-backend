@@ -699,20 +699,23 @@ const requestPhoneOtp = asyncHandler(async (req, res) => {
 
 const verifyPhoneOtp = asyncHandler(async (req, res) => {
 	let { phone, otp, reference, role, flow, fcmToken } = req.body;
-	if (!phone || !otp || !reference)
+
+	// TEMPORARY: App Store Review Test Account - Remove after review
+	const REVIEW_MODE = process.env.REVIEW_MODE === 'true';
+	const TEST_PHONE = '8022000001';
+	const TEST_OTP = '123456';
+	const isTestAccount = REVIEW_MODE && normalizePhone(phone || '') === TEST_PHONE && otp === TEST_OTP;
+
+	// reference is not required for the test account
+	if (!phone || !otp || (!reference && !isTestAccount))
 		throw new AppError("Phone, OTP, reference required", 400);
 	if (!role) throw new AppError("Role is required", 400);
 	if (!flow) throw new AppError("Flow (login/signup) is required", 400);
 
 	phone = normalizePhone(phone);
 
-	// TEMPORARY: App Store Review Test Account - Remove after review
-	const REVIEW_MODE = process.env.REVIEW_MODE === 'true';
-	const TEST_PHONE = '8022000001';
-	const TEST_OTP = '123456';
-
 	// Handle test account for App Store review
-	if (REVIEW_MODE && phone === TEST_PHONE && otp === TEST_OTP) {
+	if (isTestAccount) {
 		await OtpVerification.deleteMany({ phone: TEST_PHONE, isPhone: true });
 
 		// Handle signup flow
