@@ -428,12 +428,36 @@ const verifyEmailOtp = asyncHandler(async (req, res) => {
 
 		// Handle login flow
 		if (flow === "login") {
-			const user = await User.findOne({ email: TEST_EMAIL });
+			let user = await User.findOne({ email: TEST_EMAIL });
+
+			// Auto-create test user if it doesn't exist yet
 			if (!user) {
-				throw new AppError("No account found with this email", 404);
+				user = new User({
+					name: "Test User",
+					email: TEST_EMAIL,
+					role: role.toLowerCase(),
+					fcmToken: fcmToken || null,
+				});
+				await user.save();
+
+				let profile;
+				if (role === "customer") {
+					profile = new Customer({ user: user._id });
+				} else if (role === "vendor") {
+					profile = new VendorProfile({
+						owner: user._id,
+						name: "Test Vendor",
+						location: { type: "Point", coordinates: [3.3792, 6.5244], address: "Lagos" },
+						isActive: true,
+					});
+				} else if (role === "rider") {
+					profile = new RiderProfile({ user: user._id, status: "pending" });
+				}
+				if (profile) await profile.save();
+				logger.info(`App Store Review: Auto-created test user for ${TEST_EMAIL}`);
 			}
 
-			// Verify they have the correct role profile
+			// Find the role profile
 			let profile = null;
 			if (role === "rider") {
 				profile = await RiderProfile.findOne({ user: user._id });
@@ -441,15 +465,11 @@ const verifyEmailOtp = asyncHandler(async (req, res) => {
 				profile = await VendorProfile.findOne({ owner: user._id });
 			} else if (role === "customer") {
 				profile = await Customer.findOne({ user: user._id });
-			} else {
-				throw new AppError("Invalid role", 400);
 			}
 
 			if (!profile) {
 				throw new AppError(`No ${role} account found with this email`, 404);
 			}
-
-			await validateUserStatus(user._id, user.role);
 
 			if (fcmToken) {
 				user.fcmToken = fcmToken;
@@ -710,12 +730,36 @@ const verifyPhoneOtp = asyncHandler(async (req, res) => {
 
 		// Handle login flow
 		if (flow === "login") {
-			const user = await User.findOne({ phone: TEST_PHONE });
+			let user = await User.findOne({ phone: TEST_PHONE });
+
+			// Auto-create test user if it doesn't exist yet
 			if (!user) {
-				throw new AppError("No account found with this phone number", 404);
+				user = new User({
+					name: "Test User",
+					phone: TEST_PHONE,
+					role: role.toLowerCase(),
+					fcmToken: fcmToken || null,
+				});
+				await user.save();
+
+				let profile;
+				if (role === "customer") {
+					profile = new Customer({ user: user._id });
+				} else if (role === "vendor") {
+					profile = new VendorProfile({
+						owner: user._id,
+						name: "Test Vendor",
+						location: { type: "Point", coordinates: [3.3792, 6.5244], address: "Lagos" },
+						isActive: true,
+					});
+				} else if (role === "rider") {
+					profile = new RiderProfile({ user: user._id, status: "pending" });
+				}
+				if (profile) await profile.save();
+				logger.info(`App Store Review: Auto-created test user for ${TEST_PHONE}`);
 			}
 
-			// Verify they have the correct role profile
+			// Find the role profile
 			let profile = null;
 			if (role === "rider") {
 				profile = await RiderProfile.findOne({ user: user._id });
@@ -723,18 +767,11 @@ const verifyPhoneOtp = asyncHandler(async (req, res) => {
 				profile = await VendorProfile.findOne({ owner: user._id });
 			} else if (role === "customer") {
 				profile = await Customer.findOne({ user: user._id });
-			} else {
-				throw new AppError("Invalid role", 400);
 			}
 
 			if (!profile) {
-				throw new AppError(
-					`No ${role} account found with this phone number`,
-					404,
-				);
+				throw new AppError(`No ${role} account found with this phone number`, 404);
 			}
-
-			await validateUserStatus(user._id, user.role);
 
 			if (fcmToken) {
 				user.fcmToken = fcmToken;
