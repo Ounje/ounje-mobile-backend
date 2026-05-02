@@ -110,10 +110,18 @@ class RatingService {
 		const customerProfile = await CustomerModel.findOne({ user: customerId }).select("_id").lean();
 		const customerProfileId = customerProfile?._id ?? this.toObjectId(customerId);
 
-		// One rating per customer per entity per order — upsert so re-submission updates
+		// Filter matches the unique index exactly {targetType, target, customer}.
+		// Using $set ensures an existing rating is updated in-place rather than
+		// causing a duplicate-key error when orderId changes between submissions.
 		await Rating.findOneAndUpdate(
-			{ targetType, target: targetId, customer: customerProfileId, orderId },
-			{ rating, ...(comment !== undefined ? { comment } : {}) },
+			{ targetType, target: targetId, customer: customerProfileId },
+			{
+				$set: {
+					rating,
+					orderId,
+					...(comment !== undefined ? { comment } : {}),
+				},
+			},
 			{
 				upsert: true,
 				new: true,
