@@ -383,6 +383,9 @@ const getVendorWallet = async (req, res) => {
 			ledgerService.getDailyEarnings(vendorProfile._id, "VENDOR"),
 			ledgerService.getTransactionHistory(vendorProfile._id, "VENDOR", 20, 0),
 		]);
+		logger.info(
+			`[getVendorWallet] RAW balance from ledger: ${JSON.stringify(balance)}`,
+		);
 
 		return res.status(200).json({
 			success: true,
