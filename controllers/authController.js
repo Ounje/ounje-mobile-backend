@@ -243,14 +243,61 @@ const login = asyncHandler(async (req, res) => {
 	const { identifier } = req.body;
 	if (!identifier) throw new AppError("Email or phone is required", 400);
 
+	// TEMPORARY: App Store Review Test Account - Remove after review
+	const REVIEW_MODE = process.env.REVIEW_MODE === 'true';
+	const TEST_PHONE = '8022000001';
+	const TEST_EMAIL = 'test@ounjefood.com';
+	const TEST_OTP = '123456';
+
+	let normalizedPhone = null;
+	let isTestAccount = false;
+	let identifierType = "phone";
+
+	if (identifier.includes("@")) {
+		identifierType = "email";
+		isTestAccount = REVIEW_MODE && identifier.toLowerCase() === TEST_EMAIL;
+	} else {
+		normalizedPhone = normalizePhone(identifier);
+		isTestAccount = REVIEW_MODE && normalizedPhone === TEST_PHONE;
+	}
+
+	// Handle test account for App Store review before normal user validation
+	if (isTestAccount) {
+		await OtpVerification.deleteMany({
+			$or: [
+				{ phone: TEST_PHONE, isPhone: true },
+				{ email: TEST_EMAIL, isEmail: true },
+			],
+		});
+
+		if (identifierType === "phone") {
+			await OtpVerification.create({
+				phone: TEST_PHONE,
+				otp: TEST_OTP,
+				isPhone: true,
+			});
+		} else {
+			await OtpVerification.create({
+				email: TEST_EMAIL,
+				otp: TEST_OTP,
+				isEmail: true,
+			});
+		}
+
+		logger.info(`App Store Review: Test OTP sent to ${identifier}`);
+		return res.json({ message: `OTP sent to ${identifierType}` });
+	}
+
 	let user;
-	if (identifier.includes("@"))
-		user = await User.findOne({ email: identifier });
-	else user = await User.findOne({ phone: identifier });
+	if (identifierType === "email") {
+		user = await User.findOne({ email: identifier.toLowerCase() });
+	} else {
+		user = await User.findOne({ phone: normalizedPhone });
+	}
 
 	if (!user) throw new AppError("Invalid credentials", 400);
 
-	if (user.email && identifier.includes("@")) {
+	if (user.email && identifierType === "email") {
 		const otp = generateOtp();
 		await OtpVerification.deleteMany({ email: user.email, isEmail: true });
 		await OtpVerification.create({ email: user.email, otp, isEmail: true });
@@ -288,6 +335,20 @@ const requestEmailOtp = asyncHandler(async (req, res) => {
 	if (!email) throw new AppError("Email is required", 400);
 	if (!role) throw new AppError("Role is required", 400);
 	if (!flow) throw new AppError("Flow (login/signup) is required", 400);
+
+	// TEMPORARY: App Store Review Test Account - Remove after review
+	const REVIEW_MODE = process.env.REVIEW_MODE === 'true';
+	const TEST_EMAIL = 'test@ounjefood.com';
+	const TEST_OTP = '123456';
+
+	// Handle test account for App Store review
+	if (REVIEW_MODE && email === TEST_EMAIL) {
+		await OtpVerification.deleteMany({ email: TEST_EMAIL, isEmail: true });
+		await OtpVerification.create({ email: TEST_EMAIL, otp: TEST_OTP, isEmail: true });
+
+		logger.info(`App Store Review: Test OTP sent to email: ${TEST_EMAIL}`);
+		return res.json({ success: true, message: "OTP sent to email" });
+	}
 
 	// For signup, check if email exists in ANY role to prevent duplicate registrations
 	if (flow === "signup") {
@@ -342,6 +403,107 @@ const verifyEmailOtp = asyncHandler(async (req, res) => {
 	if (!email || !otp) throw new AppError("Email and OTP required", 400);
 	if (!role) throw new AppError("Role is required", 400);
 	if (!flow) throw new AppError("Flow (login/signup) is required", 400);
+
+	// TEMPORARY: App Store Review Test Account - Remove after review
+	const REVIEW_MODE = process.env.REVIEW_MODE === 'true';
+	const TEST_EMAIL = 'test@ounjefood.com';
+	const TEST_OTP = '123456';
+
+	// Handle test account for App Store review
+	if (REVIEW_MODE && email === TEST_EMAIL && otp === TEST_OTP) {
+		await OtpVerification.deleteMany({ email: TEST_EMAIL, isEmail: true });
+
+		// Handle signup flow
+		if (flow === "signup") {
+			const existingUser = await User.findOne({ email: TEST_EMAIL });
+			if (existingUser) {
+				throw new AppError("Email already registered", 400);
+			}
+
+			const otpSession = jwt.sign({ email: TEST_EMAIL }, process.env.JWT_SECRET, {
+				expiresIn: "30m",
+			});
+			return res.json({ success: true, otpSession });
+		}
+
+		// Handle login flow
+		if (flow === "login") {
+			let user = await User.findOne({ email: TEST_EMAIL });
+
+			// Auto-create test user if it doesn't exist yet
+			if (!user) {
+				user = new User({
+					name: "Test User",
+					email: TEST_EMAIL,
+					address: "Lagos, Nigeria",
+					location: { type: "Point", coordinates: [3.3792, 6.5244] },
+					role: role.toLowerCase(),
+					fcmToken: fcmToken || null,
+				});
+				await user.save();
+
+				let profile;
+				if (role === "customer") {
+					profile = new Customer({ user: user._id });
+				} else if (role === "vendor") {
+					profile = new VendorProfile({
+						owner: user._id,
+						name: "Test Vendor",
+						location: { type: "Point", coordinates: [3.3792, 6.5244], address: "Lagos" },
+						isActive: true,
+					});
+				} else if (role === "rider") {
+					profile = new RiderProfile({ user: user._id, status: "pending" });
+				}
+				if (profile) await profile.save();
+				logger.info(`App Store Review: Auto-created test user for ${TEST_EMAIL}`);
+			}
+
+			// Find the role profile
+			let profile = null;
+			if (role === "rider") {
+				profile = await RiderProfile.findOne({ user: user._id });
+			} else if (role === "vendor") {
+				profile = await VendorProfile.findOne({ owner: user._id });
+			} else if (role === "customer") {
+				profile = await Customer.findOne({ user: user._id });
+			}
+
+			if (!profile) {
+				throw new AppError(`No ${role} account found with this email`, 404);
+			}
+
+			if (fcmToken) {
+				user.fcmToken = fcmToken;
+				await user.save();
+			}
+
+			const accessToken = generateAccessToken({ id: user._id, role: user.role });
+			const refreshToken = generateRefreshToken({
+				id: user._id,
+				role: user.role,
+			});
+			await RefreshToken.create({
+				token: refreshToken,
+				user: user._id,
+				ip: req.ip,
+			});
+
+			logger.info(`App Store Review: Test login successful for ${TEST_EMAIL}`);
+			return res.json({
+				success: true,
+				accessToken,
+				refreshToken,
+				user: {
+					id: user._id,
+					name: user.name,
+					email: user.email,
+					phone: user.phone,
+					role: user.role,
+				},
+			});
+		}
+	}
 
 	const record = await OtpVerification.findOne({ email, otp, isEmail: true });
 	if (!record) throw new AppError("Invalid OTP", 400);
@@ -427,6 +589,24 @@ const requestPhoneOtp = asyncHandler(async (req, res) => {
 	if (!flow) throw new AppError("Flow (login/signup) is required", 400);
 
 	phone = normalizePhone(phone);
+
+	// TEMPORARY: App Store Review Test Account - Remove after review
+	const REVIEW_MODE = process.env.REVIEW_MODE === 'true';
+	const TEST_PHONE = '8022000001';
+	const TEST_OTP = '123456';
+
+	// Handle test account for App Store review
+	if (REVIEW_MODE && phone === TEST_PHONE) {
+		await OtpVerification.deleteMany({ phone: TEST_PHONE, isPhone: true });
+		await OtpVerification.create({
+			phone: TEST_PHONE,
+			otp: TEST_OTP,
+			isPhone: true
+		});
+
+		logger.info(`App Store Review: Test OTP sent to phone: ${TEST_PHONE}`);
+		return res.json({ message: "OTP sent to phone", reference: "test-reference" });
+	}
 
 	// For signup, check if phone exists in ANY role to prevent duplicate registrations
 	if (flow === "signup") {
@@ -521,12 +701,116 @@ const requestPhoneOtp = asyncHandler(async (req, res) => {
 
 const verifyPhoneOtp = asyncHandler(async (req, res) => {
 	let { phone, otp, reference, role, flow, fcmToken } = req.body;
-	if (!phone || !otp || !reference)
+
+	// TEMPORARY: App Store Review Test Account - Remove after review
+	const REVIEW_MODE = process.env.REVIEW_MODE === 'true';
+	const TEST_PHONE = '8022000001';
+	const TEST_OTP = '123456';
+	const isTestAccount = REVIEW_MODE && normalizePhone(phone || '') === TEST_PHONE && otp === TEST_OTP;
+
+	// reference is not required for the test account
+	if (!phone || !otp || (!reference && !isTestAccount))
 		throw new AppError("Phone, OTP, reference required", 400);
 	if (!role) throw new AppError("Role is required", 400);
 	if (!flow) throw new AppError("Flow (login/signup) is required", 400);
 
 	phone = normalizePhone(phone);
+
+	// Handle test account for App Store review
+	if (isTestAccount) {
+		await OtpVerification.deleteMany({ phone: TEST_PHONE, isPhone: true });
+
+		// Handle signup flow
+		if (flow === "signup") {
+			const existingUser = await User.findOne({ phone: TEST_PHONE });
+			if (existingUser) {
+				throw new AppError("Phone number already registered", 400);
+			}
+
+			const otpSession = jwt.sign({ phone: TEST_PHONE }, process.env.JWT_SECRET, {
+				expiresIn: "30m",
+			});
+			return res.json({ success: true, otpSession });
+		}
+
+		// Handle login flow
+		if (flow === "login") {
+			let user = await User.findOne({ phone: TEST_PHONE });
+
+			// Auto-create test user if it doesn't exist yet
+			if (!user) {
+				user = new User({
+					name: "Test User",
+					phone: Number(TEST_PHONE),
+					address: "Lagos, Nigeria",
+					location: { type: "Point", coordinates: [3.3792, 6.5244] },
+					role: role.toLowerCase(),
+					fcmToken: fcmToken || null,
+				});
+				await user.save();
+
+				let profile;
+				if (role === "customer") {
+					profile = new Customer({ user: user._id });
+				} else if (role === "vendor") {
+					profile = new VendorProfile({
+						owner: user._id,
+						name: "Test Vendor",
+						location: { type: "Point", coordinates: [3.3792, 6.5244], address: "Lagos" },
+						isActive: true,
+					});
+				} else if (role === "rider") {
+					profile = new RiderProfile({ user: user._id, status: "pending" });
+				}
+				if (profile) await profile.save();
+				logger.info(`App Store Review: Auto-created test user for ${TEST_PHONE}`);
+			}
+
+			// Find the role profile
+			let profile = null;
+			if (role === "rider") {
+				profile = await RiderProfile.findOne({ user: user._id });
+			} else if (role === "vendor") {
+				profile = await VendorProfile.findOne({ owner: user._id });
+			} else if (role === "customer") {
+				profile = await Customer.findOne({ user: user._id });
+			}
+
+			if (!profile) {
+				throw new AppError(`No ${role} account found with this phone number`, 404);
+			}
+
+			if (fcmToken) {
+				user.fcmToken = fcmToken;
+				await user.save();
+			}
+
+			const accessToken = generateAccessToken({ id: user._id, role: user.role });
+			const refreshToken = generateRefreshToken({
+				id: user._id,
+				role: user.role,
+			});
+			await RefreshToken.create({
+				token: refreshToken,
+				user: user._id,
+				ip: req.ip,
+			});
+
+			logger.info(`App Store Review: Test login successful for ${TEST_PHONE}`);
+			return res.json({
+				success: true,
+				accessToken,
+				refreshToken,
+				user: {
+					id: user._id,
+					name: user.name,
+					email: user.email,
+					phone: user.phone,
+					role: user.role,
+				},
+			});
+		}
+	}
 
 	const record = await OtpVerification.findOne({
 		phone,

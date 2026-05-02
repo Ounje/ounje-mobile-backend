@@ -567,88 +567,122 @@ const riderMarkOnTheWay = async (orderId, riderId) => {
 
 const riderMarkArrived = async (orderId, riderId) => {
 	logger.info(
-		`riderMarkArrived called — orderId: ${orderId}, riderId: ${riderId}`,
+		`[riderMarkArrived] START orderId=${orderId} riderId=${riderId} riderIdType=${typeof riderId}`,
 	);
 
-	const order = await Order.findById(orderId);
-	if (!order) {
-		logger.warn(`riderMarkArrived — order not found: ${orderId}`);
+	const riderIdStr = riderId.toString();
+
+	// 1. Get current order
+	const existingOrder = await Order.findById(orderId);
+
+	if (!existingOrder) {
+		logger.warn(`[riderMarkArrived] ORDER NOT FOUND orderId=${orderId}`);
 		throw new Error("Order not found");
 	}
 
 	logger.info(
-		`Order found — status: ${order.status}, subStatus: ${order.subStatus}, rider: ${order.rider}`,
+		`[riderMarkArrived] ORDER STATE status=${existingOrder.status} subStatus=${existingOrder.subStatus} order.rider=${existingOrder.rider} riderIdStr=${riderIdStr} riderMatch=${existingOrder.rider?.toString() === riderIdStr}`,
 	);
 
-	if (!order.rider || order.rider.toString() !== riderId) {
+	// 2. Validate rider assignment
+	if (!existingOrder.rider || existingOrder.rider.toString() !== riderIdStr) {
 		logger.warn(
-			`riderMarkArrived — rider mismatch. order.rider: ${order.rider}, riderId: ${riderId}`,
+			`[riderMarkArrived] RIDER MISMATCH order.rider=${existingOrder.rider} incoming=${riderIdStr}`,
 		);
 		throw new Error("You are not assigned to this order");
 	}
 
-	if (order.status !== ORDER_STATUS.RIDING) {
-		logger.warn(`riderMarkArrived — wrong status: ${order.status}`);
+	// 3. Validate order status
+	if (existingOrder.status !== ORDER_STATUS.RIDING) {
+		logger.warn(
+			`[riderMarkArrived] WRONG STATUS expected=riding actual=${existingOrder.status}`,
+		);
 		throw new Error("Order is not in riding status");
 	}
 
-	if (order.subStatus === ORDER_SUB_STATUS.RIDER_ARRIVED) {
-		logger.info(`riderMarkArrived — already RIDER_ARRIVED, returning early`);
-		return order;
+	const ALLOWED_PRE_ARRIVAL_STATES = [
+		ORDER_SUB_STATUS.RIDER_ASSIGNED,
+		ORDER_SUB_STATUS.PICKED_UP,
+		ORDER_SUB_STATUS.ON_THE_WAY,
+	];
+
+	// 4. Idempotent check
+	if (existingOrder.subStatus === ORDER_SUB_STATUS.RIDER_ARRIVED) {
+		logger.info(`[riderMarkArrived] ALREADY ARRIVED — idempotent return`);
+		return existingOrder;
 	}
 
-	if (
-		order.subStatus !== ORDER_SUB_STATUS.ON_THE_WAY &&
-		order.subStatus !== ORDER_SUB_STATUS.PICKED_UP
-	) {
+	// 5. Validate sub-status transition
+	if (!ALLOWED_PRE_ARRIVAL_STATES.includes(existingOrder.subStatus)) {
 		logger.warn(
-			`riderMarkArrived — invalid subStatus for transition: ${order.subStatus}`,
+			`[riderMarkArrived] INVALID SUBSTATUS subStatus=${existingOrder.subStatus} allowed=${JSON.stringify(
+				ALLOWED_PRE_ARRIVAL_STATES,
+			)}`,
 		);
 		throw new Error(
-			"Order must be picked_up or on_the_way before marking arrived",
+			`Cannot mark arrived from status: ${existingOrder.subStatus}`,
 		);
 	}
 
-	if (!order.customer) {
-		logger.warn(`riderMarkArrived — order has no customer: ${orderId}`);
-		throw new Error("Order has no customer assigned");
+	logger.info(`[riderMarkArrived] ALL CHECKS PASSED — firing atomic update`);
+
+	// 6. Atomic update
+	const order = await Order.findOneAndUpdate(
+		{
+			_id: orderId,
+			rider: riderIdStr,
+			status: ORDER_STATUS.RIDING,
+			subStatus: { $in: ALLOWED_PRE_ARRIVAL_STATES },
+		},
+		{ $set: { subStatus: ORDER_SUB_STATUS.RIDER_ARRIVED } },
+		{ new: true },
+	);
+
+	if (!order) {
+		const debugOrder = await Order.findById(orderId);
+
+		logger.error(
+			`[riderMarkArrived] ATOMIC UPDATE FAILED — post-failure state: status=${debugOrder?.status} subStatus=${debugOrder?.subStatus} order.rider=${debugOrder?.rider} riderIdStr=${riderIdStr} riderMatch=${debugOrder?.rider?.toString() === riderIdStr}`,
+		);
+
+		throw new Error(
+			"Failed to update status — invalid state transition or race condition",
+		);
 	}
 
-	order.subStatus = ORDER_SUB_STATUS.RIDER_ARRIVED;
+	logger.info(`Order updated successfully — ${orderId}`);
 
+	// 7. Socket updates (safe)
 	try {
-		await order.save();
-		logger.info(`Order ${orderId} saved with subStatus RIDER_ARRIVED`);
-
 		if (global.io) {
 			const payload = {
-				orderId: order._id,
+				orderId: order._id.toString(),
 				status: order.status,
 				subStatus: order.subStatus,
 			};
-			global.io.to(order.customer.toString()).emit("orderUpdate", payload);
-			global.io.to(riderId).emit("orderUpdate", payload);
-			logger.info(
-				`Socket events emitted to customer and rider for order ${orderId}`,
-			);
-		} else {
-			logger.warn(
-				`global.io not available — socket events skipped for order ${orderId}`,
-			);
-		}
 
-		await notificationService.notifyCustomerRiderArrived(
-			order.customer.toString(),
-			order,
-		);
-		logger.info(`Notification sent for order ${orderId}`);
+			const rooms = [order.customer?.toString(), riderIdStr].filter(Boolean);
+
+			rooms.forEach((room) => {
+				global.io.to(room).emit("orderUpdate", payload);
+			});
+		}
 	} catch (err) {
-		logger.warn(
-			`riderMarkArrived post-save error for order ${orderId}: ${err.message}`,
-		);
+		logger.warn(`[riderMarkArrived] Socket error: ${err.message}`);
 	}
 
-	logger.info(`riderMarkArrived complete — order ${orderId}, rider ${riderId}`);
+	// 8. Notifications (safe failure handling)
+	try {
+		if (order.customer) {
+			await notificationService.notifyCustomerRiderArrived(
+				order.customer.toString(),
+				order,
+			);
+		}
+	} catch (err) {
+		logger.warn(`[riderMarkArrived] Notification error: ${err.message}`);
+	}
+
 	return order;
 };
 module.exports = {

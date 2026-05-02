@@ -1,11 +1,18 @@
 const mongoose = require("mongoose");
 const axios = require("axios");
-const { Payment, Customer, Order, PendingCheckout } = require("../models");
+const {
+	Payment,
+	Customer,
+	Order,
+	PendingCheckout,
+	User,
+} = require("../models");
 const crypto = require("crypto");
 const ledgerService = require("../services/ledger.service");
 const orderService = require("../services/order.service");
 const payoutService = require("../services/payout.service");
 const emailService = require("../services/email/EmailService");
+const VendorProfile = require("../models/VendorProfile");
 const logger = require("../utils/logger");
 
 const paystack = axios.create({
@@ -37,7 +44,7 @@ const _holdVendorEarnings = async (order) => {
 	if (vendorAmountNaira > 0) {
 		await ledgerService.holdVendorAmount(
 			order.vendor,
-			toKobo(vendorAmountNaira), // naira → kobo
+			vendorAmountNaira,
 			order._id,
 		);
 		logger.info(
@@ -54,13 +61,40 @@ const _holdRiderFee = async (order) => {
 	const deliveryFeeNaira = order.deliveryFee ?? 0;
 
 	if (order.rider && deliveryFeeNaira > 0) {
-		await ledgerService.holdRiderFee(
-			order.rider,
-			toKobo(deliveryFeeNaira), // naira → kobo
-			order._id,
-		);
+		await ledgerService.holdRiderFee(order.rider, deliveryFeeNaira, order._id);
 		logger.info(
 			`[Payment] holdRiderFee | orderId=${order._id} riderId=${order.rider} amountKobo=${toKobo(deliveryFeeNaira)} (₦${deliveryFeeNaira})`,
+		);
+	}
+};
+
+/**
+ * Send order confirmation email after payment is confirmed.
+ * Resolves customer user + vendor from the order, then delegates to orderService.
+ * Always non-blocking — errors are logged, never thrown.
+ */
+const _sendOrderEmail = async (order) => {
+	try {
+		const [customerDoc, vendor] = await Promise.all([
+			Customer.findById(order.customer).populate("user", "name email").lean(),
+			VendorProfile.findById(order.vendor).select("name storeDetails").lean(),
+		]);
+
+		if (!customerDoc?.user?.email) {
+			logger.warn(
+				`[Payment] _sendOrderEmail: no user email for order ${order._id}`,
+			);
+			return;
+		}
+
+		await orderService.sendOrderConfirmationEmailForOrder(
+			order,
+			vendor,
+			customerDoc.user,
+		);
+	} catch (err) {
+		logger.error(
+			`[Payment] _sendOrderEmail failed for order ${order._id}: ${err.message}`,
 		);
 	}
 };
@@ -95,15 +129,14 @@ const initialisePayment = async (req, res) => {
 		let priceBreakdown = null;
 
 		if (cartData) {
-			// estimateOrderPrice returns naira → convert to kobo for Paystack
 			const estimate = await orderService.estimateOrderPrice(cartData);
 			priceBreakdown = estimate;
-			amountInKobo = toKobo(estimate.totalPrice); // naira → kobo
+			amountInKobo = toKobo(estimate.totalPrice);
 			orderMetadata.cartMode = true;
 		} else if (orderId) {
 			const order = await Order.findById(orderId);
 			if (!order) return res.status(400).json({ error: "Order not found" });
-			amountInKobo = toKobo(order.totalPrice); // naira → kobo
+			amountInKobo = toKobo(order.totalPrice);
 			orderMetadata.orderId = order._id.toString();
 		} else {
 			return res.status(400).json({ error: "cartData or orderId is required" });
@@ -144,7 +177,6 @@ const initialisePayment = async (req, res) => {
 
 		return res.status(200).json({
 			...response.data,
-			// Return naira to frontend for display
 			totalPrice: priceBreakdown?.totalPrice ?? null,
 			deliveryFee: priceBreakdown?.deliveryFee ?? null,
 			serviceFee: priceBreakdown?.serviceFee ?? null,
@@ -201,8 +233,11 @@ const verifyPayment = async (req, res) => {
 							cartData,
 						);
 						createdOrder.paymentStatus = "paid";
+						createdOrder.paymentMethod = "paystack";
 						await createdOrder.save();
 						payment.orderId = createdOrder._id;
+
+						_sendOrderEmail(createdOrder).catch(() => {});
 
 						PendingCheckout.deleteOne({ reference }).catch((err) =>
 							logger.error(`Failed to delete PendingCheckout: ${err.message}`),
@@ -229,8 +264,10 @@ const verifyPayment = async (req, res) => {
 			} else if (payment.orderId) {
 				await Order.findByIdAndUpdate(payment.orderId, {
 					paymentStatus: "paid",
+					paymentMethod: "paystack",
 				});
 				createdOrder = await Order.findById(payment.orderId);
+				_sendOrderEmail(createdOrder).catch(() => {});
 			}
 		}
 
@@ -253,7 +290,9 @@ const verifyPayment = async (req, res) => {
 	} catch (err) {
 		const paystackError =
 			err.response?.data?.message || err.response?.data?.error || err.message;
-		logger.error("[Payment] verify error:", err.response?.data || err.message);
+		logger.error(
+			`[Payment] verify error: ${err.response?.data?.message || err.response?.data?.error || err.message}`,
+		);
 		res
 			.status(500)
 			.json({ error: paystackError || "Payment verification failed" });
@@ -357,6 +396,7 @@ const webhookHandler = async (req, res) => {
 
 			// amount from Paystack is ALWAYS in kobo — use directly for ledger
 			const amountKobo = amount;
+			const amountNaira = amountKobo / 100;
 
 			logger.info(
 				`[Webhook] charge.success | ref=${reference} amountKobo=${amountKobo} (₦${amountKobo / 100}) channel=${event.data.channel}`,
@@ -389,26 +429,20 @@ const webhookHandler = async (req, res) => {
 					await Payment.create({
 						reference,
 						customer: customer._id,
-						amount: amountKobo / 100, // Payment model stores naira (legacy)
+						amount: amountNaira, // Payment model stores naira (legacy)
 						status: "success",
 						paidAt: event.data.paid_at,
 					});
 
-					// Paystack amount is already kobo — pass directly to ledger
 					const result = await ledgerService.creditAccount(
 						customer._id,
 						"CUSTOMER",
-						amountKobo, // ✅ kobo
+						amountNaira,
 						"DVA_TRANSFER",
 						null,
 						{ paystackReference: reference, channel: event.data.channel },
 					);
 
-					logger.info(
-						`[Webhook] DVA credited ${amountKobo} kobo (₦${amountKobo / 100}) to customer ${customer._id} | newBalance=${result?.newBalance}`,
-					);
-
-					// Email — fire and forget
 					Customer.findById(customer._id)
 						.populate("user")
 						.then((populated) => {
@@ -433,7 +467,7 @@ const webhookHandler = async (req, res) => {
 
 					if (global.io) {
 						global.io.to(customer._id.toString()).emit("walletCredited", {
-							amount: amountKobo / 100, // naira for frontend display
+							amount: amountKobo / 100,
 							reference,
 							message: `₦${(amountKobo / 100).toLocaleString()} added to your wallet`,
 						});
@@ -443,7 +477,7 @@ const webhookHandler = async (req, res) => {
 						const notificationService = require("../services/notification.service");
 						await notificationService.notifyCustomerWalletTopup(
 							customer._id,
-							amountKobo / 100, // naira for notification display
+							amountKobo / 100,
 						);
 					} catch (pushErr) {
 						logger.error(
@@ -474,7 +508,10 @@ const webhookHandler = async (req, res) => {
 						cartData,
 					);
 					order.paymentStatus = "paid";
+					order.paymentMethod = "paystack";
 					await order.save();
+
+					_sendOrderEmail(order).catch(() => {});
 
 					await Payment.findOneAndUpdate(
 						{ reference },
@@ -490,7 +527,6 @@ const webhookHandler = async (req, res) => {
 							),
 						);
 
-					// Order prices are in naira → toKobo() before ledger
 					await _holdVendorEarnings(order);
 					await _holdRiderFee(order);
 
@@ -515,7 +551,10 @@ const webhookHandler = async (req, res) => {
 				return res.status(200).send("Already processed");
 
 			order.paymentStatus = "paid";
+			order.paymentMethod = "paystack";
 			await order.save();
+
+			_sendOrderEmail(order).catch(() => {});
 
 			orderService
 				.sendDeliveryOtp(order)
@@ -525,7 +564,6 @@ const webhookHandler = async (req, res) => {
 					),
 				);
 
-			// Order prices are in naira → toKobo() before ledger
 			await _holdVendorEarnings(order);
 			await _holdRiderFee(order);
 
@@ -576,11 +614,9 @@ const walletPayment = async (req, res) => {
 		let order;
 
 		if (cartData) {
-			// estimateOrderPrice returns naira; customer ledger is stored in naira
 			const estimate = await orderService.estimateOrderPrice(cartData);
 			const totalNaira = estimate.totalPrice;
 
-			// Debug: log the estimate breakdown and live wallet balance before debit
 			const liveBalance = await ledgerService.getAccountBalance(
 				customer._id,
 				"CUSTOMER",
@@ -592,19 +628,19 @@ const walletPayment = async (req, res) => {
 			await ledgerService.debitAccount(
 				customer._id,
 				"CUSTOMER",
-				totalNaira, // naira — customer ledger stores naira (DVA credits in naira)
+				totalNaira,
 				"WALLET_PAYMENT",
+				null,
 				{ note: "pre-order debit" },
 			);
 
 			try {
 				order = await orderService.createOrder(userId, cartData);
 			} catch (createErr) {
-				// Refund if order creation fails
 				await ledgerService.creditAccount(
 					customer._id,
 					"CUSTOMER",
-					totalNaira, // naira
+					totalNaira,
 					"REFUND",
 					null,
 					{ note: "wallet_payment_order_creation_failed" },
@@ -615,6 +651,8 @@ const walletPayment = async (req, res) => {
 			order.paymentStatus = "paid";
 			order.paymentMethod = "wallet";
 			await order.save();
+
+			_sendOrderEmail(order).catch(() => {});
 		} else {
 			order = await Order.findById(orderId).populate("items");
 			if (!order)
@@ -627,17 +665,16 @@ const walletPayment = async (req, res) => {
 					.json({ success: false, message: "Order is already paid" });
 			}
 
-			const totalKobo = toKobo(order.totalPrice); // naira → kobo
+			const totalKobo = toKobo(order.totalPrice);
 
 			logger.info(
 				`[Payment] wallet orderId | orderId=${orderId} totalNaira=₦${order.totalPrice} totalKobo=${totalKobo}`,
 			);
 
-			// Debit customer ledger in kobo
 			await ledgerService.debitAccount(
 				customer._id,
 				"CUSTOMER",
-				totalKobo, // ✅ kobo
+				totalKobo,
 				"WALLET_PAYMENT",
 				order._id,
 			);
@@ -645,6 +682,8 @@ const walletPayment = async (req, res) => {
 			order.paymentStatus = "paid";
 			order.paymentMethod = "wallet";
 			await order.save();
+
+			_sendOrderEmail(order).catch(() => {});
 		}
 
 		orderService
@@ -655,7 +694,6 @@ const walletPayment = async (req, res) => {
 				),
 			);
 
-		// Order prices are in naira → toKobo() before ledger
 		await _holdVendorEarnings(order);
 		await _holdRiderFee(order);
 

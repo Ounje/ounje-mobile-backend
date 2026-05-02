@@ -37,7 +37,7 @@ const calculateRiderRank = (totalDeliveries) => {
 	return "New Rider";
 };
 
-// ── Fee calculation helper (FIX #12: extracted shared helper, no duplication) ─
+// ── Fee calculation helper ────────────────────────────────────────────────────
 const COMMISSION_RATES = { basic: 0.05, growth: 0.1, premium: 0.15 };
 const SERVICE_FEE_RATE = 0.1;
 
@@ -70,8 +70,6 @@ const generateNumericOtp = (length = 6) => {
 };
 
 const hashOtp = (otp) => crypto.createHash("sha256").update(otp).digest("hex");
-
-// FIX #8: Removed dead `findNearbyRiders` — replaced by order.rider.service dispatch.
 
 const _calculateAndValidateItemPrice = async (item, models) => {
 	const {
@@ -392,10 +390,9 @@ const createOrder = async (userId, data) => {
 	} = data;
 
 	if (!mongoose.isValidObjectId(vendorId)) {
-		throw new AppError(`Invalid Vendor ID: ${vendorId}`, 400); // FIX #11
+		throw new AppError(`Invalid Vendor ID: ${vendorId}`, 400);
 	}
 
-	// FIX #13: validate deliveryAddress early
 	if (
 		!deliveryAddress ||
 		typeof deliveryAddress !== "string" ||
@@ -405,12 +402,12 @@ const createOrder = async (userId, data) => {
 	}
 
 	if (!items || items.length === 0) {
-		throw new AppError("No items in the order.", 400); // FIX #11
+		throw new AppError("No items in the order.", 400);
 	}
 
 	// 1. Fetch Vendor
 	const vendor = await VendorProfile.findById(vendorId);
-	if (!vendor) throw new AppError("Vendor not found", 404); // FIX #11
+	if (!vendor) throw new AppError("Vendor not found", 404);
 	if (!vendor.location || !vendor.location.coordinates) {
 		throw new AppError("Vendor has no location set", 400);
 	}
@@ -538,9 +535,9 @@ const createOrder = async (userId, data) => {
 
 	// 5. Lookup Customer
 	const customer = await Customer.findOne({ user: userId });
-	if (!customer) throw new AppError("Customer profile not found", 404); // FIX #11
+	if (!customer) throw new AppError("Customer profile not found", 404);
 
-	// 6. Calculate fees via shared helper (FIX #12)
+	// 6. Calculate fees
 	const { serviceFee, vendorEarning } = _calculateFees(
 		itemsTotalPrice,
 		vendor.tier,
@@ -596,67 +593,72 @@ const createOrder = async (userId, data) => {
 	} catch (error) {
 		logger.error(`Failed to send new order notification: ${error.message}`);
 	}
-	// 9. Send order confirmation email
-	try {
-		const user = await User.findById(userId).select("email firstName").lean();
-		if (user?.email) {
-			const orderCount = await Order.countDocuments({ customer: customer._id });
-			const emailPayload = {
-				customerName: user.firstName,
-				orderNumber: order.orderNumber,
-				status: order.status,
-				vendorName: vendor.storeName,
-				paymentMethod: order.paymentMethod,
-				paymentStatus: order.paymentStatus,
-				orderDate: order.createdAt.toLocaleDateString("en-NG", {
-					day: "numeric",
-					month: "short",
-					year: "numeric",
-				}),
-				items: orderItems,
-				foodTotal: order.foodTotal,
-				deliveryFee: order.deliveryFee,
-				serviceFee: order.serviceFee,
-				totalPrice: order.totalPrice,
-				deliveryAddress: order.deliveryAddress,
-				deliveryZone: order.zone,
-			};
-
-			if (orderCount === 1) {
-				await emailService.sendFirstOrderConfirmationEmail(
-					user.email,
-					emailPayload,
-				);
-				logger.info(`First order confirmation email sent to ${user.email}`);
-			} else if (orderCount === 10) {
-				await emailService.sendTenthOrderEmail(user.email, emailPayload);
-				logger.info(`10th order milestone email sent to ${user.email}`);
-			} else {
-				await emailService.sendOrderConfirmationEmail(user.email, emailPayload);
-				logger.info(`Order confirmation email sent to ${user.email}`);
-			}
-		}
-	} catch (error) {
-		logger.error(`Failed to send order confirmation email: ${error.message}`);
-	}
 
 	return order;
 };
 
 /**
+ * Send order confirmation email after payment is confirmed.
+ * Called by payment.controller.js — not by createOrder — so that
+ * paymentStatus, paymentMethod, and vendorName are all resolved correctly.
+ *
+ * @param {Object} order  - saved order document (paymentStatus + paymentMethod already set)
+ * @param {Object} vendor - { name, storeDetails } from VendorProfile
+ * @param {Object} user   - { name, email } from User
+ */
+const sendOrderConfirmationEmailForOrder = async (order, vendor, user) => {
+	try {
+		const orderCount = await Order.countDocuments({ customer: order.customer });
+		const emailPayload = {
+			customerName: user.name,
+			orderNumber: order.orderNumber,
+			status: order.status,
+			vendorName: vendor?.storeDetails?.[0]?.storeName || vendor?.name || "",
+			paymentMethod: order.paymentMethod,
+			paymentStatus: order.paymentStatus,
+			orderDate: order.createdAt.toLocaleDateString("en-NG", {
+				day: "numeric",
+				month: "short",
+				year: "numeric",
+			}),
+			items: order.items,
+			foodTotal: order.foodTotal,
+			deliveryFee: order.deliveryFee,
+			serviceFee: order.serviceFee,
+			totalPrice: order.totalPrice,
+			deliveryAddress: order.deliveryAddress,
+			deliveryZone: order.zone,
+		};
+
+		if (orderCount === 1) {
+			await emailService.sendFirstOrderConfirmationEmail(
+				user.email,
+				emailPayload,
+			);
+			logger.info(`First order confirmation email sent to ${user.email}`);
+		} else if (orderCount === 10) {
+			await emailService.sendTenthOrderEmail(user.email, emailPayload);
+			logger.info(`10th order milestone email sent to ${user.email}`);
+		} else {
+			await emailService.sendOrderConfirmationEmail(user.email, emailPayload);
+			logger.info(`Order confirmation email sent to ${user.email}`);
+		}
+	} catch (error) {
+		logger.error(`Failed to send order confirmation email: ${error.message}`);
+	}
+};
+
+/**
  * Calculate totalPrice, deliveryFee, serviceFee for a cart WITHOUT creating an order.
- * Schedule enforcement is intentionally skipped — price preview should not be
- * blocked by operating hours.
  */
 const estimateOrderPrice = async (cartData) => {
 	const { items, vendorId, deliveryAddress } = cartData;
 
 	if (!mongoose.isValidObjectId(vendorId))
-		throw new AppError(`Invalid Vendor ID: ${vendorId}`, 400); // FIX #11
+		throw new AppError(`Invalid Vendor ID: ${vendorId}`, 400);
 	if (!items || items.length === 0)
 		throw new AppError("No items in the cart.", 400);
 
-	// FIX #13: validate deliveryAddress early
 	if (
 		!deliveryAddress ||
 		typeof deliveryAddress !== "string" ||
@@ -683,7 +685,6 @@ const estimateOrderPrice = async (cartData) => {
 		itemsTotalPrice += itemPrice * (item.quantity ?? 1);
 	}
 
-	// FIX #12: use shared fee helper
 	const { serviceFee, vendorEarning } = _calculateFees(
 		itemsTotalPrice,
 		vendor.tier,
@@ -703,7 +704,7 @@ const updateOrderStatus = async (orderId, status, subStatus) => {
 		path: "customer",
 		populate: { path: "user", select: "fcmToken" },
 	});
-	if (!order) throw new AppError("Order not found", 404); // FIX #11
+	if (!order) throw new AppError("Order not found", 404);
 
 	order.status = status;
 	order.subStatus = subStatus || "";
@@ -734,13 +735,12 @@ const sendDeliveryOtp = async (order) => {
 		parseInt(process.env.DELIVERY_OTP_LENGTH || 6),
 	);
 	const otpHash = hashOtp(otp);
-	const duration = parseInt(process.env.DELIVERY_OTP_DURATION || 1440); // 24 hours
+	const duration = parseInt(process.env.DELIVERY_OTP_DURATION || 1440);
 
 	order.deliveryOtpCode = otp;
 	order.deliveryOtpHash = otpHash;
 	order.deliveryOtpSentAt = new Date();
 	order.deliveryOtpExpiresAt = new Date(Date.now() + duration * 60 * 1000);
-	// Intentionally NOT setting order.deliveryOtpCode
 	await order.save();
 
 	logger.info(
@@ -752,7 +752,7 @@ const sendDeliveryOtp = async (order) => {
 			global.io.to(order.customer.toString()).emit("delivery-otp", {
 				orderId: order._id,
 				customerId: order.customer,
-				otp, // sent over encrypted socket only, never stored
+				otp,
 				expiresAt: order.deliveryOtpExpiresAt,
 			});
 		}
@@ -776,10 +776,6 @@ const verifyDeliveryOtp = async (order, otp, riderId) => {
 	if (providedHash !== order.deliveryOtpHash)
 		throw new AppError("Invalid OTP", 400);
 
-	// FIX #4: persist the order status change BEFORE triggering any financial
-	// side effects. If the save fails, no money moves. If a ledger call fails
-	// after the save, the order is already marked delivered and the ledger
-	// release can be retried via an admin tool or background job.
 	order.status = ORDER_STATUS.DELIVERED;
 	order.subStatus = ORDER_SUB_STATUS.DELIVERED;
 	order.deliveryConfirmedAt = new Date();
@@ -788,7 +784,7 @@ const verifyDeliveryOtp = async (order, otp, riderId) => {
 	order.deliveryOtpExpiresAt = null;
 	order.deliveryOtpSentAt = null;
 
-	await order.save(); // ← save first, then release funds
+	await order.save();
 
 	await ledgerService.releaseRiderFee(order.rider, order._id);
 
@@ -798,7 +794,6 @@ const verifyDeliveryOtp = async (order, otp, riderId) => {
 		logger.error(
 			`Failed to release vendor amount for order ${order._id}: ${vendorLedgerErr.message}`,
 		);
-		// Non-blocking — delivery already confirmed
 	}
 
 	try {
@@ -818,13 +813,14 @@ const verifyDeliveryOtp = async (order, otp, riderId) => {
 	}
 
 	try {
-		const vendorService = require("./vendor.service"); // FIX #7 note: see architecture note below
+		const vendorService = require("./vendor.service");
 		await vendorService.updateVendorRankingScore(order.vendor);
 	} catch (err) {
 		logger.error(
 			`Vendor ranking update failed for order ${order._id}: ${err.message}`,
 		);
 	}
+
 	try {
 		const customer = await Customer.findById(order.customer).populate(
 			"orderCount",
@@ -853,15 +849,12 @@ const verifyDeliveryOtp = async (order, otp, riderId) => {
 	return { success: true };
 };
 
-// FIX #1: merge the active-ride guard INTO the atomic findOneAndUpdate so
-// there is no race window between the check and the claim.
 const acceptOrder = async (orderId, riderId) => {
 	const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60 * 1000);
 
 	const order = await Order.findOneAndUpdate(
 		{
 			_id: orderId,
-			// Only claim if no other rider has it yet
 			$or: [
 				{
 					status: ORDER_STATUS.RIDING,
@@ -904,12 +897,9 @@ const acceptOrder = async (orderId, riderId) => {
 		);
 	}
 
-	// FIX #1: active-ride check AFTER the atomic claim so we don't hold the
-	// slot and then bounce — if the rider already has an active ride we undo
-	// the claim immediately.
 	const activeRide = await Order.findOne({
 		rider: riderId,
-		_id: { $ne: order._id }, // exclude the order we just claimed
+		_id: { $ne: order._id },
 		status: ORDER_STATUS.RIDING,
 		subStatus: {
 			$in: [
@@ -922,7 +912,6 @@ const acceptOrder = async (orderId, riderId) => {
 	});
 
 	if (activeRide) {
-		// Roll back — release the slot so another rider can take it
 		await Order.findByIdAndUpdate(orderId, {
 			$set: {
 				rider: null,
@@ -1004,7 +993,7 @@ const acceptOrder = async (orderId, riderId) => {
 
 const pickUpOrder = async (orderId, riderId) => {
 	const order = await Order.findById(orderId);
-	if (!order) throw new AppError("Order not found", 404); // FIX #11
+	if (!order) throw new AppError("Order not found", 404);
 
 	if (order.rider.toString() !== riderId) {
 		throw new AppError("You are not the assigned rider for this order", 403);
@@ -1014,10 +1003,6 @@ const pickUpOrder = async (orderId, riderId) => {
 	order.subStatus = ORDER_SUB_STATUS.PICKED_UP;
 	await order.save();
 
-	// FIX #2: order.deliveryOtpCode no longer exists on the document.
-	// Always re-generate and emit a fresh OTP at pickup.
-	// (For legacy orders that still have the field, sendDeliveryOtp will
-	//  overwrite the hash, which is safe.)
 	await sendDeliveryOtp(order);
 
 	try {
@@ -1043,23 +1028,16 @@ const completeDelivery = async (orderId, riderId, otp) => {
 		throw new AppError("Not assigned to you", 403);
 	}
 
-	// if (
-	// 	order.status !== ORDER_STATUS.RIDING ||
-	// 	order.subStatus !== ORDER_SUB_STATUS.PICKED_UP
-	// ) {
-	// 	throw new AppError("Order is not ready for delivery confirmation", 400);
+	// try {
+	// 	await notificationService.notifyCustomerRiderArrived(order.customer, order);
+	// 	logger.info(
+	// 		`Rider has arrived notification sent to customer ${order.customer}`,
+	// 	);
+	// } catch (error) {
+	// 	logger.error(
+	// 		`Failed to send rider has arrived notification: ${error.message}`,
+	// 	);
 	// }
-
-	try {
-		await notificationService.notifyCustomerRiderArrived(order.customer, order);
-		logger.info(
-			`Rider has arrived notification sent to customer ${order.customer}`,
-		);
-	} catch (error) {
-		logger.error(
-			`Failed to send rider has arrived notification: ${error.message}`,
-		);
-	}
 
 	await verifyDeliveryOtp(order, otp, riderId);
 
@@ -1100,15 +1078,12 @@ const completeDelivery = async (orderId, riderId, otp) => {
 
 const cancelOrder = async (orderId, customerId) => {
 	const order = await Order.findById(orderId);
-	if (!order) throw new AppError("Order not found", 404); // FIX #11
+	if (!order) throw new AppError("Order not found", 404);
 
 	if (order.customer.toString() !== customerId) {
 		throw new AppError("You can only cancel your own orders", 403);
 	}
 
-	// FIX: also check subStatus so a vendor-accepted order (status=CONFIRMING,
-	// subStatus=CONFIRMED) cannot be cancelled by the customer.
-	// Cancellation is only allowed at the very first stage — before the vendor acts.
 	if (
 		order.status !== ORDER_STATUS.CONFIRMING ||
 		order.subStatus !== ORDER_SUB_STATUS.CONFIRMING
@@ -1127,7 +1102,6 @@ const cancelOrder = async (orderId, customerId) => {
 
 	await order.save();
 
-	// Refund customer
 	if (order.paymentStatus === "paid") {
 		try {
 			if (order.paymentMethod === "wallet") {
@@ -1168,7 +1142,6 @@ const cancelOrder = async (orderId, customerId) => {
 		}
 	}
 
-	// Reverse vendor/rider ledger entries
 	try {
 		await ledgerService.reverseOrderEarnings(order);
 	} catch (error) {
@@ -1191,7 +1164,7 @@ const cancelOrder = async (orderId, customerId) => {
 
 const vendorAcceptOrder = async (orderId, vendorId) => {
 	const order = await Order.findById(orderId);
-	if (!order) throw new AppError("Order not found", 404); // FIX #11
+	if (!order) throw new AppError("Order not found", 404);
 
 	if (order.vendor.toString() !== vendorId) {
 		throw new AppError("You can only accept orders from your restaurant", 403);
@@ -1239,7 +1212,7 @@ const vendorAcceptOrder = async (orderId, vendorId) => {
 
 const resendDeliveryOtp = async (orderId, userId, role) => {
 	const order = await Order.findById(orderId);
-	if (!order) throw new AppError("Order not found", 404); // FIX #11
+	if (!order) throw new AppError("Order not found", 404);
 
 	if (role === "rider") {
 		const { RiderProfile } = require("../models");
@@ -1289,4 +1262,5 @@ module.exports = {
 	vendorAcceptOrder,
 	generateNumericOtp,
 	hashOtp,
+	sendOrderConfirmationEmailForOrder,
 };

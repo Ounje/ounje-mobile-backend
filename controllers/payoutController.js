@@ -7,37 +7,6 @@ const logger = require("../utils/logger");
 
 // ─── HELPERS ──────────────────────────────────────────────────────────────────
 
-/** Convert kobo → naira for frontend display */
-const toNaira = (kobo) => (kobo != null ? Math.round(kobo) / 100 : null);
-
-const balanceToNaira = (b) => ({
-	...b,
-	availableBalance: toNaira(b.availableBalance ?? 0),
-	pendingBalance: toNaira(b.pendingBalance ?? 0),
-	holdBalance: toNaira(b.holdBalance ?? 0),
-	totalBalance: toNaira(b.totalBalance ?? 0),
-});
-
-const payoutToNaira = (p) => ({
-	payoutId: p._id,
-	reference: p.reference,
-	amount: toNaira(p.amount),
-	feeDeducted: toNaira(p.feeDeducted),
-	netAmount: toNaira(p.netAmount),
-	status: p.status,
-	transactionRef: p.transactionRef,
-	processAt: p.processAt,
-	requestedAt: p.createdAt,
-	processedAt: p.processedAt,
-	failureReason: p.failureReason,
-});
-
-const feesToNaira = (fees) => ({
-	paystackFee: toNaira(fees.paystackFee),
-	stampDuty: toNaira(fees.stampDuty),
-	total: toNaira(fees.total),
-});
-
 /**
  * Resolve profile _id and recipientType from req.user.
  * Vendors use `owner`, riders use `user`.
@@ -53,11 +22,29 @@ const resolveRecipient = async (userId, userType) => {
 	return { profileId: rp._id, recipientType: "RiderProfile" };
 };
 
+/**
+ * Shape a payout document for API response.
+ * All amounts already in naira — no conversion needed.
+ */
+const formatPayout = (p) => ({
+	payoutId: p._id,
+	reference: p.reference,
+	amount: p.amount,
+	feeDeducted: p.feeDeducted,
+	netAmount: p.netAmount,
+	status: p.status,
+	transactionRef: p.transactionRef,
+	processAt: p.processAt,
+	requestedAt: p.createdAt,
+	processedAt: p.processedAt,
+	failureReason: p.failureReason,
+});
+
 // ─── CONTROLLERS ──────────────────────────────────────────────────────────────
 
 /**
  * GET /api/payouts/balance
- * Returns balance in NAIRA for display.
+ * Returns balance in naira directly from ledger.
  */
 const getBalance = async (req, res) => {
 	try {
@@ -78,13 +65,12 @@ const getBalance = async (req, res) => {
 			userType.toUpperCase(),
 		);
 
-		const naira = balanceToNaira(balance);
 		const totalEarnings =
-			(naira.availableBalance ?? 0) +
-			(naira.holdBalance ?? 0) +
-			(naira.pendingBalance ?? 0);
+			(balance.availableBalance ?? 0) +
+			(balance.holdBalance ?? 0) +
+			(balance.pendingBalance ?? 0);
 
-		res.json({ ...naira, totalEarnings });
+		res.json({ ...balance, totalEarnings });
 	} catch (err) {
 		logger.error("[getBalance]", { message: err.message });
 		res.status(500).json({ error: err.message });
@@ -116,13 +102,7 @@ const getTransactionHistory = async (req, res) => {
 			parseInt(skip),
 		);
 
-		const transactions = (history.transactions ?? []).map((tx) => ({
-			...(tx.toObject?.() ?? tx),
-			amount: toNaira(tx.amount ?? 0),
-			balanceAfter: toNaira(tx.balanceAfter ?? 0),
-		}));
-
-		res.json({ ...history, transactions });
+		res.json(history);
 	} catch (err) {
 		logger.error("[getTransactionHistory]", { message: err.message });
 		res.status(500).json({ error: err.message });
@@ -132,10 +112,6 @@ const getTransactionHistory = async (req, res) => {
 /**
  * POST /api/payouts/request
  * Body: { amount (naira), bankDetails: { accountNumber, bankCode, accountName, bankName } }
- *
- * On-demand withdrawal with 2-hour hold before Paystack transfer fires.
- * Fees are calculated per Paystack tiered bands + 2026 stamp duty.
- * Frontend sends naira → controller converts to kobo → service works in kobo.
  */
 const requestPayout = async (req, res) => {
 	logger.info("[requestPayout] START", {
@@ -144,14 +120,14 @@ const requestPayout = async (req, res) => {
 	});
 	try {
 		const { id: userId, role: userType } = req.user;
-		const { amount: amountNaira, bankDetails } = req.body;
+		const { amount, bankDetails } = req.body;
 
 		if (!["rider", "vendor"].includes(userType)) {
 			return res
 				.status(403)
 				.json({ error: "Only riders and vendors can request payouts" });
 		}
-		if (!amountNaira || amountNaira <= 0) {
+		if (!amount || amount <= 0) {
 			return res.status(400).json({ error: "Amount must be greater than 0" });
 		}
 		if (!bankDetails?.accountNumber || !bankDetails?.bankCode) {
@@ -160,25 +136,11 @@ const requestPayout = async (req, res) => {
 				.json({ error: "Bank details are required (accountNumber, bankCode)" });
 		}
 
-		// Convert naira → kobo at the controller boundary
-		const amountKobo = Math.round(amountNaira * 100);
-
-		// Show user what fees will apply before calling service
-		const estimatedFees = payoutService.calculateFees(amountKobo);
-
-		logger.info("[requestPayout] Calling requestWithdrawal", {
-			userId,
-			userType,
-			amountKobo,
-			estimatedFeeKobo: estimatedFees.total,
-			estimatedFeeNaira: `₦${estimatedFees.total / 100}`,
-			holdMinutes: payoutService.WITHDRAWAL_HOLD_MS / 60000,
-		});
-
+		// amount comes in as naira from frontend — pass directly, no conversion
 		const result = await payoutService.requestWithdrawal({
 			userId,
 			userType: userType.toUpperCase(),
-			amountKobo,
+			amount, // naira
 			bankDetails,
 			name: bankDetails.accountName || "",
 		});
@@ -196,10 +158,10 @@ const requestPayout = async (req, res) => {
 				error: result.detail || result.reason,
 				reason: result.reason,
 				...(result.availableBalance != null && {
-					availableBalance: toNaira(result.availableBalance),
+					availableBalance: result.availableBalance,
 				}),
-				...(result.fees && { fees: feesToNaira(result.fees) }),
-				...(result.payout && { payout: payoutToNaira(result.payout) }),
+				...(result.fees && { fees: result.fees }),
+				...(result.payout && { payout: formatPayout(result.payout) }),
 			});
 		}
 
@@ -209,14 +171,14 @@ const requestPayout = async (req, res) => {
 
 		return res.status(201).json({
 			message: `Withdrawal queued. Funds will be transferred in approximately ${holdDisplay}.`,
-			payout: payoutToNaira(result.payout),
+			payout: formatPayout(result.payout),
 			fees: {
-				grossAmount: toNaira(amountKobo),
-				paystackFee: toNaira(result.fees.paystackFee),
-				stampDuty: toNaira(result.fees.stampDuty),
-				totalFee: toNaira(result.fees.total),
-				totalDeducted: toNaira(amountKobo + result.fees.total),
-				netAmountSent: toNaira(amountKobo),
+				grossAmount: amount,
+				paystackFee: result.fees.paystackFee,
+				stampDuty: result.fees.stampDuty,
+				totalFee: result.fees.total,
+				totalDeducted: amount + result.fees.total,
+				netAmountSent: amount,
 			},
 		});
 	} catch (err) {
@@ -230,29 +192,27 @@ const requestPayout = async (req, res) => {
 
 /**
  * GET /api/payouts/fee-estimate?amount=5000
- * Returns the fee breakdown for a given withdrawal amount (naira).
- * Useful for showing users what they'll be charged before confirming.
+ * Returns fee breakdown for a given naira amount before the user confirms.
  */
 const getFeeEstimate = async (req, res) => {
 	try {
-		const amountNaira = parseFloat(req.query.amount);
+		const amount = parseFloat(req.query.amount);
 
-		if (!amountNaira || amountNaira <= 0) {
+		if (!amount || amount <= 0) {
 			return res
 				.status(400)
 				.json({ error: "amount query param required and must be > 0" });
 		}
 
-		const amountKobo = Math.round(amountNaira * 100);
-		const fees = payoutService.calculateFees(amountKobo);
+		const fees = payoutService.calculateFees(amount);
 
 		return res.json({
-			grossAmount: amountNaira,
-			paystackFee: toNaira(fees.paystackFee),
-			stampDuty: toNaira(fees.stampDuty),
-			totalFee: toNaira(fees.total),
-			totalDeducted: toNaira(amountKobo + fees.total),
-			netAmountSent: amountNaira,
+			grossAmount: amount,
+			paystackFee: fees.paystackFee,
+			stampDuty: fees.stampDuty,
+			totalFee: fees.total,
+			totalDeducted: amount + fees.total,
+			netAmountSent: amount,
 		});
 	} catch (err) {
 		logger.error("[getFeeEstimate]", { message: err.message });
@@ -283,7 +243,7 @@ const getPendingPayouts = async (req, res) => {
 			status: { $in: ["pending", "processing"] },
 		}).sort({ createdAt: -1 });
 
-		res.json(payouts.map(payoutToNaira));
+		res.json(payouts.map(formatPayout));
 	} catch (err) {
 		logger.error("[getPendingPayouts]", { message: err.message });
 		res.status(500).json({ error: err.message });
@@ -292,7 +252,6 @@ const getPendingPayouts = async (req, res) => {
 
 /**
  * PUT /api/payouts/:payoutId/cancel
- * Only cancellable if status is still "pending".
  */
 const cancelPayout = async (req, res) => {
 	try {
@@ -332,10 +291,10 @@ const cancelPayout = async (req, res) => {
 		res.json({
 			message:
 				"Withdrawal cancelled. Funds have been returned to your available balance.",
-			payout: payoutToNaira(payout),
+			payout: formatPayout(payout),
 			updatedBalance: {
-				availableBalance: toNaira(reversed.availableBalance),
-				pendingBalance: toNaira(reversed.pendingBalance),
+				availableBalance: reversed.availableBalance,
+				pendingBalance: reversed.pendingBalance,
 			},
 		});
 	} catch (err) {
@@ -385,10 +344,10 @@ const processPayout = async (req, res) => {
 			return res.json({
 				message:
 					"Payout marked as failed. Funds returned to available balance.",
-				payout: payoutToNaira(payout),
+				payout: formatPayout(payout),
 				updatedBalance: {
-					availableBalance: toNaira(reversed.availableBalance),
-					pendingBalance: toNaira(reversed.pendingBalance),
+					availableBalance: reversed.availableBalance,
+					pendingBalance: reversed.pendingBalance,
 				},
 			});
 		}
@@ -398,7 +357,6 @@ const processPayout = async (req, res) => {
 			ledgerType,
 			payout.amount,
 		);
-
 		payout.status = "success";
 		payout.transactionRef = transactionRef;
 		payout.processedAt = new Date();
@@ -406,10 +364,8 @@ const processPayout = async (req, res) => {
 
 		res.json({
 			message: "Payout marked as successful.",
-			payout: payoutToNaira(payout),
-			updatedBalance: {
-				pendingBalance: toNaira(completed.pendingBalance),
-			},
+			payout: formatPayout(payout),
+			updatedBalance: { pendingBalance: completed.pendingBalance },
 		});
 	} catch (err) {
 		logger.error("[processPayout]", { message: err.message });
@@ -419,7 +375,6 @@ const processPayout = async (req, res) => {
 
 /**
  * POST /api/payouts/:payoutId/retry  (admin)
- * Resets a failed or stuck payout and requeues it for immediate processing.
  */
 const retryPayout = async (req, res) => {
 	try {
@@ -432,17 +387,13 @@ const retryPayout = async (req, res) => {
 		if (!payout) return res.status(404).json({ error: "Payout not found" });
 
 		if (!["failed", "pending"].includes(payout.status)) {
-			return res.status(400).json({
-				error: `Cannot retry payout with status '${payout.status}'`,
-			});
+			return res
+				.status(400)
+				.json({ error: `Cannot retry payout with status '${payout.status}'` });
 		}
 
 		await Payout.findByIdAndUpdate(payoutId, {
-			$set: {
-				status: "pending",
-				processAt: new Date(), // process on next cron run
-				retryCount: 0,
-			},
+			$set: { status: "pending", processAt: new Date(), retryCount: 0 },
 			$unset: { lockedAt: "", failureReason: "" },
 		});
 
@@ -488,7 +439,7 @@ const getPayoutHistory = async (req, res) => {
 
 		res.json({
 			success: true,
-			data: history.map(payoutToNaira),
+			data: history.map(formatPayout),
 			pagination: {
 				total: count,
 				pages: Math.ceil(count / Number(limit)),
@@ -531,14 +482,7 @@ const getStatement = async (req, res) => {
 			new Date(endDate),
 		);
 
-		const entries = (statement.entries ?? []).map((e) => ({
-			...e,
-			amount: toNaira(e.amount ?? 0),
-			balanceAfter: toNaira(e.balanceAfter ?? 0),
-			runningBalance: toNaira(e.runningBalance ?? 0),
-		}));
-
-		res.json({ ...statement, entries });
+		res.json(statement);
 	} catch (err) {
 		logger.error("[getStatement]", { message: err.message });
 		res.status(500).json({ error: err.message });

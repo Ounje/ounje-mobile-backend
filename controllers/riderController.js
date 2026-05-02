@@ -3,17 +3,19 @@ const ledgerService = require("../services/ledger.service");
 const logger = require("../utils/logger");
 const RiderProfile = require("../models/RiderProfile");
 
-const toNaira = (kobo) => (kobo ?? 0) / 100;
-
 /**
  * Get Rider Wallet/Dashboard
  * GET /api/riders/wallet
  */
 const getRiderWallet = async (req, res) => {
 	try {
-		const riderProfile = await RiderProfile.findOne({ user: req.user.id }).select("_id");
+		const riderProfile = await RiderProfile.findOne({
+			user: req.user.id,
+		}).select("_id");
 		if (!riderProfile) {
-			return res.status(404).json({ success: false, message: "Rider profile not found" });
+			return res
+				.status(404)
+				.json({ success: false, message: "Rider profile not found" });
 		}
 		const riderId = riderProfile._id;
 
@@ -26,16 +28,16 @@ const getRiderWallet = async (req, res) => {
 		res.status(200).json({
 			success: true,
 			wallet: {
-				availableBalance: toNaira(balance.availableBalance),
-				pendingBalance: toNaira(balance.pendingBalance),
-				holdBalance: toNaira(balance.holdBalance),
-				totalBalance: toNaira(balance.totalBalance),
-				todayEarnings: toNaira(todayEarnings),
+				availableBalance: balance.availableBalance,
+				pendingBalance: balance.pendingBalance,
+				holdBalance: balance.holdBalance,
+				totalBalance: balance.totalBalance,
+				todayEarnings: todayEarnings,
 				currency: "NGN",
 			},
 			transactions: transactions.map((tx) => ({
 				...(tx.toObject ? tx.toObject() : tx),
-				amount: toNaira(tx.amount),
+				amount: tx.amount,
 			})),
 		});
 	} catch (err) {
@@ -54,22 +56,31 @@ const getRiderWallet = async (req, res) => {
  */
 const getRiderWalletTransactions = async (req, res) => {
 	try {
-		const riderProfile = await RiderProfile.findOne({ user: req.user.id }).select("_id");
+		const riderProfile = await RiderProfile.findOne({
+			user: req.user.id,
+		}).select("_id");
 		if (!riderProfile) {
-			return res.status(404).json({ success: false, message: "Rider profile not found" });
+			return res
+				.status(404)
+				.json({ success: false, message: "Rider profile not found" });
 		}
 		const riderId = riderProfile._id;
 
 		const limit = Math.min(parseInt(req.query.limit) || 20, 100);
 		const offset = parseInt(req.query.offset) || 0;
 
-		const result = await ledgerService.getTransactionHistory(riderId, "RIDER", limit, offset);
+		const result = await ledgerService.getTransactionHistory(
+			riderId,
+			"RIDER",
+			limit,
+			offset,
+		);
 
 		res.status(200).json({
 			success: true,
 			transactions: result.transactions.map((tx) => ({
 				...(tx.toObject ? tx.toObject() : tx),
-				amount: toNaira(tx.amount),
+				amount: tx.amount,
 			})),
 			total: result.total,
 			hasMore: result.hasMore,
@@ -275,9 +286,12 @@ const updateNotificationPreferences = async (req, res) => {
 		const { newRequests, earnings, promotions } = req.body;
 
 		const update = {};
-		if (typeof newRequests === "boolean") update["notificationPreferences.newRequests"] = newRequests;
-		if (typeof earnings === "boolean") update["notificationPreferences.earnings"] = earnings;
-		if (typeof promotions === "boolean") update["notificationPreferences.promotions"] = promotions;
+		if (typeof newRequests === "boolean")
+			update["notificationPreferences.newRequests"] = newRequests;
+		if (typeof earnings === "boolean")
+			update["notificationPreferences.earnings"] = earnings;
+		if (typeof promotions === "boolean")
+			update["notificationPreferences.promotions"] = promotions;
 
 		const profile = await RiderProfile.findOneAndUpdate(
 			{ user: riderId },
@@ -291,7 +305,9 @@ const updateNotificationPreferences = async (req, res) => {
 		});
 	} catch (err) {
 		logger.error(`Update Notification Preferences Error: ${err.message}`);
-		res.status(500).json({ success: false, message: "Failed to update preferences" });
+		res
+			.status(500)
+			.json({ success: false, message: "Failed to update preferences" });
 	}
 };
 
@@ -303,14 +319,21 @@ const uploadProfilePicture = async (req, res) => {
 	try {
 		const riderId = req.user.id;
 		if (!req.file) {
-			return res.status(400).json({ success: false, message: "No image file provided" });
+			return res
+				.status(400)
+				.json({ success: false, message: "No image file provided" });
 		}
 		const imageUrl = req.file.path; // Cloudinary URL set by multer-storage-cloudinary
-		await RiderProfile.findOneAndUpdate({ user: riderId }, { profilePicture: imageUrl });
+		await RiderProfile.findOneAndUpdate(
+			{ user: riderId },
+			{ profilePicture: imageUrl },
+		);
 		res.status(200).json({ success: true, profilePicture: imageUrl });
 	} catch (err) {
 		logger.error(`Upload Profile Picture Error: ${err.message}`);
-		res.status(500).json({ success: false, message: "Failed to upload profile picture" });
+		res
+			.status(500)
+			.json({ success: false, message: "Failed to upload profile picture" });
 	}
 };
 
@@ -325,14 +348,18 @@ const updatePushToken = async (req, res) => {
 		const { fcmToken } = req.body;
 
 		if (!fcmToken) {
-			return res.status(400).json({ success: false, message: "fcmToken is required" });
+			return res
+				.status(400)
+				.json({ success: false, message: "fcmToken is required" });
 		}
 
 		await RiderProfile.findOneAndUpdate({ user: userId }, { fcmToken });
 		res.status(200).json({ success: true, message: "Push token saved" });
 	} catch (err) {
 		logger.error(`Update Push Token Error: ${err.message}`);
-		res.status(500).json({ success: false, message: "Failed to save push token" });
+		res
+			.status(500)
+			.json({ success: false, message: "Failed to save push token" });
 	}
 };
 
@@ -345,7 +372,10 @@ const updateRiderOnlineStatus = async (req, res) => {
 	try {
 		const { status } = req.body;
 		if (!["available", "offline"].includes(status)) {
-			return res.status(400).json({ success: false, message: "Status must be 'available' or 'offline'" });
+			return res.status(400).json({
+				success: false,
+				message: "Status must be 'available' or 'offline'",
+			});
 		}
 		const result = await riderService.updateRiderStatus(req.user.id, status);
 		res.json(result);
