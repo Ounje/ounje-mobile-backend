@@ -150,14 +150,6 @@ const _generateReference = (userType, profileId) => {
 	return `${prefix}-${suffix}-${Date.now()}`;
 };
 
-<<<<<<< HEAD
-const _bankKey = (bankDetails = {}) =>
-	[String(bankDetails.accountNumber || ""), String(bankDetails.bankCode || "")]
-		.join(":")
-		.trim();
-
-=======
->>>>>>> b1b0ae5 (Reversed WithdrawalOTP)
 // ─── PUBLIC API ───────────────────────────────────────────────────────────────
 
 /**
