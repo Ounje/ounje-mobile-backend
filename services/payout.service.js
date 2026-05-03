@@ -108,28 +108,18 @@ const _ensureRecipientCode = async (
 	name,
 	forceRecreate = false,
 ) => {
-	const bankKey = _bankKey(bankDetails);
-	const bankMatchesCachedRecipient =
-		profile.paystackRecipientBankKey &&
-		profile.paystackRecipientBankKey === bankKey;
-
-	if (
-		profile.paystackRecipientCode &&
-		bankMatchesCachedRecipient &&
-		!forceRecreate
-	) {
+	if (profile.paystackRecipientCode && !forceRecreate) {
 		logger.debug(
 			`[_ensureRecipientCode] Using cached code=${profile.paystackRecipientCode}`,
 		);
 		return profile.paystackRecipientCode;
 	}
 
-	if (profile.paystackRecipientCode) {
+	if (forceRecreate && profile.paystackRecipientCode) {
 		logger.warn(
 			`[_ensureRecipientCode] Force-recreating — clearing stale code=${profile.paystackRecipientCode} for profile=${profile._id}`,
 		);
 		profile.paystackRecipientCode = undefined;
-		profile.paystackRecipientBankKey = undefined;
 	}
 
 	logger.info(
@@ -146,7 +136,6 @@ const _ensureRecipientCode = async (
 	if (!code) throw new Error("Paystack did not return a recipient_code");
 
 	profile.paystackRecipientCode = code;
-	profile.paystackRecipientBankKey = bankKey;
 	await profile.save();
 
 	logger.info(
@@ -160,11 +149,6 @@ const _generateReference = (userType, profileId) => {
 	const suffix = String(profileId).slice(-6).toUpperCase();
 	return `${prefix}-${suffix}-${Date.now()}`;
 };
-
-const _bankKey = (bankDetails = {}) =>
-	[String(bankDetails.accountNumber || ""), String(bankDetails.bankCode || "")]
-		.join(":")
-		.trim();
 
 // ─── PUBLIC API ───────────────────────────────────────────────────────────────
 

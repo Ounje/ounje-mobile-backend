@@ -366,7 +366,6 @@ const updateBankDetails = async (userId, bankDetails) => {
 		bankName: bankName || null,
 	};
 	riderProfile.paystackRecipientCode = undefined; // invalidate stale recipient
-	riderProfile.paystackRecipientBankKey = undefined;
 	await riderProfile.save();
 
 	return {
