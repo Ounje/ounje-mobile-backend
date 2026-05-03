@@ -28,7 +28,7 @@ if (!mongoose.models.RiderProfile) {
  * Default: 1 hour.
  */
 const WITHDRAWAL_HOLD_MS = parseInt(
-	process.env.WITHDRAWAL_HOLD_MS || String(60 * 60 * 1000),
+	process.env.WITHDRAWAL_HOLD_MS || String(60 * 1000),
 	10,
 );
 
@@ -162,10 +162,7 @@ const _generateReference = (userType, profileId) => {
 };
 
 const _bankKey = (bankDetails = {}) =>
-	[
-		String(bankDetails.accountNumber || ""),
-		String(bankDetails.bankCode || ""),
-	]
+	[String(bankDetails.accountNumber || ""), String(bankDetails.bankCode || "")]
 		.join(":")
 		.trim();
 
