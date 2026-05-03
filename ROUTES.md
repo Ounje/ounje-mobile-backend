@@ -198,9 +198,7 @@ Rider endpoints (require auth + `rider` role):
 
 - GET `/api/payouts/statement` — account statement.
 
-- POST `/api/payouts/withdrawal-otp` — send a withdrawal OTP to the authenticated rider/vendor phone.
-
-- POST `/api/payouts/request` — request a payout to the saved bank account. Body includes amount, OTP, and OTP reference.
+- POST `/api/payouts/request` — request a payout. Body: JSON.
 
 - PUT `/api/payouts/:payoutId/cancel` — cancel a payout.
 
@@ -367,21 +365,16 @@ curl -X POST "HOST/api/food/create-food-item" \
 
 - Verify Payment (GET `/api/payments/verify?reference=<reference>`) — no JSON body; use query param `reference`.
 
-- Request Withdrawal OTP (POST `/api/payouts/withdrawal-otp`) — Body (JSON):
-
-```json
-{
-  "amount": 5000
-}
-```
-
 - Request Payout (POST `/api/payouts/request`) — Body (JSON):
 
 ```json
 {
   "amount": 5000,
-  "reference": "verification_reference_from_withdrawal_otp",
-  "otp": "123456"
+  "bankDetails": {
+    "accountNumber": "0123456789",
+    "bankCode": "058",
+    "accountName": "John Doe"
+  }
 }
 ```
 

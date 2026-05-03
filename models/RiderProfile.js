@@ -73,7 +73,6 @@ const riderProfileSchema = new mongoose.Schema(
 			},
 		},
 		paystackRecipientCode: { type: String },
-		paystackRecipientBankKey: { type: String },
 		profilePicture: String, // Cloudinary URL
 		driversLicense: String, // URL or ID
 		nin: String, // National Identity Number

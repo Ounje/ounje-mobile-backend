@@ -108,7 +108,6 @@ const vendorProfileSchema = new mongoose.Schema(
 			bankName: String,
 		},
 		paystackRecipientCode: { type: String },
-		paystackRecipientBankKey: { type: String },
 		storeDetails: [storeDetailsSchema],
 	},
 	{ timestamps: true },

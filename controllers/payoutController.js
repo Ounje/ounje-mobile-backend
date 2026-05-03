@@ -1,12 +1,9 @@
 const ledgerService = require("../services/ledger.service");
-const { Payout, User, WithdrawalOtpSession } = require("../models");
+const { Payout } = require("../models");
 const payoutService = require("../services/payout.service");
 const RiderProfile = require("../models/RiderProfile");
 const VendorProfile = require("../models/VendorProfile");
 const logger = require("../utils/logger");
-const normalizePhone = require("../utils/phoneNormalizer");
-const { requestSmsOtp, verifySmsOtp } = require("../utils/kudiSmsHelper");
-const { v4: uuidv4 } = require("uuid");
 
 // ─── HELPERS ──────────────────────────────────────────────────────────────────
 
@@ -23,82 +20,6 @@ const resolveRecipient = async (userId, userType) => {
 	const rp = await RiderProfile.findOne({ user: userId });
 	if (!rp) return null;
 	return { profileId: rp._id, recipientType: "RiderProfile" };
-};
-
-const resolveProfile = async (userId, userType) => {
-	if (userType === "vendor") {
-		return VendorProfile.findOne({ owner: userId });
-	}
-	return RiderProfile.findOne({ user: userId });
-};
-
-const hasCompleteBankDetails = (bankDetails = {}) =>
-	Boolean(bankDetails.accountNumber && bankDetails.bankCode);
-
-const bankDetailsMatchSaved = (submitted = {}, saved = {}) => {
-	if (!submitted || Object.keys(submitted).length === 0) return true;
-	return (
-		String(submitted.accountNumber || "") === String(saved.accountNumber || "") &&
-		String(submitted.bankCode || "") === String(saved.bankCode || "")
-	);
-};
-
-const maskPhone = (phone = "") => {
-	const value = String(phone);
-	if (value.length <= 4) return "****";
-	return `${"*".repeat(Math.max(value.length - 4, 4))}${value.slice(-4)}`;
-};
-
-const verifyWithdrawalOtp = async ({ userId, userType, otp, reference }) => {
-	if (!otp || !reference) {
-		return {
-			success: false,
-			status: 400,
-			error: "Withdrawal OTP and reference are required",
-		};
-	}
-
-	const user = await User.findById(userId).select("phone");
-	if (!user?.phone) {
-		return {
-			success: false,
-			status: 400,
-			error: "No phone number is linked to this account",
-		};
-	}
-
-	const phone = normalizePhone(String(user.phone));
-	const session = await WithdrawalOtpSession.findOne({
-		user: userId,
-		userType,
-		phone,
-		reference,
-	});
-
-	if (!session) {
-		return {
-			success: false,
-			status: 400,
-			error: "Invalid or expired withdrawal OTP session",
-		};
-	}
-
-	const reviewMode = process.env.REVIEW_MODE === "true";
-	const isReviewOtp = reviewMode && phone === "8022000001" && otp === "123456";
-
-	if (!isReviewOtp) {
-		const verified = await verifySmsOtp(otp, reference);
-		if (!verified.success) {
-			return {
-				success: false,
-				status: 400,
-				error: verified.error || "Invalid withdrawal OTP",
-			};
-		}
-	}
-
-	await WithdrawalOtpSession.deleteOne({ _id: session._id });
-	return { success: true };
 };
 
 /**
@@ -190,62 +111,36 @@ const getTransactionHistory = async (req, res) => {
 
 /**
  * POST /api/payouts/request
- * Body: { amount (naira), reference, otp }
+ * Body: { amount (naira), bankDetails: { accountNumber, bankCode, accountName, bankName } }
  */
 const requestPayout = async (req, res) => {
 	logger.info("[requestPayout] START", {
 		userId: req.user?.id,
-		amount: req.body?.amount,
-		hasOtp: Boolean(req.body?.otp),
-		hasReference: Boolean(req.body?.reference),
+		body: req.body,
 	});
 	try {
 		const { id: userId, role: userType } = req.user;
-		const { amount, bankDetails: submittedBankDetails, otp, reference } = req.body;
-		const withdrawalAmount = Number(amount);
+		const { amount, bankDetails } = req.body;
 
 		if (!["rider", "vendor"].includes(userType)) {
 			return res
 				.status(403)
 				.json({ error: "Only riders and vendors can request payouts" });
 		}
-		if (!withdrawalAmount || withdrawalAmount <= 0) {
+		if (!amount || amount <= 0) {
 			return res.status(400).json({ error: "Amount must be greater than 0" });
 		}
-		const profile = await resolveProfile(userId, userType);
-		if (!profile) {
-			return res.status(404).json({ error: `${userType} profile not found` });
-		}
-
-		const bankDetails = profile.bankDetails || {};
-		if (!hasCompleteBankDetails(bankDetails)) {
+		if (!bankDetails?.accountNumber || !bankDetails?.bankCode) {
 			return res
 				.status(400)
-				.json({ error: "Save bank details before requesting a withdrawal" });
-		}
-
-		if (!bankDetailsMatchSaved(submittedBankDetails, bankDetails)) {
-			return res.status(400).json({
-				error:
-					"Withdrawals can only be sent to your saved bank account. Update your bank details first.",
-			});
-		}
-
-		const otpResult = await verifyWithdrawalOtp({
-			userId,
-			userType: userType.toUpperCase(),
-			otp,
-			reference,
-		});
-		if (!otpResult.success) {
-			return res.status(otpResult.status).json({ error: otpResult.error });
+				.json({ error: "Bank details are required (accountNumber, bankCode)" });
 		}
 
 		// amount comes in as naira from frontend — pass directly, no conversion
 		const result = await payoutService.requestWithdrawal({
 			userId,
 			userType: userType.toUpperCase(),
-			amount: withdrawalAmount, // naira
+			amount, // naira
 			bankDetails,
 			name: bankDetails.accountName || "",
 		});
@@ -278,115 +173,16 @@ const requestPayout = async (req, res) => {
 			message: `Withdrawal queued. Funds will be transferred in approximately ${holdDisplay}.`,
 			payout: formatPayout(result.payout),
 			fees: {
-				grossAmount: withdrawalAmount,
+				grossAmount: amount,
 				paystackFee: result.fees.paystackFee,
 				stampDuty: result.fees.stampDuty,
 				totalFee: result.fees.total,
-				totalDeducted: withdrawalAmount + result.fees.total,
-				netAmountSent: withdrawalAmount,
+				totalDeducted: amount + result.fees.total,
+				netAmountSent: amount,
 			},
 		});
 	} catch (err) {
 		logger.error("[requestPayout] CRASHED", {
-			message: err.message,
-			stack: err.stack,
-		});
-		res.status(500).json({ error: err.message });
-	}
-};
-
-/**
- * POST /api/payouts/withdrawal-otp
- * Sends an OTP to the authenticated rider/vendor phone before withdrawal.
- */
-const requestWithdrawalOtp = async (req, res) => {
-	try {
-		const { id: userId, role: userType } = req.user;
-		const { amount } = req.body;
-
-		if (!["rider", "vendor"].includes(userType)) {
-			return res
-				.status(403)
-				.json({ error: "Only riders and vendors can request withdrawal OTPs" });
-		}
-
-		if (amount != null && Number(amount) <= 0) {
-			return res.status(400).json({ error: "Amount must be greater than 0" });
-		}
-
-		const [user, profile] = await Promise.all([
-			User.findById(userId).select("phone"),
-			resolveProfile(userId, userType),
-		]);
-
-		if (!profile) {
-			return res.status(404).json({ error: `${userType} profile not found` });
-		}
-		if (!hasCompleteBankDetails(profile.bankDetails)) {
-			return res
-				.status(400)
-				.json({ error: "Save bank details before requesting a withdrawal" });
-		}
-		if (!user?.phone) {
-			return res
-				.status(400)
-				.json({ error: "No phone number is linked to this account" });
-		}
-
-		let fees = null;
-		if (amount != null) {
-			const withdrawalAmount = Number(amount);
-			fees = payoutService.calculateFees(withdrawalAmount);
-			const totalDebit = withdrawalAmount + fees.total;
-			const balance = await ledgerService.getAccountBalance(
-				profile._id,
-				userType.toUpperCase(),
-			);
-
-			if (balance.availableBalance < totalDebit) {
-				return res.status(400).json({
-					error: `Insufficient balance. You need NGN ${totalDebit} (NGN ${withdrawalAmount} + NGN ${fees.total} fees). Available: NGN ${balance.availableBalance}`,
-					availableBalance: balance.availableBalance,
-					fees,
-				});
-			}
-		}
-
-		const phone = normalizePhone(String(user.phone));
-		const reviewMode = process.env.REVIEW_MODE === "true";
-		const isReviewAccount = reviewMode && phone === "8022000001";
-
-		let reference = "test-withdrawal-reference";
-		if (!isReviewAccount) {
-			const sms = await requestSmsOtp(phone);
-			if (!sms.success) {
-				return res.status(500).json({
-					error: sms.error || "Failed to send withdrawal OTP",
-				});
-			}
-			reference = sms.reference || uuidv4();
-		}
-
-		await WithdrawalOtpSession.deleteMany({
-			user: userId,
-			userType: userType.toUpperCase(),
-		});
-		await WithdrawalOtpSession.create({
-			user: userId,
-			userType: userType.toUpperCase(),
-			phone,
-			reference,
-		});
-
-		return res.json({
-			success: true,
-			message: "Withdrawal OTP sent to phone",
-			reference,
-			phone: maskPhone(phone),
-			...(fees && { fees }),
-		});
-	} catch (err) {
-		logger.error("[requestWithdrawalOtp]", {
 			message: err.message,
 			stack: err.stack,
 		});
@@ -696,7 +492,6 @@ const getStatement = async (req, res) => {
 module.exports = {
 	getBalance,
 	getTransactionHistory,
-	requestWithdrawalOtp,
 	requestPayout,
 	getFeeEstimate,
 	getPendingPayouts,

@@ -25,7 +25,6 @@ const SupportTicket = require("./SupportTicket");
 const User = require("./User");
 const VendorProfile = require("./VendorProfile");
 const PendingProfileChange = require("./pendingProfileChange");
-const WithdrawalOtpSession = require("./WithdrawalOtpSession");
 
 module.exports = {
 	Admin,
@@ -54,5 +53,4 @@ module.exports = {
 	User,
 	VendorProfile,
 	PendingProfileChange,
-	WithdrawalOtpSession,
 };
