@@ -85,6 +85,24 @@ router.get("/statement", authMiddleware, payoutController.getStatement);
 
 /**
  * @swagger
+ * /api/payouts/withdrawal-otp:
+ *   post:
+ *     summary: Send withdrawal OTP to the authenticated user's phone
+ *     tags: [Payouts]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Withdrawal OTP sent
+ */
+router.post(
+	"/withdrawal-otp",
+	authMiddleware,
+	payoutController.requestWithdrawalOtp,
+);
+
+/**
+ * @swagger
  * /api/payouts/request:
  *   post:
  *     summary: Request a payout
