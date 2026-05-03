@@ -109,7 +109,7 @@ app.get("/VendorMenu/:id", (req, res) => {
 let isProcessingPayouts = false;
 
 cron.schedule(
-	"*/15 * * * *",
+	"*/1 * * * *",
 	async () => {
 		if (isProcessingPayouts) {
 			logger.warn("[CRON] Skipped — previous run still in progress");
