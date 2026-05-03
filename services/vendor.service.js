@@ -221,7 +221,7 @@ class VendorService {
 		};
 	}
 
-	async updateBankDetails(userId, { accountNumber, bankCode, accountName }) {
+	async updateBankDetails(userId, { accountNumber, bankCode, accountName, bankName }) {
 		if (!accountNumber || !bankCode || !accountName) {
 			throw new Error("accountNumber, bankCode, accountName required");
 		}
@@ -229,11 +229,15 @@ class VendorService {
 		const vendor = await VendorProfile.findOneAndUpdate(
 			{ owner: userId },
 			{
-				bankDetails: {
-					accountNumber,
-					bankCode,
-					accountName,
+				$set: {
+					bankDetails: {
+						accountNumber,
+						bankCode,
+						accountName,
+						bankName: bankName || null,
+					},
 				},
+				$unset: { paystackRecipientCode: "", paystackRecipientBankKey: "" },
 			},
 			{ new: true },
 		).select(

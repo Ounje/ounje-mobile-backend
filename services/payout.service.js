@@ -25,10 +25,10 @@ if (!mongoose.models.RiderProfile) {
 
 /**
  * How long after a withdrawal request before the Paystack transfer fires (ms).
- * Default: 2 hours.
+ * Default: 1 hour.
  */
 const WITHDRAWAL_HOLD_MS = parseInt(
-	process.env.WITHDRAWAL_HOLD_MS || String(2 * 60 * 60 * 1000),
+	process.env.WITHDRAWAL_HOLD_MS || String(60 * 1000),
 	10,
 );
 
@@ -108,18 +108,28 @@ const _ensureRecipientCode = async (
 	name,
 	forceRecreate = false,
 ) => {
-	if (profile.paystackRecipientCode && !forceRecreate) {
+	const bankKey = _bankKey(bankDetails);
+	const bankMatchesCachedRecipient =
+		profile.paystackRecipientBankKey &&
+		profile.paystackRecipientBankKey === bankKey;
+
+	if (
+		profile.paystackRecipientCode &&
+		bankMatchesCachedRecipient &&
+		!forceRecreate
+	) {
 		logger.debug(
 			`[_ensureRecipientCode] Using cached code=${profile.paystackRecipientCode}`,
 		);
 		return profile.paystackRecipientCode;
 	}
 
-	if (forceRecreate && profile.paystackRecipientCode) {
+	if (profile.paystackRecipientCode) {
 		logger.warn(
 			`[_ensureRecipientCode] Force-recreating — clearing stale code=${profile.paystackRecipientCode} for profile=${profile._id}`,
 		);
 		profile.paystackRecipientCode = undefined;
+		profile.paystackRecipientBankKey = undefined;
 	}
 
 	logger.info(
@@ -136,6 +146,7 @@ const _ensureRecipientCode = async (
 	if (!code) throw new Error("Paystack did not return a recipient_code");
 
 	profile.paystackRecipientCode = code;
+	profile.paystackRecipientBankKey = bankKey;
 	await profile.save();
 
 	logger.info(
@@ -149,6 +160,11 @@ const _generateReference = (userType, profileId) => {
 	const suffix = String(profileId).slice(-6).toUpperCase();
 	return `${prefix}-${suffix}-${Date.now()}`;
 };
+
+const _bankKey = (bankDetails = {}) =>
+	[String(bankDetails.accountNumber || ""), String(bankDetails.bankCode || "")]
+		.join(":")
+		.trim();
 
 // ─── PUBLIC API ───────────────────────────────────────────────────────────────
 
