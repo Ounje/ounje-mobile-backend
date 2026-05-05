@@ -246,8 +246,9 @@ const login = asyncHandler(async (req, res) => {
 	// TEMPORARY: App Store Review Test Account - Remove after review
 	const REVIEW_MODE = process.env.REVIEW_MODE === 'true';
 	const TEST_PHONE = '8022000001';
-	const TEST_EMAIL = 'test@ounjefood.com';
-	const TEST_OTP = '123456';
+	const TEST_EMAIL = 'test@ounje.com';
+	const TEST_PHONE_OTP = '123456';
+	const TEST_EMAIL_OTP = '0123';
 
 	let normalizedPhone = null;
 	let isTestAccount = false;
@@ -273,13 +274,13 @@ const login = asyncHandler(async (req, res) => {
 		if (identifierType === "phone") {
 			await OtpVerification.create({
 				phone: TEST_PHONE,
-				otp: TEST_OTP,
+				otp: TEST_PHONE_OTP,
 				isPhone: true,
 			});
 		} else {
 			await OtpVerification.create({
 				email: TEST_EMAIL,
-				otp: TEST_OTP,
+				otp: TEST_EMAIL_OTP,
 				isEmail: true,
 			});
 		}
@@ -338,13 +339,13 @@ const requestEmailOtp = asyncHandler(async (req, res) => {
 
 	// TEMPORARY: App Store Review Test Account - Remove after review
 	const REVIEW_MODE = process.env.REVIEW_MODE === 'true';
-	const TEST_EMAIL = 'test@ounjefood.com';
-	const TEST_OTP = '123456';
+	const TEST_EMAIL = 'test@ounje.com';
+	const TEST_EMAIL_OTP = '0123';
 
 	// Handle test account for App Store review
-	if (REVIEW_MODE && email === TEST_EMAIL) {
+	if (REVIEW_MODE && email.toLowerCase() === TEST_EMAIL) {
 		await OtpVerification.deleteMany({ email: TEST_EMAIL, isEmail: true });
-		await OtpVerification.create({ email: TEST_EMAIL, otp: TEST_OTP, isEmail: true });
+		await OtpVerification.create({ email: TEST_EMAIL, otp: TEST_EMAIL_OTP, isEmail: true });
 
 		logger.info(`App Store Review: Test OTP sent to email: ${TEST_EMAIL}`);
 		return res.json({ success: true, message: "OTP sent to email" });
@@ -406,11 +407,11 @@ const verifyEmailOtp = asyncHandler(async (req, res) => {
 
 	// TEMPORARY: App Store Review Test Account - Remove after review
 	const REVIEW_MODE = process.env.REVIEW_MODE === 'true';
-	const TEST_EMAIL = 'test@ounjefood.com';
-	const TEST_OTP = '123456';
+	const TEST_EMAIL = 'test@ounje.com';
+	const TEST_EMAIL_OTP = '0123';
 
 	// Handle test account for App Store review
-	if (REVIEW_MODE && email === TEST_EMAIL && otp === TEST_OTP) {
+	if (REVIEW_MODE && email.toLowerCase() === TEST_EMAIL && otp === TEST_EMAIL_OTP) {
 		await OtpVerification.deleteMany({ email: TEST_EMAIL, isEmail: true });
 
 		// Handle signup flow
