@@ -4,7 +4,7 @@ const logger = require("../utils/logger");
 /**
  * processAllPendingPayouts
  *
- * Called by the cron job every 15 minutes.
+ * Called by the cron job every 1 minute.
  * Delegates entirely to payout.service.processQueuedWithdrawals()
  * which handles locking, Paystack transfer, ledger settlement,
  * retry logic, and failure reversal.
