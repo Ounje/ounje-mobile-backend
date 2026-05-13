@@ -496,6 +496,7 @@ const verifyEmailOtp = asyncHandler(async (req, res) => {
 					email: user.email,
 					phone: user.phone,
 					role: user.role,
+					profileId: profile._id,
 				},
 			});
 		}
@@ -806,6 +807,7 @@ const verifyPhoneOtp = asyncHandler(async (req, res) => {
 					email: user.email,
 					phone: user.phone,
 					role: user.role,
+					profileId: profile._id,
 				},
 			});
 		}
