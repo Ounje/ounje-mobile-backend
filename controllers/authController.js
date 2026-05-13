@@ -244,6 +244,7 @@ const login = asyncHandler(async (req, res) => {
 	if (!identifier) throw new AppError("Email or phone is required", 400);
 
 	// TEMPORARY: App Store Review Test Account - Remove after review
+	const REVIEW_MODE = process.env.REVIEW_MODE === 'true';
 	const TEST_PHONES = ['8022000001', '8022000002', '8022000003'];
 	const TEST_EMAILS = ['test@ounjefood.com'];
 	const TEST_PHONE_OTP = '123456';
@@ -255,10 +256,10 @@ const login = asyncHandler(async (req, res) => {
 
 	if (identifier.includes("@")) {
 		identifierType = "email";
-		isTestAccount = TEST_EMAILS.includes(identifier.toLowerCase());
+		isTestAccount = REVIEW_MODE && TEST_EMAILS.includes(identifier.toLowerCase());
 	} else {
 		normalizedPhone = normalizePhone(identifier);
-		isTestAccount = TEST_PHONES.includes(normalizedPhone);
+		isTestAccount = REVIEW_MODE && TEST_PHONES.includes(normalizedPhone);
 	}
 
 	// Handle test account for App Store review before normal user validation
@@ -325,11 +326,12 @@ const requestEmailOtp = asyncHandler(async (req, res) => {
 	if (!flow) throw new AppError("Flow (login/signup) is required", 400);
 
 	// TEMPORARY: App Store Review Test Account - Remove after review
+	const REVIEW_MODE = process.env.REVIEW_MODE === 'true';
 	const TEST_EMAILS = ['test@ounjefood.com'];
 	const TEST_EMAIL_OTP = '0123';
 
 	// Handle test account for App Store review
-	if (TEST_EMAILS.includes(email.toLowerCase())) {
+	if (REVIEW_MODE && TEST_EMAILS.includes(email.toLowerCase())) {
 		const testEmail = email.toLowerCase();
 		await OtpVerification.deleteMany({ email: testEmail, isEmail: true });
 		await OtpVerification.create({ email: testEmail, otp: TEST_EMAIL_OTP, isEmail: true });
@@ -393,6 +395,7 @@ const verifyEmailOtp = asyncHandler(async (req, res) => {
 	if (!flow) throw new AppError("Flow (login/signup) is required", 400);
 
 	// TEMPORARY: App Store Review Test Account - Remove after review
+	const REVIEW_MODE = process.env.REVIEW_MODE === 'true';
 	const TEST_EMAIL_MAP = {
 		'test@ounjefood.com': 'customer',
 	};
@@ -401,7 +404,7 @@ const verifyEmailOtp = asyncHandler(async (req, res) => {
 	const testEmailRole = TEST_EMAIL_MAP[email.toLowerCase()];
 
 	// Handle test account for App Store review
-	if (testEmailRole && otp === TEST_EMAIL_OTP) {
+	if (REVIEW_MODE && testEmailRole && otp === TEST_EMAIL_OTP) {
 		const testEmail = email.toLowerCase();
 		const testRole = testEmailRole;
 		await OtpVerification.deleteMany({ email: testEmail, isEmail: true });
@@ -584,11 +587,12 @@ const requestPhoneOtp = asyncHandler(async (req, res) => {
 	phone = normalizePhone(phone);
 
 	// TEMPORARY: App Store Review Test Account - Remove after review
+	const REVIEW_MODE = process.env.REVIEW_MODE === 'true';
 	const TEST_PHONES = ['8022000001', '8022000002', '8022000003'];
 	const TEST_OTP = '123456';
 
 	// Handle test account for App Store review
-	if (TEST_PHONES.includes(phone)) {
+	if (REVIEW_MODE && TEST_PHONES.includes(phone)) {
 		await OtpVerification.deleteMany({ phone, isPhone: true });
 		await OtpVerification.create({ phone, otp: TEST_OTP, isPhone: true });
 
@@ -691,6 +695,7 @@ const verifyPhoneOtp = asyncHandler(async (req, res) => {
 	let { phone, otp, reference, role, flow, fcmToken } = req.body;
 
 	// TEMPORARY: App Store Review Test Account - Remove after review
+	const REVIEW_MODE = process.env.REVIEW_MODE === 'true';
 	const TEST_PHONE_MAP = {
 		'8022000001': 'customer',
 		'8022000002': 'vendor',
@@ -698,7 +703,7 @@ const verifyPhoneOtp = asyncHandler(async (req, res) => {
 	};
 	const TEST_OTP = '123456';
 	const testPhoneRole = TEST_PHONE_MAP[normalizePhone(phone || '')];
-	const isTestAccount = !!testPhoneRole && otp === TEST_OTP;
+	const isTestAccount = REVIEW_MODE && !!testPhoneRole && otp === TEST_OTP;
 
 	// reference is not required for the test account
 	if (!phone || !otp || (!reference && !isTestAccount))
