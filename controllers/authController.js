@@ -22,9 +22,25 @@ const logger = require("../utils/logger");
 
 const generateOtp = () => Math.floor(1000 + Math.random() * 9000).toString();
 const normalizePhone = require("../utils/phoneNormalizer");
-const { checkActiveUser } = require("../middleware/auth");
 const { validateUserStatus } = require("../utils/accountValidator");
 const { provisionCustomerDVA } = require("../services/dva.service");
+
+// ─── Test Account Config ───────────────────────────────────────────────────
+// NOTE: normalizePhone() may add country code e.g. "2348022000001"
+// Update these to match whatever normalizePhone() returns for your test numbers
+const TEST_PHONES = ["2348022000001", "2348022000002", "2348022000003"];
+const TEST_EMAILS = ["test@ounjefood.com"];
+const TEST_PHONE_OTP = "123456";
+const TEST_EMAIL_OTP = "0123";
+const TEST_PHONE_MAP = {
+	2348022000001: "customer",
+	2348022000002: "vendor",
+	2348022000003: "rider",
+};
+const TEST_EMAIL_MAP = {
+	"test@ounjefood.com": "customer",
+};
+// ──────────────────────────────────────────────────────────────────────────
 
 const register = asyncHandler(async (req, res) => {
 	const { name, role, phone, location, email, otpSession, fcmToken } = req.body;
@@ -46,7 +62,6 @@ const register = asyncHandler(async (req, res) => {
 			throw new AppError("Phone OTP required for vendor/rider", 400);
 		finalPhone = decoded.phone;
 	} else if (role === "customer") {
-		// Customer can use either phone or email
 		finalPhone = decoded.phone || phone;
 		finalEmail = decoded.email || email;
 	} else {
@@ -78,7 +93,6 @@ const register = asyncHandler(async (req, res) => {
 
 	const coordinates = { type: "Point", coordinates: [geo.lng, geo.lat] };
 
-	// Create User document first
 	const user = new User({
 		name,
 		email: finalEmail || undefined,
@@ -90,7 +104,6 @@ const register = asyncHandler(async (req, res) => {
 	});
 	await user.save();
 
-	// Create corresponding profile
 	let profile;
 	if (role === "customer") {
 		profile = new Customer({
@@ -119,13 +132,10 @@ const register = asyncHandler(async (req, res) => {
 	}
 	await profile.save();
 
-	// Provision Paystack Virtual Account for Customers ──
 	if (role === "customer") {
-		// Fire-and-forget async execution
 		setImmediate(() => {
 			(async () => {
 				try {
-					// 1. Fetch fresh customer with populated user
 					const customerDoc = await Customer.findById(profile._id).populate(
 						"user",
 					);
@@ -136,7 +146,6 @@ const register = asyncHandler(async (req, res) => {
 						);
 					}
 
-					// 2. Idempotency check (avoid duplicate provisioning)
 					if (customerDoc.paystackCustomerCode && customerDoc.titanAccount) {
 						logger.info(
 							`DVA already exists for customer ${profile._id}, skipping provisioning`,
@@ -144,18 +153,15 @@ const register = asyncHandler(async (req, res) => {
 						return;
 					}
 
-					// 3. Safe name parsing
 					const fullName = customerDoc.user.name || "Customer";
 					const nameParts = fullName.trim().split(" ");
 					const firstName = nameParts[0];
 					const lastName =
 						nameParts.length > 1 ? nameParts.slice(1).join(" ") : "Customer";
 
-					// 4. Provision virtual account
 					const { customerCode, titanAccount } =
 						await provisionCustomerDVA(customerDoc);
 
-					// 5. Update customer record
 					await Customer.findByIdAndUpdate(profile._id, {
 						firstName,
 						lastName,
@@ -175,8 +181,6 @@ const register = asyncHandler(async (req, res) => {
 		});
 	}
 
-	// === START KITCHEN SYNC ===
-	// Only sync if the role is 'customer' or 'vendor'
 	if (role === "customer" || role === "vendor") {
 		let mirrorData = {
 			_id: profile._id,
@@ -185,29 +189,20 @@ const register = asyncHandler(async (req, res) => {
 		};
 
 		if (role === "customer") {
-			// Split "John Doe" into ["John", "Doe"]
 			const nameParts = user.name.trim().split(" ");
 			mirrorData.firstName = nameParts[0];
 			mirrorData.lastName =
 				nameParts.length > 1 ? nameParts.slice(1).join(" ") : "Customer";
 		} else {
-			// For vendors
 			mirrorData.businessName = user.name;
-			mirrorData.ownerName = user.name; // Placeholder for ownerName
+			mirrorData.ownerName = user.name;
 		}
 
 		syncUserToKitchen(role, mirrorData);
 	}
-	// === END KITCHEN SYNC ===
 
-	const accessToken = generateAccessToken({
-		id: user._id,
-		role: user.role,
-	});
-	const refreshToken = generateRefreshToken({
-		id: user._id,
-		role: user.role,
-	});
+	const accessToken = generateAccessToken({ id: user._id, role: user.role });
+	const refreshToken = generateRefreshToken({ id: user._id, role: user.role });
 
 	await RefreshToken.create({
 		token: refreshToken,
@@ -234,6 +229,7 @@ const register = asyncHandler(async (req, res) => {
 			profileId: profile._id,
 		},
 	});
+
 	logger.info(
 		`User registered: ${user._id} (${role}) with profile: ${profile._id}`,
 	);
@@ -243,12 +239,7 @@ const login = asyncHandler(async (req, res) => {
 	const { identifier } = req.body;
 	if (!identifier) throw new AppError("Email or phone is required", 400);
 
-	// TEMPORARY: App Store Review Test Account - Remove after review
 	const REVIEW_MODE = process.env.REVIEW_MODE === "true";
-	const TEST_PHONES = ["8022000001", "8022000002", "8022000003"];
-	const TEST_EMAILS = ["test@ounjefood.com"];
-	const TEST_PHONE_OTP = "123456";
-	const TEST_EMAIL_OTP = "0123";
 
 	let normalizedPhone = null;
 	let isTestAccount = false;
@@ -263,7 +254,6 @@ const login = asyncHandler(async (req, res) => {
 		isTestAccount = REVIEW_MODE && TEST_PHONES.includes(normalizedPhone);
 	}
 
-	// Handle test account for App Store review before normal user validation
 	if (isTestAccount) {
 		if (identifierType === "phone") {
 			await OtpVerification.deleteMany({
@@ -302,9 +292,7 @@ const login = asyncHandler(async (req, res) => {
 		const otp = generateOtp();
 		await OtpVerification.deleteMany({ email: user.email, isEmail: true });
 		await OtpVerification.create({ email: user.email, otp, isEmail: true });
-
 		await emailService.sendOtpEmail(user.email, otp, "login");
-
 		logger.info(`Login OTP sent to email: ${user.email}`);
 		return res.json({ message: `OTP sent to email: ${user.email}` });
 	}
@@ -320,12 +308,8 @@ const login = asyncHandler(async (req, res) => {
 			reference,
 			isPhone: true,
 		});
-
 		logger.info(`Login OTP sent to phone: ${user.phone}`);
-		return res.json({
-			message: `OTP sent to phone: ${user.phone}`,
-			reference,
-		});
+		return res.json({ message: `OTP sent to phone: ${user.phone}`, reference });
 	}
 
 	throw new AppError("Cannot send OTP. User profile incomplete.", 500);
@@ -337,12 +321,8 @@ const requestEmailOtp = asyncHandler(async (req, res) => {
 	if (!role) throw new AppError("Role is required", 400);
 	if (!flow) throw new AppError("Flow (login/signup) is required", 400);
 
-	// TEMPORARY: App Store Review Test Account - Remove after review
 	const REVIEW_MODE = process.env.REVIEW_MODE === "true";
-	const TEST_EMAILS = ["test@ounjefood.com"];
-	const TEST_EMAIL_OTP = "0123";
 
-	// Handle test account for App Store review
 	if (REVIEW_MODE && TEST_EMAILS.includes(email.toLowerCase())) {
 		const testEmail = email.toLowerCase();
 		await OtpVerification.deleteMany({ email: testEmail, isEmail: true });
@@ -351,27 +331,19 @@ const requestEmailOtp = asyncHandler(async (req, res) => {
 			otp: TEST_EMAIL_OTP,
 			isEmail: true,
 		});
-
 		logger.info(`App Store Review: Test OTP sent to email: ${testEmail}`);
 		return res.json({ success: true, message: "OTP sent to email" });
 	}
 
-	// For signup, check if email exists in ANY role to prevent duplicate registrations
 	if (flow === "signup") {
 		const existingUser = await User.findOne({ email });
-		if (existingUser) {
-			throw new AppError("Email already registered", 400);
-		}
+		if (existingUser) throw new AppError("Email already registered", 400);
 	}
 
-	// For login, check for existing user and verify they have the correct role profile
 	if (flow === "login") {
 		const user = await User.findOne({ email });
-		if (!user) {
-			throw new AppError("No account found with this email", 404);
-		}
+		if (!user) throw new AppError("No account found with this email", 404);
 
-		// Verify they have the correct role profile
 		let hasProfile = false;
 		if (role === "rider") {
 			const profile = await RiderProfile.findOne({ user: user._id });
@@ -386,15 +358,13 @@ const requestEmailOtp = asyncHandler(async (req, res) => {
 			throw new AppError("Invalid role", 400);
 		}
 
-		if (!hasProfile) {
+		if (!hasProfile)
 			throw new AppError(`No ${role} account found with this email`, 404);
-		}
 	}
 
 	const otp = generateOtp();
 	await OtpVerification.deleteMany({ email, isEmail: true });
 	await OtpVerification.create({ email, otp, isEmail: true });
-
 	await emailService.sendOtpEmail(
 		email,
 		otp,
@@ -410,43 +380,31 @@ const verifyEmailOtp = asyncHandler(async (req, res) => {
 	if (!role) throw new AppError("Role is required", 400);
 	if (!flow) throw new AppError("Flow (login/signup) is required", 400);
 
-	// TEMPORARY: App Store Review Test Account - Remove after review
 	const REVIEW_MODE = process.env.REVIEW_MODE === "true";
-	const TEST_EMAIL_MAP = {
-		"test@ounjefood.com": "customer",
-	};
-	const TEST_EMAIL_OTP = "0123";
-
 	const testEmailRole = TEST_EMAIL_MAP[email.toLowerCase()];
+	const isTestAccount =
+		REVIEW_MODE && !!testEmailRole && String(otp) === TEST_EMAIL_OTP;
 
-	// Handle test account for App Store review
-	if (REVIEW_MODE && testEmailRole && String(otp) === TEST_EMAIL_OTP) {
+	if (isTestAccount) {
 		const testEmail = email.toLowerCase();
 		const testRole = testEmailRole;
 		await OtpVerification.deleteMany({ email: testEmail, isEmail: true });
 
-		// Handle signup flow
 		if (flow === "signup") {
 			const existingUser = await User.findOne({ email: testEmail });
-			if (existingUser) {
-				throw new AppError("Email already registered", 400);
-			}
+			if (existingUser) throw new AppError("Email already registered", 400);
 
 			const otpSession = jwt.sign(
 				{ email: testEmail },
 				process.env.JWT_SECRET,
-				{
-					expiresIn: "30m",
-				},
+				{ expiresIn: "30m" },
 			);
 			return res.json({ success: true, otpSession });
 		}
 
-		// Handle login flow
 		if (flow === "login") {
 			let user = await User.findOne({ email: testEmail });
 
-			// Auto-create test user if it doesn't exist yet
 			if (!user) {
 				user = new User({
 					name: "Test User",
@@ -481,7 +439,6 @@ const verifyEmailOtp = asyncHandler(async (req, res) => {
 				);
 			}
 
-			// Find the role profile
 			let profile = null;
 			if (testRole === "rider") {
 				profile = await RiderProfile.findOne({ user: user._id });
@@ -491,9 +448,8 @@ const verifyEmailOtp = asyncHandler(async (req, res) => {
 				profile = await Customer.findOne({ user: user._id });
 			}
 
-			if (!profile) {
+			if (!profile)
 				throw new AppError(`No ${testRole} account found with this email`, 404);
-			}
 
 			if (fcmToken) {
 				user.fcmToken = fcmToken;
@@ -525,6 +481,7 @@ const verifyEmailOtp = asyncHandler(async (req, res) => {
 					email: user.email,
 					phone: user.phone,
 					role: user.role,
+					profileId: profile._id,
 				},
 			});
 		}
@@ -535,12 +492,9 @@ const verifyEmailOtp = asyncHandler(async (req, res) => {
 
 	await OtpVerification.deleteMany({ email, isEmail: true });
 
-	// Handle signup flow - check if email exists in ANY role
 	if (flow === "signup") {
 		const existingUser = await User.findOne({ email });
-		if (existingUser) {
-			throw new AppError("Email already registered", 400);
-		}
+		if (existingUser) throw new AppError("Email already registered", 400);
 
 		const otpSession = jwt.sign({ email }, process.env.JWT_SECRET, {
 			expiresIn: "30m",
@@ -548,14 +502,10 @@ const verifyEmailOtp = asyncHandler(async (req, res) => {
 		return res.json({ success: true, otpSession });
 	}
 
-	// Handle login flow - find user and verify profile exists
 	if (flow === "login") {
 		const user = await User.findOne({ email });
-		if (!user) {
-			throw new AppError("No account found with this email", 404);
-		}
+		if (!user) throw new AppError("No account found with this email", 404);
 
-		// Verify they have the correct role profile
 		let profile = null;
 		if (role === "rider") {
 			profile = await RiderProfile.findOne({ user: user._id });
@@ -567,10 +517,9 @@ const verifyEmailOtp = asyncHandler(async (req, res) => {
 			throw new AppError("Invalid role", 400);
 		}
 
-		if (!profile) {
+		if (!profile)
 			throw new AppError(`No ${role} account found with this email`, 404);
-		}
-		// checkActiveUser && (await checkActiveUser(user._id));
+
 		await validateUserStatus(user._id, user.role);
 
 		if (fcmToken) {
@@ -613,19 +562,13 @@ const requestPhoneOtp = asyncHandler(async (req, res) => {
 	if (!role) throw new AppError("Role is required", 400);
 	if (!flow) throw new AppError("Flow (login/signup) is required", 400);
 
-	// Normalize phone early before any checks
 	phone = normalizePhone(phone);
 
-	// TEMPORARY: App Store Review Test Account - Remove after review
 	const REVIEW_MODE = process.env.REVIEW_MODE === "true";
-	const TEST_PHONES = ["8022000001", "8022000002", "8022000003"];
-	const TEST_OTP = "123456";
 
-	// Handle test account for App Store review
 	if (REVIEW_MODE && TEST_PHONES.includes(phone)) {
 		await OtpVerification.deleteMany({ phone, isPhone: true });
-		await OtpVerification.create({ phone, otp: TEST_OTP, isPhone: true });
-
+		await OtpVerification.create({ phone, otp: TEST_PHONE_OTP, isPhone: true });
 		logger.info(`App Store Review: Test OTP sent to phone: ${phone}`);
 		return res.json({
 			message: "OTP sent to phone",
@@ -633,7 +576,6 @@ const requestPhoneOtp = asyncHandler(async (req, res) => {
 		});
 	}
 
-	// For signup, check if phone exists in ANY role to prevent duplicate registrations
 	if (flow === "signup") {
 		const existingUser = await User.findOne({ phone });
 		if (existingUser) {
@@ -657,14 +599,11 @@ const requestPhoneOtp = asyncHandler(async (req, res) => {
 		}
 	}
 
-	// For login, check for existing user and verify they have the correct role profile
 	if (flow === "login") {
 		const user = await User.findOne({ phone });
-		if (!user) {
+		if (!user)
 			throw new AppError("No account found with this phone number", 404);
-		}
 
-		// Verify they have the correct role profile
 		let hasProfile = false;
 		if (role === "rider") {
 			const profile = await RiderProfile.findOne({ user: user._id });
@@ -680,7 +619,6 @@ const requestPhoneOtp = asyncHandler(async (req, res) => {
 		}
 
 		if (!hasProfile) {
-			// Check if the number belongs to the other role
 			let actualRole = null;
 			if (role === "rider") {
 				const vendorProfile = await VendorProfile.findOne({ owner: user._id });
@@ -714,12 +652,7 @@ const requestPhoneOtp = asyncHandler(async (req, res) => {
 
 	reference = reference || uuidv4();
 	await OtpVerification.deleteMany({ phone, isPhone: true });
-	await OtpVerification.create({
-		phone,
-		reference,
-		otp: null,
-		isPhone: true,
-	});
+	await OtpVerification.create({ phone, reference, otp: null, isPhone: true });
 
 	return res.json({ message: "OTP sent to phone", reference });
 });
@@ -727,40 +660,32 @@ const requestPhoneOtp = asyncHandler(async (req, res) => {
 const verifyPhoneOtp = asyncHandler(async (req, res) => {
 	let { phone, otp, reference, role, flow, fcmToken } = req.body;
 
-	// Normalize phone early before any checks — eliminates all normalization inconsistencies
 	if (phone) phone = normalizePhone(phone);
 
-	// TEMPORARY: App Store Review Test Account - Remove after review
 	const REVIEW_MODE = process.env.REVIEW_MODE === "true";
-	const TEST_PHONE_MAP = {
-		8022000001: "customer",
-		8022000002: "vendor",
-		8022000003: "rider",
-	};
-	const TEST_OTP = "123456";
-
-	// Coerce otp to string for safe comparison — handles numeric OTP values from clients
 	const otpStr = String(otp || "");
 	const testPhoneRole = TEST_PHONE_MAP[phone];
-	const isTestAccount = REVIEW_MODE && !!testPhoneRole && otpStr === TEST_OTP;
+	const isTestAccount =
+		REVIEW_MODE && !!testPhoneRole && otpStr === TEST_PHONE_OTP;
 
-	// reference is not required for test accounts
+	// Log for debugging — remove after confirming test accounts work
+	logger.info(
+		`verifyPhoneOtp → phone: ${phone}, testPhoneRole: ${testPhoneRole}, isTestAccount: ${isTestAccount}, REVIEW_MODE: ${REVIEW_MODE}`,
+	);
+
 	if (!phone || !otp || (!reference && !isTestAccount))
 		throw new AppError("Phone, OTP, reference required", 400);
 	if (!role) throw new AppError("Role is required", 400);
 	if (!flow) throw new AppError("Flow (login/signup) is required", 400);
 
-	// Handle test account for App Store review
 	if (isTestAccount) {
 		const testRole = testPhoneRole;
 		await OtpVerification.deleteMany({ phone, isPhone: true });
 
-		// Handle signup flow
 		if (flow === "signup") {
 			const existingUser = await User.findOne({ phone });
-			if (existingUser) {
+			if (existingUser)
 				throw new AppError("Phone number already registered", 400);
-			}
 
 			const otpSession = jwt.sign({ phone }, process.env.JWT_SECRET, {
 				expiresIn: "30m",
@@ -768,15 +693,12 @@ const verifyPhoneOtp = asyncHandler(async (req, res) => {
 			return res.json({ success: true, otpSession });
 		}
 
-		// Handle login flow
 		if (flow === "login") {
 			let user = await User.findOne({ phone });
 
-			// Auto-create test user if it doesn't exist yet
 			if (!user) {
 				user = new User({
 					name: "Test User",
-					// Store as normalized string (not Number) for consistent lookups
 					phone,
 					address: "Lagos, Nigeria",
 					location: { type: "Point", coordinates: [3.3792, 6.5244] },
@@ -806,7 +728,6 @@ const verifyPhoneOtp = asyncHandler(async (req, res) => {
 				logger.info(`App Store Review: Auto-created test user for ${phone}`);
 			}
 
-			// Find the role profile
 			let profile = null;
 			if (testRole === "rider") {
 				profile = await RiderProfile.findOne({ user: user._id });
@@ -816,12 +737,11 @@ const verifyPhoneOtp = asyncHandler(async (req, res) => {
 				profile = await Customer.findOne({ user: user._id });
 			}
 
-			if (!profile) {
+			if (!profile)
 				throw new AppError(
 					`No ${testRole} account found with this phone number`,
 					404,
 				);
-			}
 
 			if (fcmToken) {
 				user.fcmToken = fcmToken;
@@ -853,18 +773,18 @@ const verifyPhoneOtp = asyncHandler(async (req, res) => {
 					email: user.email,
 					phone: user.phone,
 					role: user.role,
+					profileId: profile._id,
 				},
 			});
 		}
 	}
 
-	// Normal (non-test) flow
+	// Normal flow
 	const record = await OtpVerification.findOne({
 		phone,
 		reference,
 		isPhone: true,
 	});
-
 	if (!record) throw new AppError("Invalid verification session", 400);
 
 	const { success, error } = await verifySmsOtp(otp, reference);
@@ -872,12 +792,10 @@ const verifyPhoneOtp = asyncHandler(async (req, res) => {
 
 	await OtpVerification.deleteOne({ phone, reference, isPhone: true });
 
-	// Handle signup flow - check if phone exists in ANY role
 	if (flow === "signup") {
 		const existingUser = await User.findOne({ phone });
-		if (existingUser) {
+		if (existingUser)
 			throw new AppError("Phone number already registered", 400);
-		}
 
 		const otpSession = jwt.sign({ phone }, process.env.JWT_SECRET, {
 			expiresIn: "30m",
@@ -885,14 +803,11 @@ const verifyPhoneOtp = asyncHandler(async (req, res) => {
 		return res.json({ success: true, otpSession });
 	}
 
-	// Handle login flow - find user and verify profile exists
 	if (flow === "login") {
 		const user = await User.findOne({ phone });
-		if (!user) {
+		if (!user)
 			throw new AppError("No account found with this phone number", 404);
-		}
 
-		// Verify they have the correct role profile
 		let profile = null;
 		if (role === "rider") {
 			profile = await RiderProfile.findOne({ user: user._id });
@@ -904,13 +819,12 @@ const verifyPhoneOtp = asyncHandler(async (req, res) => {
 			throw new AppError("Invalid role", 400);
 		}
 
-		if (!profile) {
+		if (!profile)
 			throw new AppError(
 				`No ${role} account found with this phone number`,
 				404,
 			);
-		}
-		// checkActiveUser && (await checkActiveUser(user._id));
+
 		await validateUserStatus(user._id, user.role);
 
 		if (fcmToken) {
@@ -984,7 +898,6 @@ const refresh = asyncHandler(async (req, res) => {
 	const user = await User.findById(decoded.id);
 	if (!user) throw new AppError("User not found", 401);
 
-	// Rotate: delete old token, issue new refresh token
 	await RefreshToken.deleteOne({ token: refreshToken });
 	const newRefreshToken = generateRefreshToken({
 		id: user._id,
@@ -1002,9 +915,7 @@ const refresh = asyncHandler(async (req, res) => {
 
 const checkUserExist = asyncHandler(async (req, res) => {
 	let { email, phone } = req.body;
-	if (!email && !phone) {
-		throw new AppError("Email or Phone is required", 400);
-	}
+	if (!email && !phone) throw new AppError("Email or Phone is required", 400);
 
 	let user = null;
 	if (email) {
@@ -1014,10 +925,8 @@ const checkUserExist = asyncHandler(async (req, res) => {
 		user = await User.findOne({ phone: normalizedPhone });
 	}
 
-	if (user) {
+	if (user)
 		return res.status(200).json({ exists: true, message: "User exists" });
-	}
-
 	return res
 		.status(200)
 		.json({ exists: false, message: "User does not exist" });
@@ -1027,9 +936,7 @@ const updateFcmToken = asyncHandler(async (req, res) => {
 	const { fcmToken } = req.body;
 	const userId = req.user.id;
 
-	if (!fcmToken) {
-		throw new AppError("FCM token is required", 400);
-	}
+	if (!fcmToken) throw new AppError("FCM token is required", 400);
 
 	await User.findByIdAndUpdate(userId, { fcmToken });
 	res.status(200).json({ success: true, message: "Device token saved!" });
