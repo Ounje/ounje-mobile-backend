@@ -251,6 +251,5 @@ mongoose
 		logger.error("[DB] connection failed", {
 			error: err.message,
 		});
-
 		process.exit(1);
 	});

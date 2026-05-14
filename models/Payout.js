@@ -48,7 +48,7 @@ const payoutSchema = new mongoose.Schema(
 		},
 
 		// ── References & traceability ─────────────────────────────────────────
-		reference: { type: String, unique: true, sparse: true }, // Ounje's unique ref
+		reference: { type: String }, // Ounje's unique ref
 		transactionRef: { type: String }, // Paystack transfer_code
 		ledgerEntry: { type: mongoose.Schema.Types.ObjectId, ref: "LedgerEntry" }, // debit entry (set on success)
 		idempotencyKey: { type: String, unique: true, sparse: true },
@@ -75,7 +75,7 @@ const payoutSchema = new mongoose.Schema(
 payoutSchema.index({ status: 1, processAt: 1 }); // cron query
 payoutSchema.index({ recipientId: 1, recipientType: 1 });
 payoutSchema.index({ transactionRef: 1 }, { sparse: true });
-payoutSchema.index({ reference: 1 }, { sparse: true });
+payoutSchema.index({ reference: 1 }, { unique: true, sparse: true });
 payoutSchema.index({ lockedAt: 1 }, { sparse: true });
 
 module.exports = mongoose.model("Payout", payoutSchema);
