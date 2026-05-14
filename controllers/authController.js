@@ -32,14 +32,12 @@ const TEST_PHONES = ["2348022000001", "2348022000002", "2348022000003"];
 const TEST_EMAILS = ["test@ounjefood.com"];
 const TEST_PHONE_OTP = "123456";
 const TEST_EMAIL_OTP = "0123";
-const TEST_PHONE_MAP = {
-	2348022000001: "customer",
-	2348022000002: "vendor",
-	2348022000003: "rider",
-};
-const TEST_EMAIL_MAP = {
-	"test@ounjefood.com": "customer",
-};
+const TEST_PHONE_MAP = new Map([
+	["2348022000001", "customer"],
+	["2348022000002", "vendor"],
+	["2348022000003", "rider"],
+]);
+const TEST_EMAIL_MAP = new Map([["test@ounjefood.com", "customer"]]);
 // ──────────────────────────────────────────────────────────────────────────
 
 const register = asyncHandler(async (req, res) => {
@@ -664,7 +662,7 @@ const verifyPhoneOtp = asyncHandler(async (req, res) => {
 
 	const REVIEW_MODE = process.env.REVIEW_MODE === "true";
 	const otpStr = String(otp || "");
-	const testPhoneRole = TEST_PHONE_MAP[phone];
+	const testPhoneRole = TEST_PHONE_MAP.get(phone);
 	const isTestAccount =
 		REVIEW_MODE && !!testPhoneRole && otpStr === TEST_PHONE_OTP;
 
