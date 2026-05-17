@@ -307,15 +307,9 @@ const updateCustomerProfile = async (req, res) => {
 					address: location,
 					coordinates: [geo.lng, geo.lat],
 				};
-				if (!existingProfile.savedAddresses) {
-					existingProfile.savedAddresses = [];
-				}
-				if (existingProfile.savedAddresses.length > 0) {
-					existingProfile.savedAddresses[0] = newAddress;
-				} else {
-					existingProfile.savedAddresses.push(newAddress);
-				}
-				updateData.savedAddresses = existingProfile.savedAddresses;
+				const newAddresses = existingProfile.savedAddresses ? [...existingProfile.savedAddresses] : [];
+				newAddresses[0] = newAddress;
+				updateData.savedAddresses = newAddresses;
 			}
 		}
 
@@ -332,18 +326,16 @@ const updateCustomerProfile = async (req, res) => {
 					address: secondLocation,
 					coordinates: [geo.lng, geo.lat],
 				};
-				if (!existingProfile.savedAddresses) {
-					existingProfile.savedAddresses = [];
-				}
-				while (existingProfile.savedAddresses.length < 1) {
-					existingProfile.savedAddresses.push({
+				const newAddresses = existingProfile.savedAddresses ? [...existingProfile.savedAddresses] : [];
+				while (newAddresses.length < 1) {
+					newAddresses.push({
 						label: "Home",
 						address: "",
 						coordinates: [0, 0],
 					});
 				}
-				existingProfile.savedAddresses[1] = newAddress;
-				updateData.savedAddresses = existingProfile.savedAddresses;
+				newAddresses[1] = newAddress;
+				updateData.savedAddresses = newAddresses;
 			}
 		}
 
@@ -363,15 +355,14 @@ const updateCustomerProfile = async (req, res) => {
 			}
 		}
 
-		const [customer] = await Promise.all([
-			Customer.findOneAndUpdate({ user: userId }, updateData, {
-				new: true,
-				runValidators: true,
-			}).populate("user", "email role name phone address location"),
-			Object.keys(userUpdate).length > 0
-				? User.findByIdAndUpdate(userId, { $set: userUpdate }, { new: true })
-				: Promise.resolve(null),
-		]);
+		if (Object.keys(userUpdate).length > 0) {
+			await User.findByIdAndUpdate(userId, { $set: userUpdate }, { new: true });
+		}
+
+		const customer = await Customer.findOneAndUpdate({ user: userId }, updateData, {
+			new: true,
+			runValidators: true,
+		}).populate("user", "email role name phone address location");
 
 		if (!customer) {
 			return res.status(404).json({ error: "Customer not found" });
