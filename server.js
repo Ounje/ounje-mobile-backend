@@ -4,6 +4,7 @@ const cors = require("cors");
 const http = require("http");
 const cron = require("node-cron");
 const { processAllPendingPayouts } = require("./jobs/payoutProcessor");
+const { processAutoCancelOrders } = require("./jobs/autoCancelProcessor");
 require("dotenv").config();
 
 const httpLogger = require("./middleware/httpLogger");
@@ -128,6 +129,35 @@ cron.schedule(
 			});
 		} finally {
 			isProcessingPayouts = false;
+		}
+	},
+	{ timezone: "Africa/Lagos" },
+);
+
+// ─────────────────────────────────────────────
+// CRON JOB — Auto-Cancel Unresponsive Vendor Orders
+// Runs every 1 minute.
+// ─────────────────────────────────────────────
+
+let isProcessingAutoCancels = false;
+
+cron.schedule(
+	"*/1 * * * *",
+	async () => {
+		if (isProcessingAutoCancels) {
+			logger.warn("[CRON] Skipped Auto-Cancel — previous run still in progress");
+			return;
+		}
+
+		isProcessingAutoCancels = true;
+		try {
+			await processAutoCancelOrders();
+		} catch (err) {
+			logger.error("[CRON] Auto-Cancel processor error", {
+				message: err.message,
+			});
+		} finally {
+			isProcessingAutoCancels = false;
 		}
 	},
 	{ timezone: "Africa/Lagos" },

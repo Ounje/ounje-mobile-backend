@@ -44,6 +44,7 @@ const {
 	reportDelivery,
 	rejectDispatch,
 	updateOrderStatus,
+	vendorRetryDispatch,
 } = require("../controllers/orderController");
 
 const router = express.Router();
@@ -320,6 +321,15 @@ router.put(
 	roleGuard(["vendor"]),
 	requireVendor,
 	vendorMarkReady,
+);
+
+router.post(
+	"/vendor/:orderId/retry-dispatch",
+	authMiddleware,
+	checkActiveUser,
+	roleGuard(["vendor"]),
+	requireVendor,
+	vendorRetryDispatch,
 );
 
 /**
