@@ -24,6 +24,10 @@ const sendPushNotification = async (token, title, body, options = {}) => {
 			}
 		}
 
+		const isOrderAlert = options.channelId === "orders";
+		const soundName = isOrderAlert ? "order_alert" : "default";
+		const iosSoundName = isOrderAlert ? "order_alert.mp3" : "default";
+
 		const message = {
 			token,
 			notification: { title, body },
@@ -32,12 +36,13 @@ const sendPushNotification = async (token, title, body, options = {}) => {
 				notification: {
 					channelId: options.channelId ?? "general",
 					priority: "high",
-					defaultSound: true,
+					defaultSound: !isOrderAlert,
+					...(isOrderAlert && { sound: soundName }),
 				},
 			},
 			apns: {
 				payload: {
-					aps: { sound: "default", badge: 1 },
+					aps: { sound: iosSoundName, badge: 1 },
 				},
 			},
 			...(Object.keys(dataPayload).length > 0 && { data: dataPayload }),

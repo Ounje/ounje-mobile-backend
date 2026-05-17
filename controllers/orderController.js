@@ -510,6 +510,18 @@ exports.rejectDispatch = asyncHandler(async (req, res) => {
 	res.status(200).json({ success: true, message: "Dispatch rejected" });
 });
 
+// Vendor retries rider dispatch (re-broadcasts to all available riders)
+exports.vendorRetryDispatch = asyncHandler(async (req, res) => {
+	const { orderId } = req.params;
+	const vendorId = req.vendor._id;
+
+	await orderRiderService.retryDispatch(orderId, vendorId.toString());
+	res.status(200).json({
+		success: true,
+		message: "Looking for riders again...",
+	});
+});
+
 // Rider reports a delivery issue
 exports.reportDelivery = asyncHandler(async (req, res) => {
 	const { orderId } = req.params;

@@ -51,6 +51,7 @@ class VendorService {
 						spherical: true,
 					},
 				},
+				{ $limit: 5 },
 			]);
 
 			const data = [...nearbyVendors, ...furtherVendors];
