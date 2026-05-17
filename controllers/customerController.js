@@ -15,6 +15,13 @@ const formatCustomerProfile = (customer, walletBalance = 0) => {
 	const customerData = customer.toJSON ? customer.toJSON() : customer;
 	delete customerData.user;
 
+	const secondLocation = customer.savedAddresses && customer.savedAddresses.length > 1
+		? {
+				type: "Point",
+				coordinates: customer.savedAddresses[1].coordinates,
+			}
+		: null;
+
 	return {
 		...user,
 		...customerData,
@@ -24,18 +31,10 @@ const formatCustomerProfile = (customer, walletBalance = 0) => {
 				? `${customer.firstName} ${customer.lastName}`
 				: user.name,
 		phone: Number(customer.phone || user.phone) || null,
-		address:
-			customer.savedAddresses && customer.savedAddresses.length > 0
-				? customer.savedAddresses[0].address
-				: user.address,
+		address: user.address,
 		totalOrders: customer.orderCount || 0,
-		location:
-			customer.savedAddresses && customer.savedAddresses.length > 0
-				? {
-						type: "Point",
-						coordinates: customer.savedAddresses[0].coordinates,
-					}
-				: user.location,
+		location: user.location,
+		secondLocation: secondLocation,
 		wallet: walletBalance,
 	};
 };
@@ -236,7 +235,7 @@ const verifyProfileChangeOtp = async (req, res) => {
 
 const updateCustomerProfile = async (req, res) => {
 	const userId = req.user.id;
-	const { firstName, lastName, phone, location, email } = req.body;
+	const { firstName, lastName, phone, location, secondLocation, activeAddressLabel, email } = req.body;
 
 	try {
 		const isSensitiveChange = email !== undefined || phone !== undefined;
@@ -295,6 +294,12 @@ const updateCustomerProfile = async (req, res) => {
 				return res.status(400).json({ error: "Invalid address" });
 			}
 
+			userUpdate.address = location;
+			userUpdate.location = {
+				type: "Point",
+				coordinates: [geo.lng, geo.lat],
+			};
+
 			const existingProfile = await Customer.findOne({ user: userId });
 			if (existingProfile) {
 				const newAddress = {
@@ -302,12 +307,59 @@ const updateCustomerProfile = async (req, res) => {
 					address: location,
 					coordinates: [geo.lng, geo.lat],
 				};
-				if (existingProfile.savedAddresses?.length > 0) {
+				if (!existingProfile.savedAddresses) {
+					existingProfile.savedAddresses = [];
+				}
+				if (existingProfile.savedAddresses.length > 0) {
 					existingProfile.savedAddresses[0] = newAddress;
 				} else {
-					existingProfile.savedAddresses = [newAddress];
+					existingProfile.savedAddresses.push(newAddress);
 				}
 				updateData.savedAddresses = existingProfile.savedAddresses;
+			}
+		}
+
+		if (secondLocation) {
+			const geo = await getCoordsFromAddress(secondLocation);
+			if (!geo) {
+				return res.status(400).json({ error: "Invalid address" });
+			}
+
+			const existingProfile = await Customer.findOne({ user: userId });
+			if (existingProfile) {
+				const newAddress = {
+					label: "Work",
+					address: secondLocation,
+					coordinates: [geo.lng, geo.lat],
+				};
+				if (!existingProfile.savedAddresses) {
+					existingProfile.savedAddresses = [];
+				}
+				while (existingProfile.savedAddresses.length < 1) {
+					existingProfile.savedAddresses.push({
+						label: "Home",
+						address: "",
+						coordinates: [0, 0],
+					});
+				}
+				existingProfile.savedAddresses[1] = newAddress;
+				updateData.savedAddresses = existingProfile.savedAddresses;
+			}
+		}
+
+		if (activeAddressLabel) {
+			const existingProfile = await Customer.findOne({ user: userId });
+			if (existingProfile && existingProfile.savedAddresses) {
+				const targetAddr = existingProfile.savedAddresses.find(
+					(a) => a.label && a.label.toLowerCase() === activeAddressLabel.toLowerCase()
+				);
+				if (targetAddr && targetAddr.address) {
+					userUpdate.address = targetAddr.address;
+					userUpdate.location = {
+						type: "Point",
+						coordinates: targetAddr.coordinates,
+					};
+				}
 			}
 		}
 
