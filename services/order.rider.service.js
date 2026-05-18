@@ -726,6 +726,10 @@ const riderMarkArrived = async (orderId, riderId) => {
 
 	return order;
 };
+const isDispatchActive = (orderId) => {
+	return broadcastTimers.has(orderId.toString());
+};
+
 module.exports = {
 	startDispatch,
 	cancelDispatch,
@@ -738,4 +742,5 @@ module.exports = {
 	getRiderOrders,
 	riderMarkOnTheWay,
 	riderMarkArrived,
+	isDispatchActive,
 };
