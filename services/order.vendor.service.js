@@ -413,6 +413,15 @@ const vendorGetCustomerOrderDetails = async (orderId, vendorProfileId) => {
 		obj.rider.phone = obj.rider.user.phone ?? null;
 		delete obj.rider.user;
 	}
+
+	// Dynamically check if a dispatch is currently active for this order
+	try {
+		const { isDispatchActive } = require("./order.rider.service");
+		obj.dispatchActive = isDispatchActive(orderId);
+	} catch (err) {
+		obj.dispatchActive = false;
+	}
+
 	return obj;
 };
 
