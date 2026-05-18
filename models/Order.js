@@ -223,6 +223,28 @@ const orderSchema = new mongoose.Schema(
 	},
 );
 
+// Pre-validate hook to normalize "assigned" to "riding"
+orderSchema.pre("validate", function (next) {
+	if (this.status === "assigned") {
+		this.status = "riding";
+	}
+	next();
+});
+
+// Pre-update hooks to normalize "assigned" to "riding"
+orderSchema.pre(["update", "updateOne", "updateMany", "findOneAndUpdate"], function (next) {
+	const update = this.getUpdate();
+	if (update) {
+		if (update.status === "assigned") {
+			update.status = "riding";
+		}
+		if (update.$set && update.$set.status === "assigned") {
+			update.$set.status = "riding";
+		}
+	}
+	next();
+});
+
 // Indexes for performance
 orderSchema.index({ customer: 1, status: 1 });
 orderSchema.index({ vendor: 1, status: 1 });
