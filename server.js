@@ -254,6 +254,14 @@ app.get("/", (req, res) => {
 	res.send("Food Service API running 🚀");
 });
 
+app.get("/api/ping", (req, res) => {
+	res.sendStatus(200);
+});
+
+app.head("/api/ping", (req, res) => {
+	res.sendStatus(200);
+});
+
 // ─────────────────────────────────────────────
 // DB + SERVER START
 // ─────────────────────────────────────────────
