@@ -76,15 +76,53 @@ class VendorService {
 		};
 	}
 
-	async getPopularVendors(zone) {
-		const filter = {
+	async getPopularVendors({ zone, lat, lng }) {
+		const baseFilter = {
 			isActive: true,
 			storeDetails: { $exists: true, $not: { $size: 0 } },
 		};
+
+		// 1. Proximity-based search using actual coordinates (Uber Eats style!)
+		if (lat && lng) {
+			const coordinates = [parseFloat(lng), parseFloat(lat)];
+			return VendorProfile.aggregate([
+				{
+					$geoNear: {
+						near: { type: "Point", coordinates },
+						distanceField: "distanceMeters",
+						maxDistance: 15000, // 15km delivery limit
+						query: baseFilter,
+						spherical: true,
+					},
+				},
+				{
+					$project: {
+						name: 1,
+						bannerUrl: 1,
+						logoUrl: 1,
+						profileImage: 1,
+						location: 1,
+						storeDetails: 1,
+						averageRating: 1,
+						ratingCount: 1,
+						rankingScore: 1,
+						fulfillmentSettings: 1,
+						operatingHours: 1,
+						distanceMeters: 1,
+					},
+				},
+				// Sort online vendors first, then by high ranking score/rating
+				{ $sort: { "storeDetails.0.status": 1, rankingScore: -1, averageRating: -1 } },
+				{ $limit: 20 },
+			]);
+		}
+
+		// 2. Text-based fallback (if no coordinates available)
+		const filter = { ...baseFilter };
 		if (zone) {
 			filter["location.address"] = { $regex: zone, $options: "i" };
 		}
-		// online vendors first, then highest ranking score
+
 		const results = await VendorProfile.find(filter)
 			.sort({
 				"storeDetails.0.status": -1,
@@ -93,13 +131,9 @@ class VendorService {
 			})
 			.limit(20);
 
-		// Fallback: If no vendors found strictly matching the parsed zone text,
-		// return all popular active vendors in Lagos to prevent showing a blank list.
+		// 3. Absolute Fallback: if no vendors found in this zone, return popular vendors to prevent blank lists
 		if (results.length === 0 && zone) {
-			const fallbackFilter = {
-				isActive: true,
-				storeDetails: { $exists: true, $not: { $size: 0 } },
-			};
+			const fallbackFilter = { ...baseFilter };
 			return VendorProfile.find(fallbackFilter)
 				.sort({
 					"storeDetails.0.status": -1,
