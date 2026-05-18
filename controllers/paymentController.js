@@ -309,26 +309,44 @@ const verifyPayment = async (req, res) => {
 const webhookHandler = async (req, res) => {
 	const secret = process.env.PAYSTACK_SECRET_KEY;
 
-	const hash = crypto
-		.createHmac("sha512", secret)
-		.update(req.body)
-		.digest("hex");
-
-	const sigOk = hash === req.headers["x-paystack-signature"];
-
 	let event;
+	let bodyString = "";
 	try {
-		event = JSON.parse(req.body.toString());
-	} catch {
-		logger.warn("[Webhook] invalid JSON body");
+		if (Buffer.isBuffer(req.body)) {
+			bodyString = req.body.toString("utf8");
+			event = JSON.parse(bodyString);
+		} else if (typeof req.body === "object" && req.body !== null) {
+			event = req.body;
+			bodyString = JSON.stringify(req.body);
+		} else {
+			bodyString = String(req.body);
+			event = JSON.parse(bodyString);
+		}
+	} catch (err) {
+		logger.warn(`[Webhook] invalid JSON body | error=${err.message} | body_type=${typeof req.body}`);
 		return res.status(400).send("Invalid JSON");
 	}
 
-	logger.info(`[Webhook] received event="${event.event}" sig_ok=${sigOk}`);
+	const bodyToVerify = Buffer.isBuffer(req.body)
+		? req.body
+		: (req.rawBody || bodyString);
+
+	const signatureHeader = req.headers["x-paystack-signature"];
+
+	const hash = crypto
+		.createHmac("sha512", secret)
+		.update(bodyToVerify)
+		.digest("hex");
+
+	const sigOk = hash === signatureHeader;
+
+	logger.info(
+		`[Webhook] received event="${event?.event}" sig_ok=${sigOk} | originalUrl=${req.originalUrl} | x-paystack-signature=${signatureHeader ? signatureHeader.substring(0, 10) + "..." : "missing"}`
+	);
 
 	if (!sigOk) {
 		logger.warn(
-			`[Webhook] signature mismatch | body_is_buffer=${Buffer.isBuffer(req.body)} | body_length=${req.body?.length}`,
+			`[Webhook] signature mismatch | body_is_buffer=${Buffer.isBuffer(req.body)} | body_has_raw=${Buffer.isBuffer(req.rawBody)} | body_length=${bodyString?.length} | computed_hash=${hash.substring(0, 10)}... | x-paystack-signature=${signatureHeader ? signatureHeader.substring(0, 10) + "..." : "missing"}`
 		);
 		return res.status(400).send("Invalid signature");
 	}
@@ -405,17 +423,19 @@ const webhookHandler = async (req, res) => {
 			// ── DVA top-up via virtual account ────────────────────────────────
 			if (event.data.channel === "dedicated_nuban") {
 				try {
+					logger.info(`[Webhook] DVA top-up info | customer_code=${paystackCustomer?.customer_code} email=${paystackCustomer?.email} ref=${reference}`);
+
 					const customer = await Customer.findOne({
 						paystackCustomerCode: paystackCustomer.customer_code,
 					});
 
 					logger.info(
-						`[Webhook] DVA top-up | code=${paystackCustomer.customer_code} found=${!!customer} amountKobo=${amountKobo} (₦${amountKobo / 100})`,
+						`[Webhook] DVA customer lookup | code=${paystackCustomer.customer_code} found=${!!customer} customer_id=${customer?._id}`,
 					);
 
 					if (!customer) {
 						logger.error(
-							`[Webhook] DVA: no customer for ${paystackCustomer.customer_code}`,
+							`[Webhook] DVA: no customer found in DB for paystackCustomerCode=${paystackCustomer.customer_code}. Registered DVAs in DB might be mismatching Paystack.`,
 						);
 						return res.status(200).send("Customer not found");
 					}
@@ -425,6 +445,8 @@ const webhookHandler = async (req, res) => {
 						logger.info(`[Webhook] DVA: already processed ref=${reference}`);
 						return res.status(200).send("Already processed");
 					}
+
+					logger.info(`[Webhook] DVA creating payment record and crediting wallet for customer=${customer._id} amountNaira=${amountNaira}`);
 
 					await Payment.create({
 						reference,
@@ -442,6 +464,8 @@ const webhookHandler = async (req, res) => {
 						null,
 						{ paystackReference: reference, channel: event.data.channel },
 					);
+
+					logger.info(`[Webhook] DVA ledger credit complete | result=${JSON.stringify(result)}`);
 
 					Customer.findById(customer._id)
 						.populate("user")
