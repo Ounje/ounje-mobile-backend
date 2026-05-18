@@ -21,7 +21,7 @@ const getNearbyVendorIds = async (coords) => {
 					coordinates: [parseFloat(coords.lng), parseFloat(coords.lat)],
 				},
 				distanceField: "distanceMeters",
-				maxDistance: 10000, // 10km proximity geofence limit
+				maxDistance: 5000, // 5km proximity geofence limit to match home page
 				query: {
 					isActive: true,
 					"storeDetails.0.status": "active",
