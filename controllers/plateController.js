@@ -234,18 +234,37 @@ const getAllPlates = async (req, res) => {
 const getPopularPlates = async (req, res) => {
 	try {
 		const limit = Math.min(parseInt(req.query.limit) || 10, 20);
-		const zone = req.query.zone;
+		const { zone, lat, lng } = req.query;
 
 		let vendorFilter = {};
-		if (zone) {
+		if (lat && lng) {
+			const nearbyVendors = await VendorProfile.aggregate([
+				{
+					$geoNear: {
+						near: {
+							type: "Point",
+							coordinates: [parseFloat(lng), parseFloat(lat)],
+						},
+						distanceField: "distanceMeters",
+						maxDistance: 10000, // 10km delivery limit
+						query: {
+							isActive: true,
+							"storeDetails.0.status": "active",
+						},
+						spherical: true,
+					},
+				},
+				{ $project: { _id: 1 } },
+			]);
+			vendorFilter = { vendor: { $in: nearbyVendors.map((v) => v._id) } };
+		} else if (zone) {
 			const nearbyVendors = await VendorProfile.find({
 				zone: { $regex: zone, $options: "i" },
+				isActive: true,
 			})
 				.select("_id")
 				.lean();
-			if (nearbyVendors.length > 0) {
-				vendorFilter = { vendor: { $in: nearbyVendors.map((v) => v._id) } };
-			}
+			vendorFilter = { vendor: { $in: nearbyVendors.map((v) => v._id) } };
 		}
 
 		const plates = await Plate.aggregate([
