@@ -65,8 +65,8 @@ const getAllVendors = async (req, res) => {
 // Get popular vendors
 const getPopularVendors = async (req, res) => {
 	try {
-		const { zone } = req.query;
-		const vendors = await vendorService.getPopularVendors(zone);
+		const { zone, lat, lng } = req.query;
+		const vendors = await vendorService.getPopularVendors({ zone, lat, lng });
 		res.json(vendors);
 	} catch (err) {
 		res.status(500).json({ message: err.message });
