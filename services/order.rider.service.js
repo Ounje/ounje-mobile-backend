@@ -516,7 +516,7 @@ const getAvailableRiderRequests = async (riderZones = []) => {
 const getCurrentRiderOrder = async (riderId) => {
 	return await Order.findOne({
 		rider: riderId,
-		status: ORDER_STATUS.RIDING,
+		status: { $in: [ORDER_STATUS.RIDING, "assigned"] },
 		subStatus: {
 			$in: [
 				ORDER_SUB_STATUS.RIDER_ASSIGNED,
@@ -552,11 +552,11 @@ const getRiderOrders = async (riderId, statusFilter) => {
 
 	if (statusFilter === "pending") {
 		// Orders available for pickup (rider assigned but not picked up yet)
-		filter.status = ORDER_STATUS.RIDING;
+		filter.status = { $in: [ORDER_STATUS.RIDING, "assigned"] };
 		filter.subStatus = ORDER_SUB_STATUS.RIDER_ASSIGNED;
 	} else if (statusFilter === "active") {
 		// Orders currently being delivered (assigned, in transit, or picked up)
-		filter.status = ORDER_STATUS.RIDING;
+		filter.status = { $in: [ORDER_STATUS.RIDING, "assigned"] };
 		filter.subStatus = {
 			$in: [
 				ORDER_SUB_STATUS.RIDER_ASSIGNED,
@@ -587,7 +587,7 @@ const riderMarkOnTheWay = async (orderId, riderId) => {
 		throw new Error("You are not assigned to this order");
 	}
 
-	if (order.status !== ORDER_STATUS.RIDING) {
+	if (order.status !== ORDER_STATUS.RIDING && order.status !== "assigned") {
 		throw new Error("Order is not in riding status");
 	}
 
@@ -634,7 +634,7 @@ const riderMarkArrived = async (orderId, riderId) => {
 	}
 
 	// 3. Validate order status
-	if (existingOrder.status !== ORDER_STATUS.RIDING) {
+	if (existingOrder.status !== ORDER_STATUS.RIDING && existingOrder.status !== "assigned") {
 		logger.warn(
 			`[riderMarkArrived] WRONG STATUS expected=riding actual=${existingOrder.status}`,
 		);
