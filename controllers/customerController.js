@@ -340,9 +340,14 @@ const updateCustomerProfile = async (req, res) => {
 		}
 
 		if (activeAddressLabel) {
-			const existingProfile = await Customer.findOne({ user: userId });
-			if (existingProfile && existingProfile.savedAddresses) {
-				const targetAddr = existingProfile.savedAddresses.find(
+			let savedAddressesList = updateData.savedAddresses;
+			if (!savedAddressesList) {
+				const existingProfile = await Customer.findOne({ user: userId });
+				savedAddressesList = existingProfile ? existingProfile.savedAddresses : null;
+			}
+
+			if (savedAddressesList) {
+				const targetAddr = savedAddressesList.find(
 					(a) => a.label && a.label.toLowerCase() === activeAddressLabel.toLowerCase()
 				);
 				if (targetAddr && targetAddr.address) {
