@@ -38,6 +38,7 @@
     "multer-storage-cloudinary": "^4.0.0",
     "node-cron": "^4.2.1",
     "nodemailer": "^7.0.10",
+    "ounje-market": "file:../Ounje_market",
     "raw-body": "^2.5.2",
     "resend": "^6.10.0",
     "socket.io": "^4.8.1",
