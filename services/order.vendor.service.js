@@ -349,6 +349,7 @@ const getVendorOrders = async (vendorProfileId, query = {}) => {
 					ORDER_STATUS.PACKAGING,
 					ORDER_STATUS.PENDING,
 					ORDER_STATUS.RIDING,
+					"assigned",
 				],
 			};
 			// Exclude unaccepted orders (status=confirming + subStatus=confirming = still in new tab)
