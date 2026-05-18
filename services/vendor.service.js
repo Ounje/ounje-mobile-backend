@@ -85,13 +85,31 @@ class VendorService {
 			filter["location.address"] = { $regex: zone, $options: "i" };
 		}
 		// online vendors first, then highest ranking score
-		return VendorProfile.find(filter)
+		const results = await VendorProfile.find(filter)
 			.sort({
 				"storeDetails.0.status": -1,
 				rankingScore: -1,
 				averageRating: -1,
 			})
 			.limit(20);
+
+		// Fallback: If no vendors found strictly matching the parsed zone text,
+		// return all popular active vendors in Lagos to prevent showing a blank list.
+		if (results.length === 0 && zone) {
+			const fallbackFilter = {
+				isActive: true,
+				storeDetails: { $exists: true, $not: { $size: 0 } },
+			};
+			return VendorProfile.find(fallbackFilter)
+				.sort({
+					"storeDetails.0.status": -1,
+					rankingScore: -1,
+					averageRating: -1,
+				})
+				.limit(20);
+		}
+
+		return results;
 	}
 
 	// Recalculates and saves a vendor's ranking score.
