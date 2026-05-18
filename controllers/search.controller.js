@@ -7,7 +7,7 @@ const logger = require("../utils/logger");
  */
 const search = async (req, res) => {
 	try {
-		const { q, type, limit = 20, page = 1, includeUnavailable } = req.query;
+		const { q, type, limit = 20, page = 1, includeUnavailable, lat, lng } = req.query;
 
 		if (!q || q.trim().length === 0) {
 			return res.status(400).json({
@@ -21,6 +21,7 @@ const search = async (req, res) => {
 			page: parseInt(page),
 			type: type || null, // 'vendor', 'food', 'combo', 'plate', or null for all
 			includeUnavailable: includeUnavailable === "true",
+			coords: lat && lng ? { lat: parseFloat(lat), lng: parseFloat(lng) } : null,
 		};
 
 		const results = await searchService.universalSearch(q, options);
@@ -79,16 +80,18 @@ const getSuggestions = async (req, res) => {
  */
 const searchVendors = async (req, res) => {
 	try {
-		const { q, limit = 20, includeUnavailable } = req.query;
+		const { q, limit = 20, includeUnavailable, lat, lng } = req.query;
 
 		if (!q || q.trim().length === 0) {
 			return res.status(400).json({ error: "Search query is required" });
 		}
 
+		const coords = lat && lng ? { lat: parseFloat(lat), lng: parseFloat(lng) } : null;
 		const vendors = await searchService.searchVendors(
 			q,
 			parseInt(limit),
 			includeUnavailable === "true",
+			coords,
 		);
 
 		res.json({
@@ -112,16 +115,18 @@ const searchVendors = async (req, res) => {
  */
 const searchFoodItems = async (req, res) => {
 	try {
-		const { q, limit = 20, includeUnavailable } = req.query;
+		const { q, limit = 20, includeUnavailable, lat, lng } = req.query;
 
 		if (!q || q.trim().length === 0) {
 			return res.status(400).json({ error: "Search query is required" });
 		}
 
+		const coords = lat && lng ? { lat: parseFloat(lat), lng: parseFloat(lng) } : null;
 		const foods = await searchService.searchFoodItems(
 			q,
 			parseInt(limit),
 			includeUnavailable === "true",
+			coords,
 		);
 
 		res.json({
@@ -145,16 +150,18 @@ const searchFoodItems = async (req, res) => {
  */
 const searchCombos = async (req, res) => {
 	try {
-		const { q, limit = 20, includeUnavailable } = req.query;
+		const { q, limit = 20, includeUnavailable, lat, lng } = req.query;
 
 		if (!q || q.trim().length === 0) {
 			return res.status(400).json({ error: "Search query is required" });
 		}
 
+		const coords = lat && lng ? { lat: parseFloat(lat), lng: parseFloat(lng) } : null;
 		const combos = await searchService.searchCombos(
 			q,
 			parseInt(limit),
 			includeUnavailable === "true",
+			coords,
 		);
 
 		res.json({
@@ -178,16 +185,17 @@ const searchCombos = async (req, res) => {
  */
 const searchPlates = async (req, res) => {
 	try {
-		const { q, limit = 20, includeUnavailable } = req.query;
+		const { q, limit = 20, lat, lng } = req.query;
 
 		if (!q || q.trim().length === 0) {
 			return res.status(400).json({ error: "Search query is required" });
 		}
 
+		const coords = lat && lng ? { lat: parseFloat(lat), lng: parseFloat(lng) } : null;
 		const plates = await searchService.searchPlates(
 			q,
 			parseInt(limit),
-			includeUnavailable === "true",
+			coords,
 		);
 
 		res.json({
