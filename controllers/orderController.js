@@ -51,8 +51,15 @@ const formatRiderOrder = (order) => {
 		customer: orderObj.customer
 			? {
 					id: orderObj.customer._id || orderObj.customer,
-					name: orderObj.customer.name || null,
-					phone: orderObj.customer.phone || null,
+					name:
+						orderObj.customer.user?.name ||
+						(orderObj.customer.firstName
+							? `${orderObj.customer.firstName} ${orderObj.customer.lastName || ""}`.trim()
+							: null),
+					phone:
+						orderObj.customer.user?.phone ||
+						orderObj.customer.phone ||
+						null,
 					address: orderObj.customer.address || null,
 				}
 			: orderObj.customer,
@@ -474,7 +481,11 @@ exports.getRiderOrderById = asyncHandler(async (req, res) => {
 
 	const order = await Order.findById(orderId)
 		.populate("vendor", "name address phone location")
-		.populate("customer", "name phone address location")
+		.populate({
+			path: "customer",
+			select: "firstName lastName phone address location user",
+			populate: { path: "user", select: "name phone" },
+		})
 		.populate("items.item");
 
 	if (!order) throw new AppError("Order not found", 404);
