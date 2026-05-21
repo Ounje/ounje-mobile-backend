@@ -10,7 +10,7 @@ const userSchema = new mongoose.Schema(
 			type: { type: String, enum: ["Point"], default: "Point" },
 			coordinates: { type: [Number] },
 		},
-		phone: Number,
+		phone: String,
 		role: {
 			type: String,
 			enum: ["customer", "vendor", "rider", "admin"],

@@ -28,14 +28,11 @@ const { provisionCustomerDVA } = require("../services/dva.service");
 // ─── Test Account Config ───────────────────────────────────────────────────
 // NOTE: normalizePhone() REMOVES the country code and leading 0.
 // Update these to match whatever normalizePhone() returns for your test numbers
-const TEST_PHONES = ["8022000001", "8022000002", "8022000003", "+2348022000001", "+2348022000002", "+2348022000003"];
+const TEST_PHONES = ["+2348022000001", "+2348022000002", "+2348022000003"];
 const TEST_EMAILS = ["test@ounjefood.com"];
 const TEST_PHONE_OTP = "123456";
 const TEST_EMAIL_OTP = "0123";
 const TEST_PHONE_MAP = new Map([
-	["8022000001", "customer"],
-	["8022000002", "vendor"],
-	["8022000003", "rider"],
 	["+2348022000001", "customer"],
 	["+2348022000002", "vendor"],
 	["+2348022000003", "rider"],
