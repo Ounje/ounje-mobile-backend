@@ -527,7 +527,11 @@ const getCurrentRiderOrder = async (riderId) => {
 		},
 	})
 		.populate("vendor", "name address phone location")
-		.populate("customer", "name address phone location")
+		.populate({
+			path: "customer",
+			select: "firstName lastName phone address location user",
+			populate: { path: "user", select: "name phone" },
+		})
 		.populate("items.item");
 };
 
