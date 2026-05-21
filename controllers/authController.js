@@ -339,7 +339,7 @@ const requestEmailOtp = asyncHandler(async (req, res) => {
 	}
 
 	if (flow === "login") {
-		const user = await User.findOne({ email });
+		const user = await User.findOne({ email, role });
 		if (!user) throw new AppError("No account found with this email", 404);
 
 		let hasProfile = false;
@@ -401,7 +401,7 @@ const verifyEmailOtp = asyncHandler(async (req, res) => {
 		}
 
 		if (flow === "login") {
-			let user = await User.findOne({ email: testEmail });
+			let user = await User.findOne({ email: testEmail, role: testRole });
 
 			if (!user) {
 				user = new User({
@@ -501,8 +501,8 @@ const verifyEmailOtp = asyncHandler(async (req, res) => {
 	}
 
 	if (flow === "login") {
-		const user = await User.findOne({ email });
-		if (!user) throw new AppError("No account found with this email", 404);
+		const user = await User.findOne({ email, role });
+		if (!user) throw new AppError(`No ${role} account found with this email`, 404);
 
 		let profile = null;
 		if (role === "rider") {
@@ -598,9 +598,10 @@ const requestPhoneOtp = asyncHandler(async (req, res) => {
 	}
 
 	if (flow === "login") {
-		const user = await User.findOne({ phone });
-		if (!user)
+		const user = await User.findOne({ phone, role });
+		if (!user) {
 			throw new AppError("No account found with this phone number", 404);
+		}
 
 		let hasProfile = false;
 		if (role === "rider") {
@@ -692,7 +693,7 @@ const verifyPhoneOtp = asyncHandler(async (req, res) => {
 		}
 
 		if (flow === "login") {
-			let user = await User.findOne({ phone });
+			let user = await User.findOne({ phone, role: testRole });
 
 			if (!user) {
 				user = new User({
@@ -802,9 +803,9 @@ const verifyPhoneOtp = asyncHandler(async (req, res) => {
 	}
 
 	if (flow === "login") {
-		const user = await User.findOne({ phone });
+		const user = await User.findOne({ phone, role });
 		if (!user)
-			throw new AppError("No account found with this phone number", 404);
+			throw new AppError(`No ${role} account found with this phone number`, 404);
 
 		let profile = null;
 		if (role === "rider") {
