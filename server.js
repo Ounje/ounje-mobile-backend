@@ -34,6 +34,8 @@ const newflashRouter = require("./routes/newflash.route");
 const searchRouter = require("./routes/search.routes");
 const notificationRouter = require("./routes/notification.router");
 const promoRouter = require("./routes/promo.routes");
+const adminRoutes = require("./routes/adminRoutes");
+
 
 const app = express();
 const server = http.createServer(app);
@@ -83,6 +85,8 @@ app.use("/api/promo", promoRouter);
 app.use("/api/announcements", require("./routes/announcementRoutes"));
 app.use("/api/finance", require("./routes/financeRoutes"));
 app.use("/api/dva", require("./routes/dvaRoutes"));
+app.use("/api/admin", adminRoutes);
+
 
 // Deep link fallback
 app.get("/VendorMenu/:id", (req, res) => {
