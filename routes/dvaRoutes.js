@@ -17,7 +17,9 @@ const paystack = axios.create({
 });
 
 const PREFERRED_BANK =
-	process.env.NODE_ENV === "production" ? "titan-paystack" : "test-bank";
+	(process.env.PAYSTACK_SECRET_KEY || "").startsWith("sk_live_")
+		? "titan-paystack"
+		: "test-bank";
 
 router.get("/account", authMiddleware, getOrCreateDVA);
 router.post("/provision", authMiddleware, provisionDVA);
