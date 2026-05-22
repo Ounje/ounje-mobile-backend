@@ -5,7 +5,7 @@
 //   POST /api/dva/provision      — explicitly trigger provisioning (call from registration)
 
 const { Customer } = require("../models");
-const { provisionCustomerDVA, fetchCustomerDVA, createPaystackCustomer } = require("../services/dva.service");
+const { provisionCustomerDVA } = require("../services/dva.service");
 const logger = require("../utils/logger");
 
 /**
@@ -41,79 +41,25 @@ const getOrCreateDVA = async (req, res) => {
 		}
 
 		// ── Slow path: provision for the first time ───────────────────────
-		try {
-			const { customerCode, titanAccount } = await provisionCustomerDVA(customer);
+		// provisionCustomerDVA internally auto-recovers if the customer or DVA
+		// already exists on Paystack's side (see dva.service.js).
+		const { customerCode, titanAccount } = await provisionCustomerDVA(customer);
 
-			// Persist to DB
-			customer.paystackCustomerCode = customerCode;
-			customer.titanAccount = titanAccount;
-			await customer.save();
+		customer.paystackCustomerCode = customerCode;
+		customer.titanAccount = titanAccount;
+		await customer.save();
 
-			return res.status(200).json({
-				success: true,
-				titanAccount,
-			});
-		} catch (provisionErr) {
-			// PHONE_REQUIRED: customer registered without a phone number.
-			// Return a 422 with a clear error code so the frontend shows the
-			// "Add your phone number" prompt instead of a generic error banner.
-			if (provisionErr.message === "PHONE_REQUIRED") {
-				return res.status(422).json({
-					success: false,
-					code: "PHONE_REQUIRED",
-					error: "A phone number is required to create a virtual account. Please add one to your profile.",
-				});
-			}
-
-			// Recovery path: DVA already exists on Paystack's side but was never
-			// saved to our DB (e.g. setImmediate in authController ran but the
-			// DB write failed, or the server restarted mid-provisioning).
-			// Try to fetch the existing account directly from Paystack.
-			const isAlreadyExists =
-				provisionErr.message?.toLowerCase().includes("already") ||
-				provisionErr.message?.toLowerCase().includes("exist");
-
-			if (isAlreadyExists && customer.user?.email) {
-				try {
-					logger.info(`[DVA] Attempting Paystack recovery fetch for customer ${customer._id}`);
-
-					// Ensure we have the Paystack customer code
-					let customerCode = customer.paystackCustomerCode;
-					if (!customerCode) {
-						const paystackCustomer = await createPaystackCustomer({
-							email: customer.user.email,
-							firstName: customer.firstName || customer.user?.name?.split(" ")[0] || "Customer",
-							lastName: customer.lastName || customer.user?.name?.split(" ").slice(1).join(" ") || "User",
-							phone: customer.user.phone || customer.phone || "",
-						});
-						customerCode = paystackCustomer.customer_code;
-						customer.paystackCustomerCode = customerCode;
-					}
-
-					const existingDva = await fetchCustomerDVA(customerCode);
-					if (existingDva?.account_number) {
-						const titanAccount = {
-							accountNumber: existingDva.account_number,
-							accountName: existingDva.account_name,
-							bankName: existingDva.bank?.name || "Titan Paystack",
-							bankSlug: existingDva.bank?.slug || "titan-paystack",
-						};
-						customer.titanAccount = titanAccount;
-						await customer.save();
-
-						logger.info(`[DVA] Recovered existing DVA for customer ${customer._id}`);
-						return res.status(200).json({ success: true, titanAccount });
-					}
-				} catch (recoveryErr) {
-					logger.error(`[DVA] Recovery fetch failed for customer ${customer._id}: ${recoveryErr.message}`);
-				}
-			}
-
-			// Re-throw so the outer catch handles it as a generic 500
-			throw provisionErr;
-		}
+		return res.status(200).json({ success: true, titanAccount });
 	} catch (err) {
 		logger.error(`DVA getOrCreate error for user ${req.user?.id}: ${err.message}`);
+
+		if (err.message === "PHONE_REQUIRED") {
+			return res.status(422).json({
+				success: false,
+				code: "PHONE_REQUIRED",
+				error: "A phone number is required to create a virtual account. Please add one to your profile.",
+			});
+		}
 
 		return res.status(500).json({
 			success: false,
