@@ -56,7 +56,11 @@ app.use(cors());
 // Webhooks BEFORE JSON parser
 app.use("/api/webhooks", require("./routes/webhookRoutes"));
 
-app.use(express.json());
+app.use(express.json({
+	verify: (req, res, buf) => {
+		req.rawBody = buf;
+	}
+}));
 app.set("trust proxy", 1);
 
 // Swagger

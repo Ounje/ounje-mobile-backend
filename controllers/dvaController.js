@@ -6,6 +6,7 @@
 
 const { Customer } = require("../models");
 const { provisionCustomerDVA } = require("../services/dva.service");
+const logger = require("../utils/logger");
 
 /**
  * GET /api/dva/account
@@ -16,7 +17,9 @@ const { provisionCustomerDVA } = require("../services/dva.service");
  * Flow:
  *   1. Load customer + user from DB
  *   2. If titanAccount already saved → return it immediately (no Paystack call)
- *   3. Otherwise → call Paystack, save result, return it
+ *   3. Otherwise → call Paystack to provision, save result, return it
+ *   4. If provisioning fails because DVA already exists on Paystack's side,
+ *      fetch it from Paystack and save to DB (recovery path for stale registrations)
  */
 const getOrCreateDVA = async (req, res) => {
 	try {
@@ -38,19 +41,26 @@ const getOrCreateDVA = async (req, res) => {
 		}
 
 		// ── Slow path: provision for the first time ───────────────────────
+		// provisionCustomerDVA internally auto-recovers if the customer or DVA
+		// already exists on Paystack's side (see dva.service.js).
 		const { customerCode, titanAccount } = await provisionCustomerDVA(customer);
 
-		// Persist to DB
 		customer.paystackCustomerCode = customerCode;
 		customer.titanAccount = titanAccount;
 		await customer.save();
 
-		return res.status(200).json({
-			success: true,
-			titanAccount,
-		});
+		return res.status(200).json({ success: true, titanAccount });
 	} catch (err) {
-		console.error("DVA getOrCreate error:", err.message);
+		logger.error(`DVA getOrCreate error for user ${req.user?.id}: ${err.message}`);
+
+		if (err.message === "PHONE_REQUIRED") {
+			return res.status(422).json({
+				success: false,
+				code: "PHONE_REQUIRED",
+				error: "A phone number is required to create a virtual account. Please add one to your profile.",
+			});
+		}
+
 		return res.status(500).json({
 			success: false,
 			error: err.message || "Could not provision virtual account",

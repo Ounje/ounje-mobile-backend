@@ -90,7 +90,7 @@ class VendorService {
 					$geoNear: {
 						near: { type: "Point", coordinates },
 						distanceField: "distanceMeters",
-						maxDistance: 15000, // 15km delivery limit
+						maxDistance: 5000, // 5km delivery limit
 						query: baseFilter,
 						spherical: true,
 					},

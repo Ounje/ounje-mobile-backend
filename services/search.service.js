@@ -11,7 +11,30 @@ const measurePerformance = (label) => {
 	};
 };
 
-const searchVendors = async (query, limit, includeUnavailable) => {
+const getNearbyVendorIds = async (coords) => {
+	if (!coords || !coords.lat || !coords.lng) return null;
+	const nearbyVendors = await VendorProfile.aggregate([
+		{
+			$geoNear: {
+				near: {
+					type: "Point",
+					coordinates: [parseFloat(coords.lng), parseFloat(coords.lat)],
+				},
+				distanceField: "distanceMeters",
+				maxDistance: 5000, // 5km proximity geofence limit to match home page
+				query: {
+					isActive: true,
+					"storeDetails.0.status": "active",
+				},
+				spherical: true,
+			},
+		},
+		{ $project: { _id: 1 } },
+	]);
+	return nearbyVendors.map((v) => v._id);
+};
+
+const searchVendors = async (query, limit, includeUnavailable, coords) => {
 	try {
 		const foodVendors = await FoodItem.aggregate([
 			{ $match: { $text: { $search: query }, isAvailable: true } },
@@ -26,6 +49,11 @@ const searchVendors = async (query, limit, includeUnavailable) => {
 			matchStage.isActive = true;
 			matchStage.storeDetails = { $exists: true, $not: { $size: 0 } };
 			matchStage["storeDetails.0.status"] = "active";
+		}
+
+		const nearbyVendorIds = await getNearbyVendorIds(coords);
+		if (nearbyVendorIds) {
+			matchStage._id = { $in: nearbyVendorIds };
 		}
 
 		const vendors = await VendorProfile.aggregate([
@@ -56,10 +84,15 @@ const searchVendors = async (query, limit, includeUnavailable) => {
 	}
 };
 
-const searchFoodItems = async (query, limit, includeUnavailable) => {
+const searchFoodItems = async (query, limit, includeUnavailable, coords) => {
 	try {
 		const matchStage = { $text: { $search: query } };
 		if (!includeUnavailable) matchStage.isAvailable = true;
+
+		const nearbyVendorIds = await getNearbyVendorIds(coords);
+		if (nearbyVendorIds) {
+			matchStage.vendor = { $in: nearbyVendorIds };
+		}
 
 		const foods = await FoodItem.aggregate([
 			{ $match: matchStage },
@@ -111,10 +144,16 @@ const searchFoodItems = async (query, limit, includeUnavailable) => {
 		return [];
 	}
 };
-const searchCombos = async (query, limit, includeUnavailable) => {
+
+const searchCombos = async (query, limit, includeUnavailable, coords) => {
 	try {
 		const matchStage = { $text: { $search: query } };
 		if (!includeUnavailable) matchStage.isAvailable = true;
+
+		const nearbyVendorIds = await getNearbyVendorIds(coords);
+		if (nearbyVendorIds) {
+			matchStage.vendor = { $in: nearbyVendorIds };
+		}
 
 		const combos = await Combo.aggregate([
 			{ $match: matchStage },
@@ -139,10 +178,17 @@ const searchCombos = async (query, limit, includeUnavailable) => {
 	}
 };
 
-const searchPlates = async (query, limit) => {
+const searchPlates = async (query, limit, coords) => {
 	try {
+		const matchStage = { $text: { $search: query } };
+
+		const nearbyVendorIds = await getNearbyVendorIds(coords);
+		if (nearbyVendorIds) {
+			matchStage.vendor = { $in: nearbyVendorIds };
+		}
+
 		const plates = await Plate.aggregate([
-			{ $match: { $text: { $search: query } } },
+			{ $match: matchStage },
 			{
 				$project: {
 					type: { $literal: "plate" },
@@ -173,6 +219,7 @@ const universalSearch = async (query, options = {}) => {
 			page = 1,
 			type = null,
 			includeUnavailable = false,
+			coords = null,
 		} = options;
 
 		const maxLimit = Math.min(limit, 30);
@@ -182,19 +229,19 @@ const universalSearch = async (query, options = {}) => {
 
 		const vendors =
 			!type || type === "vendor"
-				? await searchVendors(searchQuery, maxLimit, includeUnavailable)
+				? await searchVendors(searchQuery, maxLimit, includeUnavailable, coords)
 				: [];
 		const fooditems =
 			!type || type === "fooditems"
-				? await searchFoodItems(searchQuery, maxLimit, includeUnavailable)
+				? await searchFoodItems(searchQuery, maxLimit, includeUnavailable, coords)
 				: [];
 		const combos =
 			!type || type === "combo"
-				? await searchCombos(searchQuery, maxLimit, includeUnavailable)
+				? await searchCombos(searchQuery, maxLimit, includeUnavailable, coords)
 				: [];
 		const plates =
 			!type || type === "plate"
-				? await searchPlates(searchQuery, maxLimit)
+				? await searchPlates(searchQuery, maxLimit, coords)
 				: [];
 
 		const duration = perfTimer();
