@@ -37,36 +37,55 @@ const calculateRiderRank = (totalDeliveries) => {
 	return "New Rider";
 };
 
-// ── Fee calculation helper ────────────────────────────────────────────────────
-const COMMISSION_RATES = { basic: 0.05, growth: 0.1, premium: 0.15 };
-const SERVICE_FEE_RATE = 0.1;
+// ── UPDATED CONSTANTS ─────────────────────────────────────────────────────────
+const SERVICE_FEE_RATE = 0.10; // service fee stays, still calculated on original price
+const EXEMPT_CATEGORIES = ["drinks"];
 
-const _calculateFees = (items, vendorTier, promoApplied = false) => {
-	let vendorBaseTotal = 0;      // sum of originalPrice for all items
-	let comboMarkupRevenue = 0;   // extra 30% collected from non-promo combo orders
+// ── _calculateFees ────────────────────────────────────────────────────────────
+// Full replacement. Vendor always receives originalPrice. Platform keeps the markup.
+const _calculateFees = (items, promoApplied = false) => {
+	let vendorEarning = 0;
+	let platformMarkupRevenue = 0;
+	let comboMarkupRevenue = 0;
 
 	for (const item of items) {
+		const qty = item.quantity ?? 1;
+		const paidPrice = item.price;
+		const exempt = EXEMPT_CATEGORIES.includes(item.category?.toLowerCase());
+
 		if (item.itemType === "Combo") {
-			// originalPrice is stored on the combo at order time via item.originalPrice
-			const originalPrice = item.originalPrice ?? Math.round(item.price / 1.30);
-			const markup = item.price - originalPrice;
+			const originalPrice = item.originalPrice ?? Math.round(paidPrice / (1.10 * 1.20));
+			const withPlatformMarkup = Math.round(originalPrice * 1.10);
 
-			vendorBaseTotal += originalPrice * item.quantity;
+			vendorEarning += originalPrice * qty;
+			platformMarkupRevenue += (withPlatformMarkup - originalPrice) * qty;
 
-			// Only capture markup revenue if the customer did NOT use a promo code
 			if (!promoApplied) {
-				comboMarkupRevenue += markup * item.quantity;
+				comboMarkupRevenue += (paidPrice - withPlatformMarkup) * qty;
 			}
 		} else {
-			vendorBaseTotal += item.price * item.quantity;
+			// FoodItem or Plate
+			const originalPrice = item.originalPrice ?? (
+				exempt ? paidPrice : Math.round(paidPrice / 1.10)
+			);
+
+			vendorEarning += originalPrice * qty;
+
+			// Drinks have no markup so no platform revenue from them
+			if (!exempt) {
+				platformMarkupRevenue += (paidPrice - originalPrice) * qty;
+			}
 		}
 	}
 
-	const serviceFee = Math.round(vendorBaseTotal * SERVICE_FEE_RATE);
-	const commissionRate = COMMISSION_RATES[vendorTier] ?? 0.1;
-	const vendorEarning = Math.round(vendorBaseTotal * (1 - commissionRate));
+	const serviceFee = Math.round(vendorEarning * SERVICE_FEE_RATE);
 
-	return { serviceFee, vendorEarning, comboMarkupRevenue };
+	return {
+		serviceFee,
+		vendorEarning,
+		platformMarkupRevenue,
+		comboMarkupRevenue,
+	};
 };
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -106,13 +125,14 @@ const _calculateAndValidateItemPrice = async (item, models) => {
 	let validatedComboSelections = undefined;
 	let finalSubCatId = subCategoryItemId;
 	let actualItemId = itemId;
+	let originalPrice = null;
 
 	if (itemType === "FoodItem") {
 		let product = await ProductModel.findOne({
 			_id: actualItemId,
 			isAvailable: true,
 		})
-			.select("subCategory isAvailable name price")
+			.select("subCategory isAvailable name price originalPrice")
 			.lean();
 
 		if (!product) {
@@ -125,7 +145,7 @@ const _calculateAndValidateItemPrice = async (item, models) => {
 			const bySubCat = await ProductModel.findOne({
 				"subCategory.items._id": actualItemId,
 			})
-				.select("subCategory isAvailable name price")
+				.select("subCategory isAvailable name price originalPrice")
 				.lean();
 
 			if (bySubCat) {
@@ -177,6 +197,7 @@ const _calculateAndValidateItemPrice = async (item, models) => {
 
 		if (isFlatItem) {
 			itemPrice = product.price;
+			originalPrice = product.originalPrice ?? Math.round(itemPrice / 1.10);
 			finalSubCatId = null;
 			resolvedName = product.name;
 		} else {
@@ -184,7 +205,6 @@ const _calculateAndValidateItemPrice = async (item, models) => {
 				throw new AppError(`Invalid subCategoryItemId: ${finalSubCatId}`, 400);
 
 			let foundItem = null;
-			let foundInSubCat = null;
 
 			for (const subCat of product.subCategory) {
 				const match = subCat.items.find(
@@ -192,7 +212,6 @@ const _calculateAndValidateItemPrice = async (item, models) => {
 				);
 				if (match) {
 					foundItem = match;
-					foundInSubCat = subCat;
 					break;
 				}
 			}
@@ -207,6 +226,7 @@ const _calculateAndValidateItemPrice = async (item, models) => {
 				throw new AppError(`Item "${foundItem.name}" is not available`, 400);
 
 			itemPrice = foundItem.price;
+			originalPrice = foundItem.originalPrice ?? Math.round(itemPrice / 1.10);
 			resolvedName = foundItem.name;
 
 			if (
@@ -250,7 +270,7 @@ const _calculateAndValidateItemPrice = async (item, models) => {
 		}
 	} else if (itemType === "Combo") {
 		const product = await ProductModel.findById(actualItemId)
-			.select("basePrice comboName selections isAvailable")
+			.select("basePrice comboName selections isAvailable originalPrice")
 			.lean();
 
 		if (!product)
@@ -263,6 +283,7 @@ const _calculateAndValidateItemPrice = async (item, models) => {
 			);
 
 		itemPrice = product.basePrice;
+		originalPrice = product.originalPrice ?? Math.round(itemPrice / (1.10 * 1.20));
 		resolvedName = product.comboName;
 
 		validatedComboSelections = [];
@@ -375,13 +396,14 @@ const _calculateAndValidateItemPrice = async (item, models) => {
 		}
 	} else if (itemType === "Plate") {
 		const product = await ProductModel.findById(actualItemId)
-			.select("price name")
+			.select("price name originalPrice")
 			.lean();
 
 		if (!product)
 			throw new AppError(`Plate with ID ${actualItemId} not found`, 404);
 
 		itemPrice = product.price;
+		originalPrice = product.originalPrice ?? Math.round(itemPrice / 1.10);
 		resolvedName = product.name;
 	}
 
@@ -394,6 +416,7 @@ const _calculateAndValidateItemPrice = async (item, models) => {
 
 	return {
 		itemPrice,
+		originalPrice,
 		resolvedName,
 		validatedComboSelections,
 		actualItemId,
@@ -477,6 +500,7 @@ const createOrder = async (userId, data) => {
 
 		const {
 			itemPrice,
+			originalPrice,
 			resolvedName,
 			validatedComboSelections,
 			actualItemId,
@@ -490,8 +514,8 @@ const createOrder = async (userId, data) => {
 			item: actualItemId,
 			name: resolvedName,
 			quantity,
-			price: itemPrice,           // marked-up price (what customer paid)
-			originalPrice: Math.round(itemPrice / 1.30), // vendor's true price
+			price: itemPrice,                           // marked-up price customer pays
+			originalPrice: originalPrice,               // vendor's true price
 			notes,
 			subCategoryItemId: finalSubCatId || null,
 		};
@@ -556,18 +580,14 @@ const createOrder = async (userId, data) => {
 	}
 
 	// 5. Lookup Customer
-	// 5. Lookup Customer
 	const customer = await Customer.findOne({ user: userId });
 	if (!customer) throw new AppError("Customer profile not found", 404);
 
-	// 6. Calculate fees
-	const promoApplied = !!data.promoCode; // checks if frontend passed a promo code in data
+	// 6. Calculate fees with the promo code flag
+	const promoApplied = !!data.promoCode;
 
-	const { serviceFee, vendorEarning, comboMarkupRevenue } = _calculateFees(
-		orderItems,
-		vendor.tier,
-		promoApplied,
-	);
+	const { serviceFee, vendorEarning, platformMarkupRevenue, comboMarkupRevenue } =
+		_calculateFees(orderItems, promoApplied);
 
 	// 6b. Resolve delivery coordinates
 	let finalDeliveryLat = deliveryLatitude ?? null;
@@ -599,7 +619,8 @@ const createOrder = async (userId, data) => {
 		serviceFee,
 		foodTotal: itemsTotalPrice,
 		vendorEarning,
-		comboMarkupRevenue,
+		platformMarkupRevenue,  // new field
+		comboMarkupRevenue,     // new field
 		deliveryAddress,
 		deliveryLatitude: finalDeliveryLat,
 		deliveryLongitude: finalDeliveryLng,
@@ -626,12 +647,6 @@ const createOrder = async (userId, data) => {
 
 /**
  * Send order confirmation email after payment is confirmed.
- * Called by payment.controller.js — not by createOrder — so that
- * paymentStatus, paymentMethod, and vendorName are all resolved correctly.
- *
- * @param {Object} order  - saved order document (paymentStatus + paymentMethod already set)
- * @param {Object} vendor - { name, storeDetails } from VendorProfile
- * @param {Object} user   - { name, email } from User
  */
 const sendOrderConfirmationEmailForOrder = async (order, vendor, user) => {
 	try {
@@ -679,7 +694,7 @@ const sendOrderConfirmationEmailForOrder = async (order, vendor, user) => {
  * Calculate totalPrice, deliveryFee, serviceFee for a cart WITHOUT creating an order.
  */
 const estimateOrderPrice = async (cartData) => {
-	const { items, vendorId, deliveryAddress } = cartData;
+	const { items, vendorId, deliveryAddress, promoCode } = cartData;
 
 	if (!mongoose.isValidObjectId(vendorId))
 		throw new AppError(`Invalid Vendor ID: ${vendorId}`, 400);
@@ -707,14 +722,21 @@ const estimateOrderPrice = async (cartData) => {
 	const models = { FoodItem, Combo, Plate };
 
 	let itemsTotalPrice = 0;
+	const formattedItems = [];
 	for (const item of items) {
-		const { itemPrice } = await _calculateAndValidateItemPrice(item, models);
+		const { itemPrice, originalPrice } = await _calculateAndValidateItemPrice(item, models);
 		itemsTotalPrice += itemPrice * (item.quantity ?? 1);
+		formattedItems.push({
+			...item,
+			price: itemPrice,
+			originalPrice: originalPrice
+		});
 	}
 
+	const promoApplied = !!promoCode;
 	const { serviceFee, vendorEarning } = _calculateFees(
-		itemsTotalPrice,
-		vendor.tier,
+		formattedItems,
+		promoApplied
 	);
 
 	return {
@@ -1054,17 +1076,6 @@ const completeDelivery = async (orderId, riderId, otp) => {
 	if (order.rider.toString() !== riderId) {
 		throw new AppError("Not assigned to you", 403);
 	}
-
-	// try {
-	// 	await notificationService.notifyCustomerRiderArrived(order.customer, order);
-	// 	logger.info(
-	// 		`Rider has arrived notification sent to customer ${order.customer}`,
-	// 	);
-	// } catch (error) {
-	// 	logger.error(
-	// 		`Failed to send rider has arrived notification: ${error.message}`,
-	// 	);
-	// }
 
 	await verifyDeliveryOtp(order, otp, riderId);
 
