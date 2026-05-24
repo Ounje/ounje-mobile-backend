@@ -42,6 +42,12 @@ const vendorProfileSchema = new mongoose.Schema(
 			required: true,
 			index: true,
 		},
+		vendorId: {
+			type: String,
+			unique: true,
+			sparse: true, // allows null until generated
+			index: true,
+		},
 		name: { type: String, required: true },
 		description: String,
 		profileImage: String,
@@ -68,7 +74,7 @@ const vendorProfileSchema = new mongoose.Schema(
 			coordinates: { type: [Number] },
 			address: String,
 		},
-		zone: { type: String, default: null }, // Explicitly set delivery zone — used for rider dispatch
+		zone: { type: String, default: null },
 		fulfillmentSettings: {
 			type: {
 				type: String,
@@ -82,25 +88,6 @@ const vendorProfileSchema = new mongoose.Schema(
 			minOrderAmount: { type: Number, default: 0 },
 			deliveryPrice: { type: Number, default: 0 },
 		},
-		// operatingHours: [
-		// 	{
-		// 		day: {
-		// 			type: String,
-		// 			enum: [
-		// 				"monday",
-		// 				"tuesday",
-		// 				"wednesday",
-		// 				"thursday",
-		// 				"friday",
-		// 				"saturday",
-		// 				"sunday",
-		// 			],
-		// 		},
-		// 		open: String,
-		// 		close: String,
-		// 		isOpen: { type: Boolean, default: false },
-		// 	},
-		// ],
 		bankDetails: {
 			accountNumber: String,
 			bankCode: String,
@@ -112,6 +99,7 @@ const vendorProfileSchema = new mongoose.Schema(
 	},
 	{ timestamps: true },
 );
+
 vendorProfileSchema.index(
 	{
 		name: "text",

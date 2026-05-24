@@ -52,19 +52,20 @@ const getOverview = async (req, res) => {
 		const { period = "today", startDate, endDate } = req.query;
 		const { start, end } = getDateRange(period, startDate, endDate);
 
-		// All delivered orders in period
+		// All delivered orders in period (including comboMarkupRevenue selection)
 		const orders = await Order.find({
 			status: "DELIVERED",
 			createdAt: { $gte: start, $lte: end },
-		}).select("totalPrice deliveryFee serviceFee");
+		}).select("totalPrice deliveryFee serviceFee comboMarkupRevenue");
 
 		const orderCount = orders.length;
 		const grossRevenue = orders.reduce((sum, o) => sum + (o.totalPrice || 0), 0);
 		const totalDeliveryFees = orders.reduce((sum, o) => sum + (o.deliveryFee || 0), 0);
 		const totalServiceFees = orders.reduce((sum, o) => sum + (o.serviceFee || 0), 0);
+		const totalMarkupRevenue = orders.reduce((sum, o) => sum + (o.comboMarkupRevenue || 0), 0);
 
-		// Commission = 10% of (totalPrice - deliveryFee - serviceFee)
-		const foodTotal = grossRevenue - totalDeliveryFees - totalServiceFees;
+		// Commission is calculated on the vendor base total (excluding markup)
+		const foodTotal = grossRevenue - totalDeliveryFees - totalServiceFees - totalMarkupRevenue;
 		const commissionEarned = Math.round(foodTotal * 0.1);
 
 		// Total payouts (expenses) — completed payouts in period
@@ -74,8 +75,8 @@ const getOverview = async (req, res) => {
 		}).select("amount");
 		const totalPayouts = payouts.reduce((sum, p) => sum + (p.amount || 0), 0);
 
-		// Net platform profit = commission + service fees - operational expenses
-		const netProfit = commissionEarned + totalServiceFees - totalPayouts;
+		// Net platform profit = commission + service fees + markup revenue - operational expenses
+		const netProfit = commissionEarned + totalServiceFees + totalMarkupRevenue - totalPayouts;
 
 		res.json({
 			success: true,
@@ -87,6 +88,7 @@ const getOverview = async (req, res) => {
 				commissionEarned,
 				totalServiceFees,
 				totalDeliveryFees,
+				totalMarkupRevenue,   // new — markup collected from non-promo combo orders
 				totalPayouts,
 				netProfit,
 			},
