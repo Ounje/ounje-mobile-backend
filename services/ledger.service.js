@@ -798,23 +798,45 @@ const releaseVendorAmount = async (vendorId, orderId) => {
 	}
 };
 
-const reverseVendorHold = async (vendorId, orderId) => {
+const reverseHold = async ({
+	userId,
+	userType,
+	orderId,
+	holdReason,
+	meta,
+	logLabel,
+}) => {
 	const session = await mongoose.startSession();
 	session.startTransaction();
 	try {
-		const account = await ensureAccount(vendorId, "VENDOR", session);
-		const holdEntry = await LedgerEntry.findOne({
-			orderId,
-			accountId: account._id,
-			reason: "VENDOR_EARNING_HOLD",
-		});
+		const account = await ensureAccount(userId, userType, session);
+
+		const holdEntry = await LedgerEntry.findOne(
+			{ orderId, accountId: account._id, reason: holdReason },
+			null,
+			{ session },
+		);
 
 		if (!holdEntry) {
 			await session.commitTransaction();
 			return;
 		}
 
-		const amount = holdEntry.amount;
+		const alreadyReversed = await LedgerEntry.findOne(
+			{ orderId, accountId: account._id, reason: "REVERSAL" },
+			null,
+			{ session },
+		);
+
+		if (alreadyReversed) {
+			logger.warn(
+				`[WALLET] ${logLabel}: reversal already applied — skipping. orderId=${orderId}`,
+			);
+			await session.commitTransaction();
+			return;
+		}
+
+		const { amount } = holdEntry;
 
 		await LedgerAccount.findOneAndUpdate(
 			{ _id: account._id },
@@ -830,10 +852,7 @@ const reverseVendorHold = async (vendorId, orderId) => {
 					entryType: "DEBIT",
 					reason: "REVERSAL",
 					orderId,
-					meta: {
-						action: "vendor_earning_hold_reversed",
-						reason: "vendor_declined",
-					},
+					meta,
 					balanceAfter: account.availableBalance,
 				},
 			],
@@ -842,12 +861,12 @@ const reverseVendorHold = async (vendorId, orderId) => {
 
 		await session.commitTransaction();
 		logger.info(
-			`[WALLET] reverseVendorHold: orderId=${orderId} vendorId=${vendorId} amount=₦${amount}`,
+			`[WALLET] ${logLabel}: orderId=${orderId} userId=${userId} amount=₦${amount}`,
 		);
 	} catch (error) {
 		await session.abortTransaction();
 		logger.error(
-			`[WALLET] reverseVendorHold failed: orderId=${orderId} err=${error.message}`,
+			`[WALLET] ${logLabel} failed: orderId=${orderId} err=${error.message}`,
 		);
 		throw error;
 	} finally {
@@ -855,56 +874,31 @@ const reverseVendorHold = async (vendorId, orderId) => {
 	}
 };
 
-const reverseRiderFeeHold = async (riderId, orderId) => {
-	const session = await mongoose.startSession();
-	session.startTransaction();
-	try {
-		const account = await ensureAccount(riderId, "RIDER", session);
-		const holdEntry = await LedgerEntry.findOne({
-			orderId,
-			accountId: account._id,
-			reason: "DELIVERY_FEE_HOLD",
-		});
+const reverseVendorHold = (vendorId, orderId) =>
+	reverseHold({
+		userId: vendorId,
+		userType: "VENDOR",
+		orderId,
+		holdReason: "VENDOR_EARNING_HOLD",
+		meta: {
+			action: "vendor_earning_hold_reversed",
+			reason: "vendor_declined",
+		},
+		logLabel: "reverseVendorHold",
+	});
 
-		if (!holdEntry) {
-			await session.commitTransaction();
-			return;
-		}
-
-		const amount = holdEntry.amount;
-
-		await LedgerAccount.findOneAndUpdate(
-			{ _id: account._id },
-			{ $inc: { holdBalance: -amount } },
-			{ session },
-		);
-
-		await LedgerEntry.create(
-			[
-				{
-					accountId: account._id,
-					amount,
-					entryType: "DEBIT",
-					reason: "REVERSAL",
-					orderId,
-					meta: {
-						action: "delivery_fee_hold_reversed",
-						reason: "rider_declined",
-					},
-					balanceAfter: account.availableBalance,
-				},
-			],
-			{ session },
-		);
-
-		await session.commitTransaction();
-	} catch (error) {
-		await session.abortTransaction();
-		throw error;
-	} finally {
-		session.endSession();
-	}
-};
+const reverseRiderFeeHold = (riderId, orderId) =>
+	reverseHold({
+		userId: riderId,
+		userType: "RIDER",
+		orderId,
+		holdReason: "DELIVERY_FEE_HOLD",
+		meta: {
+			action: "delivery_fee_hold_reversed",
+			reason: "rider_declined",
+		},
+		logLabel: "reverseRiderFeeHold",
+	});
 
 const reverseOrderEarnings = async (order) => {
 	const { vendor: vendorId, rider: riderId, _id: orderId } = order;
