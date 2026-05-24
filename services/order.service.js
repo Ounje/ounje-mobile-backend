@@ -41,11 +41,32 @@ const calculateRiderRank = (totalDeliveries) => {
 const COMMISSION_RATES = { basic: 0.05, growth: 0.1, premium: 0.15 };
 const SERVICE_FEE_RATE = 0.1;
 
-const _calculateFees = (itemsTotalPrice, vendorTier) => {
-	const serviceFee = Math.round(itemsTotalPrice * SERVICE_FEE_RATE);
+const _calculateFees = (items, vendorTier, promoApplied = false) => {
+	let vendorBaseTotal = 0;      // sum of originalPrice for all items
+	let comboMarkupRevenue = 0;   // extra 30% collected from non-promo combo orders
+
+	for (const item of items) {
+		if (item.itemType === "Combo") {
+			// originalPrice is stored on the combo at order time via item.originalPrice
+			const originalPrice = item.originalPrice ?? Math.round(item.price / 1.30);
+			const markup = item.price - originalPrice;
+
+			vendorBaseTotal += originalPrice * item.quantity;
+
+			// Only capture markup revenue if the customer did NOT use a promo code
+			if (!promoApplied) {
+				comboMarkupRevenue += markup * item.quantity;
+			}
+		} else {
+			vendorBaseTotal += item.price * item.quantity;
+		}
+	}
+
+	const serviceFee = Math.round(vendorBaseTotal * SERVICE_FEE_RATE);
 	const commissionRate = COMMISSION_RATES[vendorTier] ?? 0.1;
-	const vendorEarning = Math.round(itemsTotalPrice * (1 - commissionRate));
-	return { serviceFee, vendorEarning };
+	const vendorEarning = Math.round(vendorBaseTotal * (1 - commissionRate));
+
+	return { serviceFee, vendorEarning, comboMarkupRevenue };
 };
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -469,7 +490,8 @@ const createOrder = async (userId, data) => {
 			item: actualItemId,
 			name: resolvedName,
 			quantity,
-			price: itemPrice,
+			price: itemPrice,           // marked-up price (what customer paid)
+			originalPrice: Math.round(itemPrice / 1.30), // vendor's true price
 			notes,
 			subCategoryItemId: finalSubCatId || null,
 		};
@@ -534,13 +556,17 @@ const createOrder = async (userId, data) => {
 	}
 
 	// 5. Lookup Customer
+	// 5. Lookup Customer
 	const customer = await Customer.findOne({ user: userId });
 	if (!customer) throw new AppError("Customer profile not found", 404);
 
 	// 6. Calculate fees
-	const { serviceFee, vendorEarning } = _calculateFees(
-		itemsTotalPrice,
+	const promoApplied = !!data.promoCode; // checks if frontend passed a promo code in data
+
+	const { serviceFee, vendorEarning, comboMarkupRevenue } = _calculateFees(
+		orderItems,
 		vendor.tier,
+		promoApplied,
 	);
 
 	// 6b. Resolve delivery coordinates
@@ -573,6 +599,7 @@ const createOrder = async (userId, data) => {
 		serviceFee,
 		foodTotal: itemsTotalPrice,
 		vendorEarning,
+		comboMarkupRevenue,
 		deliveryAddress,
 		deliveryLatitude: finalDeliveryLat,
 		deliveryLongitude: finalDeliveryLng,

@@ -700,10 +700,16 @@ const createCombo = async (req, res) => {
 			vendor._id, // Pass VendorProfile ID
 		);
 
+		// Store the vendor's original price, then apply the 30% platform markup
+		const originalPrice = Number(basePrice);
+		const markedUpPrice = Math.round(originalPrice * 1.30);
+
 		const combo = await Combo.create({
 			comboName,
 			description,
-			basePrice,
+			originalPrice,           // vendor's true price — used for earnings calculation
+			basePrice: markedUpPrice, // marked-up price — what customers see and pay
+			markupPercent: 30,
 			selections: processedSelections,
 			vendor: vendor._id, // Use VendorProfile ID, not User ID
 			img: req.file.path,
@@ -740,6 +746,14 @@ const updateCombo = async (req, res) => {
 				.json({ success: false, message: "Base price must be greater than 0" });
 
 		const { vendor, selections, ...updateData } = req.body;
+
+		// If vendor is updating their price, re-apply the 30% markup
+		if (updateData.basePrice !== undefined) {
+			const originalPrice = Number(updateData.basePrice);
+			updateData.originalPrice = originalPrice;
+			updateData.basePrice = Math.round(originalPrice * 1.30);
+			updateData.markupPercent = 30;
+		}
 
 		if (selections) {
 			updateData.selections = await processSelections(

@@ -8,6 +8,12 @@ const riderProfileSchema = new mongoose.Schema(
 			ref: "User",
 			required: true,
 		},
+		riderId: {
+			type: String,
+			unique: true,
+			sparse: true, 
+			index: true,
+		},
 		status: {
 			type: String,
 			enum: ["pending", "deactivated", "available", "busy", "offline"],
@@ -19,14 +25,8 @@ const riderProfileSchema = new mongoose.Schema(
 		setupComplete: { type: Boolean, default: false },
 		currentLocation: {
 			type: { type: String, enum: ["Point"], default: "Point" },
-			coordinates: { type: [Number], default: [0, 0] }, // [longitude, latitude]
+			coordinates: { type: [Number], default: [0, 0] },
 		},
-		// vehicle: {
-		// 	type: { type: String, enum: ["Bicycle", "Motorcycle", "Car", "Van"] },
-		// 	plateNumber: String,
-		// 	model: String,
-		// 	color: String,
-		// },
 		modeOfDelivery: {
 			type: String,
 			enum: ["Bicycle", "Motorcycle"],
@@ -40,22 +40,15 @@ const riderProfileSchema = new mongoose.Schema(
 			average: { type: Number, default: 0 },
 			count: { type: Number, default: 0 },
 		},
-		totalDeliveries: {
-			type: Number,
-			default: 0,
-		},
-		rank: {
-			type: String,
-			default: "New Rider",
-		},
+		totalDeliveries: { type: Number, default: 0 },
+		rank: { type: String, default: "New Rider" },
 		averageRating: { type: Number, default: 0 },
 		ratingCount: { type: Number, default: 0 },
 		rankingScore: { type: Number, default: 0 },
 		tier: { type: String, enum: ["STARTER", "ACTIVE", "PRO", "ELITE"], default: "STARTER" },
-		acceptanceRate: { type: Number, default: 100 }, // percentage 0–100
+		acceptanceRate: { type: Number, default: 100 },
 		ordersOffered: { type: Number, default: 0 },
 		ordersAccepted: { type: Number, default: 0 },
-		// Personal Verification Documents
 		guarantor: {
 			name: { type: String },
 			phone: { type: String },
@@ -73,19 +66,17 @@ const riderProfileSchema = new mongoose.Schema(
 			},
 		},
 		paystackRecipientCode: { type: String },
-		profilePicture: String, // Cloudinary URL
-		driversLicense: String, // URL or ID
-		nin: String, // National Identity Number
-		fcmToken: { type: String, default: null }, // Expo push token for notifications
+		profilePicture: String,
+		driversLicense: String,
+		nin: String,
+		fcmToken: { type: String, default: null },
 		notificationPreferences: {
 			newRequests: { type: Boolean, default: true },
 			earnings: { type: Boolean, default: true },
 			promotions: { type: Boolean, default: true },
 		},
 	},
-	{
-		timestamps: true,
-	},
+	{ timestamps: true },
 );
 
 riderProfileSchema.plugin(toJSON);

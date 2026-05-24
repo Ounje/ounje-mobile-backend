@@ -85,6 +85,7 @@ const orderSchema = new mongoose.Schema(
 		},
 		foodTotal: { type: Number, default: 0 }, // gross food subtotal (sum of items)
 		vendorEarning: { type: Number, default: 0 }, // net to vendor after platform commission
+		comboMarkupRevenue: { type: Number, default: 0 }, // extra 30% collected from non-promo combo orders
 		zone: {
 			type: String,
 		}, // e.g., "Ikeja"

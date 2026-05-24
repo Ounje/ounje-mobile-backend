@@ -23,6 +23,15 @@ const promotionSchema = new mongoose.Schema(
 		startsAt: Date,
 		expiresAt: Date,
 		isActive: { type: Boolean, default: true },
+
+		// Restricts the promo to a specific item type.
+		// "all"   = applies to entire order total (default behaviour)
+		// "combo" = applies only to combo items in the order
+		applicableTo: {
+			type: String,
+			enum: ["all", "combo"],
+			default: "all",
+		},
 	},
 	{ timestamps: true },
 );

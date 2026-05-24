@@ -3,6 +3,7 @@ const { deleteImage } = require("../config/cloudinary");
 const payoutService = require("./payout.service");
 const { parseTime: _parseTime } = require("../utils/time");
 const { DAYS_OF_WEEK } = require("../utils/constants");
+const { generateVendorId } = require("../utils/generateProfileId");
 
 class VendorService {
 	/**
@@ -326,6 +327,12 @@ class VendorService {
 
 		vendor.storeDetails = [storeDetailsData];
 		if (vendor.balance == null) vendor.balance = 0;
+
+		// Generate a unique vendor ID if one hasn't been assigned yet
+		if (!vendor.vendorId) {
+			vendor.vendorId = await generateVendorId();
+		}
+
 		await vendor.save();
 
 		return this._formatRegistrationResponse(
@@ -572,6 +579,7 @@ class VendorService {
 					: "Vendor registration submitted and pending verification",
 			vendor: {
 				id: vendor._id,
+				vendorId: vendor.vendorId,   // shown to vendor on their app
 				name: vendor.name,
 				email: vendor.email,
 				phone: vendor.phone,

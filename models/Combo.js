@@ -1,19 +1,14 @@
 const mongoose = require("mongoose");
 const toJSON = require("./plugins/toJSON.plugin");
-// const {
-// 	getCategoryValues,
-// 	getSubCategoryValues,
-// } = require("../utils/foodEnums");
 
-// Schema for individual items within a selection
 const SelectionItemSchema = new mongoose.Schema({
 	item: {
 		type: mongoose.Schema.Types.ObjectId,
 		ref: "FoodItem",
 		required: true,
 	},
-	name: { type: String }, // Denormalized name from FoodItem for quick access
-	img: { type: String }, // Denormalized image URL from FoodItem
+	name: { type: String },
+	img: { type: String },
 	price: {
 		type: Number,
 		default: 0,
@@ -22,10 +17,9 @@ const SelectionItemSchema = new mongoose.Schema({
 	isAvailable: { type: Boolean, default: true },
 });
 
-// Schema for selection groups (e.g., base, sides, extras)
 const SelectionGroupSchema = new mongoose.Schema({
-	key: { type: String, required: true }, // e.g., "base", "sides"
-	label: { type: String, required: true }, // e.g., "Rice Selection", "Protein Selection"
+	key: { type: String, required: true },
+	label: { type: String, required: true },
 	required: { type: Boolean, default: false },
 	maxSelection: { type: Number, default: 1 },
 	items: [SelectionItemSchema],
@@ -35,8 +29,10 @@ const ComboSchema = new mongoose.Schema(
 	{
 		comboName: { type: String, required: true },
 		description: { type: String },
-		basePrice: { type: Number, required: true }, // Base price of the combo
-		selections: [SelectionGroupSchema], // Changed from Map to Array for better population support
+		basePrice: { type: Number, required: true },    // marked-up price (what customers see)
+		originalPrice: { type: Number, required: true }, // vendor's original price (before markup)
+		markupPercent: { type: Number, default: 30 },   // platform markup percentage
+		selections: [SelectionGroupSchema],
 		comboGroup: {
 			type: mongoose.Schema.Types.ObjectId,
 			ref: "ComboGroup",
@@ -47,7 +43,7 @@ const ComboSchema = new mongoose.Schema(
 			required: true,
 		},
 		img: { type: String, required: true },
-		time: { type: String, required: true }, // Preparation time
+		time: { type: String, required: true },
 		deliveryTime: { type: String },
 		ordersCount: { type: Number, default: 0 },
 		isAvailable: { type: Boolean, default: true },
@@ -79,7 +75,6 @@ ComboSchema.virtual("itemType").get(function () {
 });
 
 ComboSchema.plugin(toJSON);
-
 ComboSchema.set("toJSON", { virtuals: true });
 ComboSchema.set("toObject", { virtuals: true });
 
