@@ -38,7 +38,8 @@ const calculateRiderRank = (totalDeliveries) => {
 };
 
 // ── UPDATED CONSTANTS ─────────────────────────────────────────────────────────
-const SERVICE_FEE_RATE = 0.00; // Removed: 10% service fee is now handled by the baked-in markup
+// The 10% service fee is permanent and independent of food item markups.
+const SERVICE_FEE_RATE = 0.10;
 const EXEMPT_CATEGORIES = ["drinks"];
 
 // ── _calculateFees ────────────────────────────────────────────────────────────
