@@ -10,7 +10,10 @@ const userSchema = new mongoose.Schema(
 			type: { type: String, enum: ["Point"], default: "Point" },
 			coordinates: { type: [Number] },
 		},
-		phone: String,
+		phone: {
+			type: String,
+			match: [/^\+?[1-9]\d{1,14}$/, "Please provide a valid E.164 phone number"],
+		},
 		role: {
 			type: String,
 			enum: ["customer", "vendor", "rider", "admin"],
