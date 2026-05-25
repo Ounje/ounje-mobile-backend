@@ -10,7 +10,16 @@ const PLATFORM_MARKUP = 1.10;       // 10% added to all items except drinks
 const COMBO_MARKUP = 1.20;          // additional 20% added to combos only
 const EXEMPT_CATEGORIES = ["drinks"]; // categories excluded from platform markup
 
-const applyMarkup = (price, multiplier) => Math.round(price * multiplier);
+// The markup will only become active on Wednesday, May 27, 2026, 00:00:00 UTC.
+const isMarkupActive = () => {
+	const rolloutDate = new Date("2026-05-27T00:00:00Z");
+	return new Date() >= rolloutDate;
+};
+
+const applyMarkup = (price, multiplier) => {
+	if (!isMarkupActive()) return price;
+	return Math.round(price * multiplier);
+};
 
 // Returns true if the category should NOT have the 10% markup applied
 const isMarkupExempt = (category) =>
