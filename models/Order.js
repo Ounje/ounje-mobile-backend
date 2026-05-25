@@ -63,7 +63,11 @@ const orderSchema = new mongoose.Schema(
 					},
 					price: {
 						type: Number,
-						required: true,
+						required: true, // marked-up price customer paid
+					},
+					originalPrice: {
+						type: Number,
+						default: null, // vendor's true price — used for earnings calculation
 					},
 					notes: String, // optional instructions
 				},
@@ -85,6 +89,8 @@ const orderSchema = new mongoose.Schema(
 		},
 		foodTotal: { type: Number, default: 0 }, // gross food subtotal (sum of items)
 		vendorEarning: { type: Number, default: 0 }, // net to vendor after platform commission
+		platformMarkupRevenue: { type: Number, default: 0 }, // platform's 10% from all items
+		comboMarkupRevenue: { type: Number, default: 0 }, // platform's extra share from combo markup (non-promo orders)
 		zone: {
 			type: String,
 		}, // e.g., "Ikeja"

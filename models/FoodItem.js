@@ -8,6 +8,7 @@ const toJSON = require("./plugins/toJSON.plugin");
 const SubCategoryItemSchema = new mongoose.Schema(
 	{
 		name: { type: String, required: true },
+		originalPrice: { type: Number },
 		price: { type: Number, required: true },
 		img: { type: String, required: true },
 		description: { type: String },
