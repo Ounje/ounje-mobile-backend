@@ -10,7 +10,7 @@ const {
 	User,
 	Promotion, // Added
 } = require("../models");
-const promoController = require("../controllers/promoController"); // Added
+const promoService = require("../services/promo.service");
 const { calculateOunjeFee, identifyZone } = require("../utils/delivery");
 const { parseTime: _parseTime } = require("../utils/time");
 const {
@@ -41,7 +41,7 @@ const calculateRiderRank = (totalDeliveries) => {
 
 // ── UPDATED CONSTANTS ─────────────────────────────────────────────────────────
 // The 10% service fee is permanent and independent of food item markups.
-const SERVICE_FEE_RATE = 0.10;
+const SERVICE_FEE_RATE = 0.1;
 const EXEMPT_CATEGORIES = ["drinks"];
 
 // ── _calculateFees ────────────────────────────────────────────────────────────
@@ -61,8 +61,9 @@ const _calculateFees = (items, promoApplied = false) => {
 			// Vendor always gets originalPrice.
 			// Standard Markup is 10%. Combo Markup is extra 20%.
 			// Reverse: Price / (1.10 * 1.20)
-			const originalPrice = item.originalPrice ?? Math.round(paidPrice / (1.10 * 1.20));
-			const withPlatformMarkup = Math.round(originalPrice * 1.10);
+			const originalPrice =
+				item.originalPrice ?? Math.round(paidPrice / (1.1 * 1.2));
+			const withPlatformMarkup = Math.round(originalPrice * 1.1);
 
 			vendorEarning += originalPrice * qty;
 			platformMarkupRevenue += (withPlatformMarkup - originalPrice) * qty;
@@ -76,9 +77,9 @@ const _calculateFees = (items, promoApplied = false) => {
 			comboSubtotal += item.price * qty;
 		} else {
 			// FoodItem or Plate
-			const originalPrice = item.originalPrice ?? (
-				exempt ? paidPrice : Math.round(paidPrice / 1.10)
-			);
+			const originalPrice =
+				item.originalPrice ??
+				(exempt ? paidPrice : Math.round(paidPrice / 1.1));
 
 			vendorEarning += originalPrice * qty;
 
@@ -208,7 +209,7 @@ const _calculateAndValidateItemPrice = async (item, models) => {
 
 		if (isFlatItem) {
 			itemPrice = product.price;
-			originalPrice = product.originalPrice ?? Math.round(itemPrice / 1.10);
+			originalPrice = product.originalPrice ?? Math.round(itemPrice / 1.1);
 			finalSubCatId = null;
 			resolvedName = product.name;
 		} else {
@@ -237,7 +238,7 @@ const _calculateAndValidateItemPrice = async (item, models) => {
 				throw new AppError(`Item "${foundItem.name}" is not available`, 400);
 
 			itemPrice = foundItem.price;
-			originalPrice = foundItem.originalPrice ?? Math.round(itemPrice / 1.10);
+			originalPrice = foundItem.originalPrice ?? Math.round(itemPrice / 1.1);
 			resolvedName = foundItem.name;
 
 			if (
@@ -294,7 +295,8 @@ const _calculateAndValidateItemPrice = async (item, models) => {
 			);
 
 		itemPrice = product.basePrice;
-		originalPrice = product.originalPrice ?? Math.round(itemPrice / (1.10 * 1.20));
+		originalPrice =
+			product.originalPrice ?? Math.round(itemPrice / (1.1 * 1.2));
 		resolvedName = product.comboName;
 
 		validatedComboSelections = [];
@@ -414,7 +416,7 @@ const _calculateAndValidateItemPrice = async (item, models) => {
 			throw new AppError(`Plate with ID ${actualItemId} not found`, 404);
 
 		itemPrice = product.price;
-		originalPrice = product.originalPrice ?? Math.round(itemPrice / 1.10);
+		originalPrice = product.originalPrice ?? Math.round(itemPrice / 1.1);
 		resolvedName = product.name;
 	}
 
@@ -525,8 +527,8 @@ const createOrder = async (userId, data) => {
 			item: actualItemId,
 			name: resolvedName,
 			quantity,
-			price: itemPrice,                           // marked-up price customer pays
-			originalPrice: originalPrice,               // vendor's true price
+			price: itemPrice, // marked-up price customer pays
+			originalPrice: originalPrice, // vendor's true price
 			notes,
 			subCategoryItemId: finalSubCatId || null,
 		};
@@ -599,16 +601,29 @@ const createOrder = async (userId, data) => {
 
 	let discountAmount = 0;
 	let promo = null;
-	const { serviceFee, vendorEarning, platformMarkupRevenue, comboMarkupRevenue, comboSubtotal } =
-		_calculateFees(orderItems, promoApplied);
+	const {
+		serviceFee,
+		vendorEarning,
+		platformMarkupRevenue,
+		comboMarkupRevenue,
+		comboSubtotal,
+	} = _calculateFees(orderItems, promoApplied);
 
 	if (promoApplied) {
-		promo = await Promotion.findOne({ code: data.promoCode.trim().toUpperCase() });
-		const promoError = promoController.getPromoError(promo, userId, itemsTotalPrice);
-		if (promoError) {
-			throw new AppError(promoError.message, promoError.status);
-		}
-		discountAmount = promoController.calculateDiscount(promo, itemsTotalPrice, comboSubtotal);
+		promo = await promoService.findPromoByCode(data.promoCode); // ← no `const`
+
+		const promoError = promoService.getPromoError(promo, userId, {
+			total: itemsTotalPrice,
+			comboSubtotal,
+		});
+
+		if (promoError) throw new AppError(promoError.message, promoError.status);
+
+		discountAmount = promoService.calculateDiscount(
+			promo,
+			itemsTotalPrice,
+			comboSubtotal,
+		);
 	}
 
 	// 6b. Resolve delivery coordinates
@@ -636,15 +651,18 @@ const createOrder = async (userId, data) => {
 		customer: customer._id,
 		vendor: vendorId,
 		items: orderItems,
-		totalPrice: Math.max(0, itemsTotalPrice + fee + serviceFee - discountAmount),
+		totalPrice: Math.max(
+			0,
+			itemsTotalPrice + fee + serviceFee - discountAmount,
+		),
 		deliveryFee: fee,
 		serviceFee,
 		foodTotal: itemsTotalPrice,
 		discountAmount,
 		promoCodeApplied: promo ? promo.code : null,
 		vendorEarning,
-		platformMarkupRevenue,  // new field
-		comboMarkupRevenue,     // new field
+		platformMarkupRevenue, // new field
+		comboMarkupRevenue, // new field
 		deliveryAddress,
 		deliveryLatitude: finalDeliveryLat,
 		deliveryLongitude: finalDeliveryLng,
@@ -725,7 +743,7 @@ const sendOrderConfirmationEmailForOrder = async (order, vendor, user) => {
 /**
  * Calculate totalPrice, deliveryFee, serviceFee for a cart WITHOUT creating an order.
  */
-const estimateOrderPrice = async (cartData) => {
+const estimateOrderPrice = async (cartData, userId) => {
 	const { items, vendorId, deliveryAddress, promoCode } = cartData;
 
 	if (!mongoose.isValidObjectId(vendorId))
@@ -756,28 +774,38 @@ const estimateOrderPrice = async (cartData) => {
 	let itemsTotalPrice = 0;
 	const formattedItems = [];
 	for (const item of items) {
-		const { itemPrice, originalPrice, resolvedName } = await _calculateAndValidateItemPrice(item, models);
+		const { itemPrice, originalPrice, resolvedName } =
+			await _calculateAndValidateItemPrice(item, models);
 		itemsTotalPrice += itemPrice * (item.quantity ?? 1);
 		formattedItems.push({
 			...item,
 			name: resolvedName,
 			price: itemPrice,
-			originalPrice: originalPrice
+			originalPrice: originalPrice,
 		});
 	}
 
 	const promoApplied = !!promoCode;
 	const { serviceFee, vendorEarning, comboSubtotal } = _calculateFees(
 		formattedItems,
-		promoApplied
+		promoApplied,
 	);
 
 	let discountAmount = 0;
 	if (promoApplied) {
-		const promo = await Promotion.findOne({ code: promoCode.trim().toUpperCase() });
-		const promoError = promoController.getPromoError(promo, userId, itemsTotalPrice);
+		const promo = await promoService.findPromoByCode(promoCode);
+
+		const promoError = promoService.getPromoError(promo, userId, {
+			total: itemsTotalPrice,
+			comboSubtotal, // ← was hardcoded 0
+		});
+
 		if (!promoError && promo) {
-			discountAmount = promoController.calculateDiscount(promo, itemsTotalPrice, comboSubtotal);
+			discountAmount = promoService.calculateDiscount(
+				promo,
+				itemsTotalPrice,
+				comboSubtotal,
+			);
 		}
 	}
 

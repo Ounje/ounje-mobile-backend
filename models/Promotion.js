@@ -3,8 +3,18 @@ const toJSON = require("./plugins/toJSON.plugin");
 
 const promotionSchema = new mongoose.Schema(
 	{
-		code: { type: String, required: true, unique: true, uppercase: true },
-		name: { type: String, required: true }, // Added for Admin parity
+		code: {
+			type: String,
+			required: true,
+			unique: true,
+			uppercase: true,
+			trim: true,
+		},
+		name: {
+			type: String,
+			required: true,
+			trim: true,
+		},
 		description: String,
 		type: {
 			type: String,
@@ -21,26 +31,36 @@ const promotionSchema = new mongoose.Schema(
 			ref: "User",
 			default: [],
 		},
-		startsAt: Date,
+		startsAt: { type: Date, default: Date.now },
 		expiresAt: Date,
 		isActive: { type: Boolean, default: true },
 		status: {
 			type: String,
 			enum: ["pending_approval", "active", "inactive", "declined"],
-			default: "active", // Default to active for mobile-created if any
+			default: "active",
 		},
 		applicableTo: {
 			type: String,
 			enum: ["all", "combo"],
 			default: "all",
 		},
-		approvedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
-		approvedAt: Date,
-		declinedReason: String,
+		approvedBy: {
+			type: mongoose.Schema.Types.ObjectId,
+			ref: "User",
+			default: null,
+		},
+		approvedAt: { type: Date, default: null },
+		declinedReason: { type: String, default: null },
+		// Synced from admin portal schema
+		createdByPortal: { type: String, default: "Operations" },
+		isDeleted: { type: Boolean, default: false },
 	},
 	{ timestamps: true },
 );
 
+promotionSchema.index({ code: 1, isActive: 1, status: 1 });
+
 promotionSchema.plugin(toJSON);
 
-module.exports = mongoose.model("Promotion", promotionSchema);
+// Explicit collection name to match admin portal
+module.exports = mongoose.model("Promotion", promotionSchema, "promotions");

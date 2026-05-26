@@ -24,7 +24,7 @@ const generateOtp = () => Math.floor(1000 + Math.random() * 9000).toString();
 const normalizePhone = require("../utils/phoneNormalizer");
 const { validateUserStatus } = require("../utils/accountValidator");
 const { provisionCustomerDVA } = require("../services/dva.service");
-const { generateId } = require("../utils/idGenerator");
+const { generateId: generateProfileId } = require("../utils/generateProfileId");
 
 // ─── Test Account Config ───────────────────────────────────────────────────
 // NOTE: normalizePhone() REMOVES the country code and leading 0.
@@ -113,7 +113,7 @@ const register = asyncHandler(async (req, res) => {
 			},
 		});
 	} else if (role === "vendor") {
-		const vendorId = await generateId("vendor_id", "VND");
+		const vendorId = await generateProfileId("vendor_id", "VND");
 		profile = new VendorProfile({
 			owner: user._id,
 			vendorId, // Assigned sequential ID
@@ -126,7 +126,7 @@ const register = asyncHandler(async (req, res) => {
 			isActive: true,
 		});
 	} else if (role === "rider") {
-		const riderId = await generateId("rider_id", "RDR");
+		const riderId = await generateProfileId("rider_id", "RDR");
 		profile = new RiderProfile({
 			user: user._id,
 			riderId, // Assigned sequential ID
@@ -507,7 +507,8 @@ const verifyEmailOtp = asyncHandler(async (req, res) => {
 
 	if (flow === "login") {
 		const user = await User.findOne({ email, role });
-		if (!user) throw new AppError(`No ${role} account found with this email`, 404);
+		if (!user)
+			throw new AppError(`No ${role} account found with this email`, 404);
 
 		let profile = null;
 		if (role === "rider") {
@@ -810,7 +811,10 @@ const verifyPhoneOtp = asyncHandler(async (req, res) => {
 	if (flow === "login") {
 		const user = await User.findOne({ phone, role });
 		if (!user)
-			throw new AppError(`No ${role} account found with this phone number`, 404);
+			throw new AppError(
+				`No ${role} account found with this phone number`,
+				404,
+			);
 
 		let profile = null;
 		if (role === "rider") {
