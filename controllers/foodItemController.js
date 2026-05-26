@@ -12,8 +12,7 @@ const EXEMPT_CATEGORIES = ["drinks"]; // categories excluded from platform marku
 
 // The markup will only become active on Wednesday, May 27, 2026, 00:00:00 UTC.
 const isMarkupActive = () => {
-	const rolloutDate = new Date("2026-05-27T00:00:00Z");
-	return new Date() >= rolloutDate;
+	return true; // Activated immediately for promo
 };
 
 const applyMarkup = (price, multiplier) => {
@@ -624,6 +623,27 @@ const getMyFoodItems = async (req, res) => {
 
 		const result = await paginate(FoodItem, req.query, null, filter);
 
+		// Revert price to originalPrice for vendor view so they see their real price
+		if (result && result.data) {
+			result.data = result.data.map((doc) => {
+				const foodItem = doc.toObject ? doc.toObject() : doc;
+				if (foodItem.subCategory) {
+					foodItem.subCategory = foodItem.subCategory.map((subCat) => {
+						if (subCat.items) {
+							subCat.items = subCat.items.map((item) => {
+								if (item.originalPrice) {
+									item.price = item.originalPrice;
+								}
+								return item;
+							});
+						}
+						return subCat;
+					});
+				}
+				return foodItem;
+			});
+		}
+
 		res.status(200).json(result);
 	} catch (err) {
 		res.status(500).json({ success: false, error: err.message });
@@ -904,6 +924,19 @@ const getMyCombos = async (req, res) => {
 		];
 
 		const result = await paginate(Combo, req.query, populateOptions, filter);
+
+		// Revert price to originalPrice for vendor view so they see their real price
+		if (result && result.data) {
+			result.data = result.data.map((doc) => {
+				const combo = doc.toObject ? doc.toObject() : doc;
+				if (combo.originalPrice) {
+					combo.price = combo.originalPrice;
+					combo.basePrice = combo.originalPrice;
+				}
+				return combo;
+			});
+		}
+
 		res.status(200).json(result);
 	} catch (error) {
 		res.status(500).json({ success: false, message: error.message });
