@@ -27,8 +27,17 @@ function calculateDiscount(promo, total, comboTotal = 0) {
  * Returns { error, status } if invalid, or null if valid.
  */
 function getPromoError(promo, userId, total) {
-	if (!promo || !promo.isActive || promo.status === "declined") {
-		return { status: 400, message: "Invalid or inactive promo code" };
+	if (!promo) {
+		return { status: 400, message: "Invalid promo code" };
+	}
+	if (promo.status === "pending_approval") {
+		return { status: 400, message: "This promo code is pending approval" };
+	}
+	if (promo.status === "declined") {
+		return { status: 400, message: "This promo code was declined" };
+	}
+	if (!promo.isActive || promo.status === "inactive") {
+		return { status: 400, message: "This promo code is currently inactive" };
 	}
 
 	const now = new Date();
