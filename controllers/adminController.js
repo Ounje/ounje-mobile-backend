@@ -1,4 +1,4 @@
-const { Admin } = require("../models");
+const { Admin, User, Customer, VendorProfile, RiderProfile } = require("../models");
 const bcrypt = require("bcryptjs");
 const { generateAccessToken, generateRefreshToken } = require("../utils/generateToken");
 
@@ -42,4 +42,36 @@ const adminLogin = async (req, res) => {
     }
 };
 
-module.exports = { createPlatformAccount, adminLogin };
+const getAllUsers = async (req, res) => {
+    try {
+        const users = await User.find({});
+        
+        const enrichedUsers = await Promise.all(
+            users.map(async (user) => {
+                const userObj = user.toJSON ? user.toJSON() : user;
+                if (user.role === "customer") {
+                    const customer = await Customer.findOne({ user: user._id }).lean();
+                    userObj.customerDetails = customer || null;
+                } else if (user.role === "vendor") {
+                    const vendor = await VendorProfile.findOne({ name: user.name }).lean();
+                    userObj.vendorDetails = vendor || null;
+                } else if (user.role === "rider") {
+                    const rider = await RiderProfile.findOne({ user: user._id }).lean();
+                    userObj.riderDetails = rider || null;
+                }
+                return userObj;
+            })
+        );
+
+        res.json({
+            success: true,
+            count: enrichedUsers.length,
+            users: enrichedUsers
+        });
+    } catch (error) {
+        console.error("Error fetching all users:", error);
+        res.status(500).json({ error: "Internal server error" });
+    }
+};
+
+module.exports = { createPlatformAccount, adminLogin, getAllUsers };

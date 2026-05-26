@@ -91,6 +91,8 @@ const orderSchema = new mongoose.Schema(
 		vendorEarning: { type: Number, default: 0 }, // net to vendor after platform commission
 		platformMarkupRevenue: { type: Number, default: 0 }, // platform's 10% from all items
 		comboMarkupRevenue: { type: Number, default: 0 }, // platform's extra share from combo markup (non-promo orders)
+		discountAmount: { type: Number, default: 0 }, // Amount subtracted from total
+		promoCodeApplied: { type: String, default: null }, // The code itself
 		zone: {
 			type: String,
 		}, // e.g., "Ikeja"

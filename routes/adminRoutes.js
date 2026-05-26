@@ -48,4 +48,16 @@ router.post("/create-platform-account", adminController.createPlatformAccount);
  */
 router.post("/login", adminController.adminLogin);
 
+/**
+ * @swagger
+ * /api/admin/users:
+ *   get:
+ *     summary: Get all signed-up users (customers, vendors, riders)
+ *     tags: [Admin]
+ *     responses:
+ *       200:
+ *         description: Successfully retrieved all users
+ */
+router.get("/users", adminController.getAllUsers);
+
 module.exports = router;
