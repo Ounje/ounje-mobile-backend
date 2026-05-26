@@ -1,0 +1,982 @@
+<!doctype html>
+<html lang="en">
+	<head>
+		<meta charset="UTF-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+		<title>OunjeFood — Order Received</title>
+		<link rel="preconnect" href="https://fonts.googleapis.com" />
+		<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+		<link
+			href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,500;12..96,600;12..96,700;12..96,800&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap"
+			rel="stylesheet"
+		/>
+		<style>
+			@media only screen and (max-width: 480px) {
+				.banner-headline {
+					font-size: 26px !important;
+				}
+				.total-amount {
+					font-size: 38px !important;
+				}
+				.footer-brand {
+					font-size: 28px !important;
+				}
+				.email-wrap {
+					padding: 14px 10px 0 !important;
+				}
+				.receipt-body {
+					padding: 4px 16px 20px !important;
+				}
+				.receipt-header {
+					padding: 18px 16px 14px !important;
+				}
+			}
+		</style>
+	</head>
+	<body
+		style="
+			margin: 0;
+			padding: 0;
+			background-color: #f5f5f2;
+			font-family: &quot;Plus Jakarta Sans&quot;, Arial, sans-serif;
+			color: #111111;
+			-webkit-font-smoothing: antialiased;
+		"
+	>
+		<table width="100%" cellpadding="0" cellspacing="0" role="presentation">
+			<tr>
+				<td align="center">
+					<table
+						width="100%"
+						cellpadding="0"
+						cellspacing="0"
+						role="presentation"
+						class="email-wrap"
+						style="max-width: 680px; width: 100%; padding: 28px 20px 0"
+					>
+						<!-- ── TOP HEADER (mirrors OTP template) ── -->
+						<tr>
+							<td align="center" style="padding: 24px 16px">
+								<h1
+									style="
+										margin: 0;
+										font-size: 28px;
+										font-weight: 700;
+										font-family:
+											&quot;Bricolage Grotesque&quot;, Arial, sans-serif;
+										color: #111111;
+									"
+								>
+									OunjeFood
+								</h1>
+							</td>
+						</tr>
+
+						<!-- ── BANNER ── -->
+						<tr>
+							<td style="padding-bottom: 0">
+								<table
+									width="100%"
+									cellpadding="0"
+									cellspacing="0"
+									role="presentation"
+									style="
+										background-color: #1a3f1c;
+										border-radius: 20px;
+										overflow: hidden;
+									"
+								>
+									<tr>
+										<td align="center" style="padding: 36px 28px 30px">
+											<img
+												src="https://res.cloudinary.com/dpewrzihj/image/upload/v1769185107/favicon_zpkpao.png"
+												alt="OunjeFood"
+												width="148"
+												style="
+													display: block;
+													margin: 0 auto 12px;
+													max-width: 100%;
+													height: auto;
+												"
+											/>
+											<p
+												style="
+													margin: 0;
+													font-size: 12px;
+													font-weight: 600;
+													letter-spacing: 2px;
+													color: rgba(255, 255, 255, 0.55);
+													text-transform: uppercase;
+												"
+											>
+												Eat Fresh &nbsp;·&nbsp; Spend Less &nbsp;·&nbsp; Order
+												Fast
+											</p>
+										</td>
+									</tr>
+								</table>
+							</td>
+						</tr>
+
+						<!-- ── BODY COPY ── -->
+						<tr>
+							<td style="padding: 32px 4px 0">
+								<p
+									style="
+										font-size: 15px;
+										color: #111111;
+										margin: 0 0 8px;
+										font-weight: 600;
+									"
+								>
+									Hello {{name}},
+								</p>
+								<p
+									style="
+										font-size: 15px;
+										color: #2c2c2c;
+										line-height: 1.72;
+										margin: 0 0 28px;
+									"
+								>
+									Your order has been received and is being prepared. We'll keep
+									things moving on our end — sit back and your food will be on
+									its way soon.<br /><br />
+									Here is your receipt for this order.
+								</p>
+							</td>
+						</tr>
+
+						<!-- ── RECEIPT CARD ── -->
+						<tr>
+							<td style="padding-bottom: 32px">
+								<table
+									width="100%"
+									cellpadding="0"
+									cellspacing="0"
+									role="presentation"
+									style="
+										background: #ffffff;
+										border-radius: 20px;
+										border: 1.5px solid #e8e8e8;
+										overflow: hidden;
+									"
+								>
+									<!-- Receipt header -->
+									<tr>
+										<td
+											class="receipt-header"
+											style="background-color: #1a3f1c; padding: 24px 28px 20px"
+										>
+											<table
+												width="100%"
+												cellpadding="0"
+												cellspacing="0"
+												role="presentation"
+											>
+												<tr>
+													<td>
+														<p
+															style="
+																margin: 0 0 4px;
+																font-size: 10px;
+																font-weight: 700;
+																letter-spacing: 2.5px;
+																color: #98ef9b;
+																text-transform: uppercase;
+															"
+														>
+															OunjeFood · Order Receipt
+														</p>
+														<p
+															style="
+																margin: 0;
+																font-family:
+																	&quot;Bricolage Grotesque&quot;, Arial,
+																	sans-serif;
+																font-weight: 800;
+																font-size: 22px;
+																color: #ffffff;
+																letter-spacing: -0.3px;
+															"
+														>
+															Payment Complete
+														</p>
+													</td>
+													<td align="right" valign="middle">
+														<div
+															style="
+																width: 48px;
+																height: 48px;
+																border-radius: 14px;
+																background: rgba(152, 239, 155, 0.15);
+																border: 1.5px solid rgba(152, 239, 155, 0.3);
+																display: inline-block;
+																text-align: center;
+																line-height: 48px;
+																font-size: 22px;
+															"
+														>
+															🧾
+														</div>
+													</td>
+												</tr>
+											</table>
+										</td>
+									</tr>
+
+									<!-- Total block -->
+									<tr>
+										<td style="padding: 0 24px">
+											<table
+												width="100%"
+												cellpadding="0"
+												cellspacing="0"
+												role="presentation"
+												style="
+													background: linear-gradient(
+														135deg,
+														#1a3f1c 0%,
+														#2d6b31 100%
+													);
+													border-radius: 0 0 18px 18px;
+												"
+											>
+												<tr>
+													<td align="center" style="padding: 20px 22px 24px">
+														<p
+															style="
+																margin: 0 0 6px;
+																font-size: 11px;
+																font-weight: 600;
+																letter-spacing: 1.5px;
+																color: rgba(152, 239, 155, 0.75);
+																text-transform: uppercase;
+															"
+														>
+															Total Amount Paid
+														</p>
+														<p
+															class="total-amount"
+															style="
+																margin: 0 0 16px;
+																font-family:
+																	&quot;Bricolage Grotesque&quot;, Arial,
+																	sans-serif;
+																font-weight: 800;
+																font-size: 52px;
+																color: #ffffff;
+																letter-spacing: -2px;
+																line-height: 1;
+															"
+														>
+															{{total_amount}}
+														</p>
+														<span
+															style="
+																display: inline-flex;
+																align-items: center;
+																gap: 7px;
+																background: #98ef9b;
+																color: #1a3f1c;
+																padding: 9px 20px;
+																border-radius: 999px;
+																font-size: 11px;
+																font-weight: 800;
+																letter-spacing: 1px;
+																text-transform: uppercase;
+															"
+														>
+															✓ &nbsp;Order Placed Successfully
+														</span>
+													</td>
+												</tr>
+											</table>
+										</td>
+									</tr>
+
+									<!-- Receipt body -->
+									<tr>
+										<td class="receipt-body" style="padding: 4px 28px 28px">
+											<!-- Order Details -->
+											<table
+												width="100%"
+												cellpadding="0"
+												cellspacing="0"
+												role="presentation"
+												style="
+													border-bottom: 1px dashed #d4d4d4;
+													padding: 22px 0 20px;
+													margin-bottom: 0;
+												"
+											>
+												<tr>
+													<td
+														style="
+															padding-bottom: 14px;
+															font-size: 11px;
+															font-weight: 700;
+															letter-spacing: 1.8px;
+															color: #5c5c5c;
+															text-transform: uppercase;
+														"
+													>
+														Order Details
+													</td>
+												</tr>
+
+												<tr>
+													<td
+														style="
+															font-size: 13.5px;
+															color: #5c5c5c;
+															padding: 5px 0;
+														"
+													>
+														Order Number
+													</td>
+													<td
+														align="right"
+														style="
+															font-size: 13.5px;
+															font-weight: 600;
+															color: #111111;
+															padding: 5px 0;
+														"
+													>
+														{{order_number}}
+													</td>
+												</tr>
+												<tr>
+													<td
+														style="
+															font-size: 13.5px;
+															color: #5c5c5c;
+															padding: 5px 0;
+														"
+													>
+														Status
+													</td>
+													<td
+														align="right"
+														style="
+															font-size: 13.5px;
+															font-weight: 600;
+															color: #111111;
+															padding: 5px 0;
+														"
+													>
+														{{status}}
+													</td>
+												</tr>
+												<tr>
+													<td
+														style="
+															font-size: 13.5px;
+															color: #5c5c5c;
+															padding: 5px 0;
+														"
+													>
+														Vendor
+													</td>
+													<td
+														align="right"
+														style="
+															font-size: 13.5px;
+															font-weight: 600;
+															color: #111111;
+															padding: 5px 0;
+														"
+													>
+														{{vendor_name}}
+													</td>
+												</tr>
+												<tr>
+													<td
+														style="
+															font-size: 13.5px;
+															color: #5c5c5c;
+															padding: 5px 0;
+														"
+													>
+														Payment Method
+													</td>
+													<td
+														align="right"
+														style="
+															font-size: 13.5px;
+															font-weight: 600;
+															color: #111111;
+															padding: 5px 0;
+														"
+													>
+														{{payment_method}}
+													</td>
+												</tr>
+												<tr>
+													<td
+														style="
+															font-size: 13.5px;
+															color: #5c5c5c;
+															padding: 5px 0;
+														"
+													>
+														Payment Status
+													</td>
+													<td
+														align="right"
+														style="
+															font-size: 13.5px;
+															font-weight: 600;
+															color: #111111;
+															padding: 5px 0;
+														"
+													>
+														{{payment_status}}
+													</td>
+												</tr>
+												<tr>
+													<td
+														style="
+															font-size: 13.5px;
+															color: #5c5c5c;
+															padding: 5px 0;
+														"
+													>
+														Order Date
+													</td>
+													<td
+														align="right"
+														style="
+															font-size: 13.5px;
+															font-weight: 600;
+															color: #111111;
+															padding: 5px 0;
+														"
+													>
+														{{order_date}}
+													</td>
+												</tr>
+											</table>
+
+											<!-- Order Items
+                           ─────────────────────────────────────────────────────
+                           Inject {{items_html}} — one <tr> per order.items entry.
+                           Source fields: item.name, item.quantity, item.price
+                           (item.price is the unit price; multiply by quantity for line total)
+
+                           Per-item row structure:
+                           <tr>
+                             <td style="padding:8px 0;">
+                               <table cellpadding="0" cellspacing="0" role="presentation">
+                                 <tr>
+                                   <td style="width:40px;height:40px;background:#e6f9e7;border-radius:10px;text-align:center;font-size:20px;line-height:40px;">🍛</td>
+                                   <td style="padding-left:12px;font-size:13.5px;color:#2c2c2c;">Jollof Rice &nbsp;×&nbsp; 2</td>
+                                 </tr>
+                               </table>
+                             </td>
+                             <td align="right" style="font-size:13.5px;font-weight:700;color:#111111;padding:8px 0;">₦2,000</td>
+                           </tr>
+
+                           If an item has a notes field, append a muted note row beneath it:
+                           <tr>
+                             <td colspan="2" style="padding:0 0 8px 52px;font-size:12px;color:#5c5c5c;font-style:italic;">"{{item.notes}}"</td>
+                           </tr>
+                      -->
+											<table
+												width="100%"
+												cellpadding="0"
+												cellspacing="0"
+												role="presentation"
+												style="
+													border-bottom: 1px dashed #d4d4d4;
+													padding: 22px 0 20px;
+												"
+											>
+												<tr>
+													<td
+														colspan="2"
+														style="
+															padding-bottom: 12px;
+															font-size: 11px;
+															font-weight: 700;
+															letter-spacing: 1.8px;
+															color: #5c5c5c;
+															text-transform: uppercase;
+														"
+													>
+														Order Items
+													</td>
+												</tr>
+
+												{{items_html}}
+
+												<!-- Customer note — order.items[n].notes (omit row if empty) -->
+												<tr>
+													<td colspan="2" style="padding-top: 14px">
+														<div
+															style="
+																background: #e6f9e7;
+																border-left: 3px solid #98ef9b;
+																border-radius: 0 10px 10px 0;
+																padding: 10px 14px;
+															"
+														>
+															<strong
+																style="
+																	font-size: 11px;
+																	display: block;
+																	margin-bottom: 3px;
+																	letter-spacing: 0.5px;
+																	color: #1a3f1c;
+																"
+																>Customer Note</strong
+															>
+															<span
+																style="
+																	font-size: 13px;
+																	color: #1a3f1c;
+																	font-style: italic;
+																	line-height: 1.5;
+																"
+																>{{customer_note}}</span
+															>
+														</div>
+													</td>
+												</tr>
+											</table>
+
+											<!-- Price Breakdown
+                           ─────────────────────────────────────────────────────
+                           {{food_total}}    → order.foodTotal      (itemsTotalPrice)
+                           {{delivery_fee}}  → order.deliveryFee    (from calculateOunjeFee)
+                           {{service_fee}}   → order.serviceFee     (10% of foodTotal)
+                           {{total_amount}}  → order.totalPrice     (foodTotal + deliveryFee + serviceFee)
+                      -->
+											<table
+												width="100%"
+												cellpadding="0"
+												cellspacing="0"
+												role="presentation"
+												style="
+													border-bottom: 1px dashed #d4d4d4;
+													padding: 22px 0 20px;
+												"
+											>
+												<tr>
+													<td
+														colspan="2"
+														style="
+															padding-bottom: 14px;
+															font-size: 11px;
+															font-weight: 700;
+															letter-spacing: 1.8px;
+															color: #5c5c5c;
+															text-transform: uppercase;
+														"
+													>
+														Price Breakdown
+													</td>
+												</tr>
+												<tr>
+													<td
+														style="
+															font-size: 13.5px;
+															color: #5c5c5c;
+															padding: 5px 0;
+														"
+													>
+														Food Total
+													</td>
+													<td
+														align="right"
+														style="
+															font-size: 13.5px;
+															font-weight: 600;
+															color: #111111;
+															padding: 5px 0;
+														"
+													>
+														{{food_total}}
+													</td>
+												</tr>
+												<tr>
+													<td
+														style="
+															font-size: 13.5px;
+															color: #5c5c5c;
+															padding: 5px 0;
+														"
+													>
+														Delivery Fee
+													</td>
+													<td
+														align="right"
+														style="
+															font-size: 13.5px;
+															font-weight: 600;
+															color: #111111;
+															padding: 5px 0;
+														"
+													>
+														{{delivery_fee}}
+													</td>
+												</tr>
+												<tr>
+													<td
+														style="
+															font-size: 13.5px;
+															color: #5c5c5c;
+															padding: 5px 0;
+														"
+													>
+														Service Fee
+													</td>
+													<td
+														align="right"
+														style="
+															font-size: 13.5px;
+															font-weight: 600;
+															color: #111111;
+															padding: 5px 0;
+														"
+													>
+														{{service_fee}}
+													</td>
+												</tr>
+												<tr>
+													<td colspan="2" style="padding-top: 4px">
+														<table
+															width="100%"
+															cellpadding="0"
+															cellspacing="0"
+															role="presentation"
+															style="
+																border-top: 1.5px solid #d4d4d4;
+																margin-top: 6px;
+															"
+														>
+															<tr>
+																<td
+																	style="
+																		font-size: 14px;
+																		font-weight: 700;
+																		color: #111111;
+																		padding: 12px 0 2px;
+																	"
+																>
+																	Total Paid
+																</td>
+																<td
+																	align="right"
+																	style="
+																		font-size: 15px;
+																		font-weight: 800;
+																		color: #1a3f1c;
+																		padding: 12px 0 2px;
+																	"
+																>
+																	{{total_amount}}
+																</td>
+															</tr>
+														</table>
+													</td>
+												</tr>
+											</table>
+
+											<!-- Delivery Information
+                           ─────────────────────────────────────────────────────
+                           {{delivery_address}} → order.deliveryAddress
+                           {{delivery_zone}}    → order.zone  (from identifyZone())
+                      -->
+											<table
+												width="100%"
+												cellpadding="0"
+												cellspacing="0"
+												role="presentation"
+												style="padding: 22px 0 12px"
+											>
+												<tr>
+													<td
+														colspan="2"
+														style="
+															padding-bottom: 14px;
+															font-size: 11px;
+															font-weight: 700;
+															letter-spacing: 1.8px;
+															color: #5c5c5c;
+															text-transform: uppercase;
+														"
+													>
+														Delivery Information
+													</td>
+												</tr>
+												<tr>
+													<td
+														style="
+															font-size: 13.5px;
+															color: #5c5c5c;
+															padding: 5px 0;
+														"
+													>
+														Address
+													</td>
+													<td
+														align="right"
+														style="
+															font-size: 13.5px;
+															font-weight: 600;
+															color: #111111;
+															padding: 5px 0;
+														"
+													>
+														{{delivery_address}}
+													</td>
+												</tr>
+												<tr>
+													<td
+														style="
+															font-size: 13.5px;
+															color: #5c5c5c;
+															padding: 5px 0;
+														"
+													>
+														Zone
+													</td>
+													<td
+														align="right"
+														style="
+															font-size: 13.5px;
+															font-weight: 600;
+															color: #111111;
+															padding: 5px 0;
+														"
+													>
+														{{delivery_zone}}
+													</td>
+												</tr>
+											</table>
+
+											<!-- Thank you -->
+											<p
+												style="
+													text-align: center;
+													font-size: 14px;
+													color: #5c5c5c;
+													padding: 14px 0 4px;
+													line-height: 1.6;
+													margin: 0;
+												"
+											>
+												Thank you for ordering with
+												<strong style="color: #1a3f1c; font-weight: 700"
+													>OunjeFood</strong
+												>. 🙏
+											</p>
+										</td>
+									</tr>
+								</table>
+							</td>
+						</tr>
+
+						<!-- ── SUPPORT ── -->
+						<tr>
+							<td style="padding-bottom: 32px">
+								<table
+									width="100%"
+									cellpadding="0"
+									cellspacing="0"
+									role="presentation"
+									style="
+										background: #ffffff;
+										border-radius: 16px;
+										border: 1.5px solid #e8e8e8;
+									"
+								>
+									<tr>
+										<td
+											style="
+												padding: 20px 22px;
+												font-size: 14px;
+												color: #2c2c2c;
+												line-height: 1.7;
+											"
+										>
+											Having an issue with your order? Reach out to us at
+											<a
+												href="mailto:support@ounjefood.com"
+												style="
+													color: #1a3f1c;
+													text-decoration: underline;
+													font-weight: 700;
+												"
+												>support@ounjefood.com</a
+											>
+											and we'll sort it out right away.
+										</td>
+									</tr>
+								</table>
+							</td>
+						</tr>
+
+						<!-- ── FOOTER ── -->
+						<tr>
+							<td style="padding-bottom: 28px">
+								<table
+									width="100%"
+									cellpadding="0"
+									cellspacing="0"
+									role="presentation"
+									style="border-radius: 20px; overflow: hidden"
+								>
+									<tr>
+										<td
+											align="center"
+											style="background-color: #1a3f1c; padding: 32px 24px 28px"
+										>
+											<p
+												class="footer-brand"
+												style="
+													font-family:
+														&quot;Bricolage Grotesque&quot;, Arial, sans-serif;
+													font-weight: 800;
+													font-size: 40px;
+													letter-spacing: -1px;
+													color: #ffffff;
+													margin: 0 0 6px;
+												"
+											>
+												Ounje<span style="color: #98ef9b">Food</span>
+											</p>
+											<p
+												style="
+													margin: 0;
+													font-size: 13px;
+													color: rgba(255, 255, 255, 0.5);
+													letter-spacing: 0.3px;
+												"
+											>
+												Eat Fresh. Spend Less. Order Fast.
+											</p>
+										</td>
+									</tr>
+									<tr>
+										<td
+											align="center"
+											style="
+												background-color: #e6f9e7;
+												padding: 20px 18px 24px;
+												border-top: 1px solid rgba(26, 63, 28, 0.1);
+											"
+										>
+											<table
+												cellpadding="0"
+												cellspacing="0"
+												role="presentation"
+												style="margin-bottom: 14px"
+											>
+												<tr>
+													<td style="padding: 0 7px">
+														<a
+															href="https://www.ounjefood.com"
+															style="
+																font-size: 12.5px;
+																color: #1a3f1c;
+																text-decoration: none;
+																font-weight: 600;
+															"
+															>ounjefood.com</a
+														>
+													</td>
+													<td
+														style="
+															font-size: 10px;
+															color: #1a3f1c;
+															opacity: 0.35;
+															padding: 0 2px;
+														"
+													>
+														·
+													</td>
+													<td style="padding: 0 7px">
+														<a
+															href="mailto:support@ounjefood.com"
+															style="
+																font-size: 12.5px;
+																color: #1a3f1c;
+																text-decoration: none;
+																font-weight: 600;
+															"
+															>support@ounjefood.com</a
+														>
+													</td>
+													<td
+														style="
+															font-size: 10px;
+															color: #1a3f1c;
+															opacity: 0.35;
+															padding: 0 2px;
+														"
+													>
+														·
+													</td>
+													<td style="padding: 0 7px">
+														<a
+															href="https://www.instagram.com/ounjefood"
+															style="
+																font-size: 12.5px;
+																color: #1a3f1c;
+																text-decoration: none;
+																font-weight: 600;
+															"
+															>Instagram</a
+														>
+													</td>
+													<td
+														style="
+															font-size: 10px;
+															color: #1a3f1c;
+															opacity: 0.35;
+															padding: 0 2px;
+														"
+													>
+														·
+													</td>
+													<td style="padding: 0 7px">
+														<a
+															href="https://www.x.com/ounjefood"
+															style="
+																font-size: 12.5px;
+																color: #1a3f1c;
+																text-decoration: none;
+																font-weight: 600;
+															"
+															>X (Twitter)</a
+														>
+													</td>
+												</tr>
+											</table>
+											<p
+												style="
+													margin: 0;
+													font-size: 11.5px;
+													color: #1a3f1c;
+													opacity: 0.6;
+													line-height: 1.7;
+												"
+											>
+												You're receiving this because you have an account with
+												OunjeFood.<br />
+												© 2026 OunjeFood, Lagos, Nigeria.
+											</p>
+										</td>
+									</tr>
+								</table>
+							</td>
+						</tr>
+					</table>
+				</td>
+			</tr>
+		</table>
+	</body>
+</html>
