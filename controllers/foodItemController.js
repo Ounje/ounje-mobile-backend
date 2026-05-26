@@ -5,6 +5,26 @@ const {
 } = require("../utils/foodEnums");
 const { paginate } = require("../utils/paginate");
 
+// ─── MARKUP CONSTANTS ─────────────────────────────────────────────────────────
+const PLATFORM_MARKUP = 1.10;       // 10% added to all items except drinks
+const COMBO_MARKUP = 1.20;          // additional 20% added to combos only
+const EXEMPT_CATEGORIES = ["drinks"]; // categories excluded from platform markup
+
+// The markup will only become active on Wednesday, May 27, 2026, 00:00:00 UTC.
+const isMarkupActive = () => {
+	const rolloutDate = new Date("2026-05-27T00:00:00Z");
+	return new Date() >= rolloutDate;
+};
+
+const applyMarkup = (price, multiplier) => {
+	if (!isMarkupActive()) return price;
+	return Math.round(price * multiplier);
+};
+
+// Returns true if the category should NOT have the 10% markup applied
+const isMarkupExempt = (category) =>
+	EXEMPT_CATEGORIES.includes(category?.toLowerCase());
+
 // GET /api/food-items/by-category?category=rice&page=1&limit=20
 // Returns flat list of individual food items for a category, with vendor info.
 const getFoodByCategory = async (req, res) => {
@@ -203,7 +223,10 @@ const createFoodItem = async (req, res) => {
 
 				builtItems.push({
 					name: item.name,
-					price: item.price,
+					originalPrice: item.price,                                      // vendor's exact price
+					price: isMarkupExempt(category)
+						? item.price                                                // drinks — no markup
+						: applyMarkup(item.price, PLATFORM_MARKUP),                 // all others — 10% markup
 					description: item.description || null,
 					preparationTime: item.preparationTime || null,
 					minQuantity: item.minQuantity || 1,
@@ -236,6 +259,7 @@ const createFoodItem = async (req, res) => {
 		res.status(500).json({ success: false, error: err.message });
 	}
 };
+
 const addSubCategories = async (req, res) => {
 	try {
 		const { foodItemId } = req.params;
@@ -328,7 +352,10 @@ const addSubCategories = async (req, res) => {
 
 		const newItem = {
 			name: itemName,
-			price,
+			originalPrice: price,                                           // vendor's exact price
+			price: isMarkupExempt(foodItem.category)
+				? price                                                     // drinks — no markup
+				: applyMarkup(price, PLATFORM_MARKUP),                      // all others — 10% markup
 			description: description || null,
 			preparationTime: preparationTime || null,
 			minQuantity: minQuantity || 1,
@@ -367,6 +394,7 @@ const addSubCategories = async (req, res) => {
 		res.status(500).json({ success: false, error: err.message });
 	}
 };
+
 const deleteSubCategory = async (req, res) => {
 	try {
 		const { foodItemId } = req.params;
@@ -445,6 +473,7 @@ const deleteSubCategory = async (req, res) => {
 		res.status(500).json({ success: false, error: err.message });
 	}
 };
+
 // UPDATE FOOD ITEM
 const updateFoodItem = async (req, res) => {
 	try {
@@ -555,8 +584,6 @@ const getAllFoodItems = async (req, res) => {
 			path: "vendor",
 			select:
 				"storeDetails name img profileImage bannerUrl logoUrl description averageRating totalOrders",
-			select:
-				"storeDetails name img profileImage bannerUrl logoUrl description averageRating totalOrders",
 		};
 
 		const result = await paginate(FoodItem, req.query, populate, filter);
@@ -643,8 +670,6 @@ const processSelections = async (selections, vendorId) => {
 		});
 	});
 
-	console.log("itemMap keys:", [...itemMap.keys()]);
-
 	return parsedSelections.map((group) => {
 		const populatedItems = [];
 		if (group.items && Array.isArray(group.items)) {
@@ -679,44 +704,47 @@ const createCombo = async (req, res) => {
 			deliveryTime,
 			comboGroup,
 		} = req.body;
+
 		const vendorId = req.user.id;
 		const vendor = await VendorProfile.findOne({ owner: vendorId });
 		if (!vendor)
 			return res
 				.status(404)
 				.json({ success: false, message: "Vendor profile not found." });
+
 		if (!comboName || !basePrice || !req.file || !time)
 			return res.status(400).json({
 				success: false,
 				message: "comboName, basePrice, img, and time are required",
 			});
+
 		if (basePrice <= 0)
 			return res
 				.status(400)
 				.json({ success: false, message: "Base price must be greater than 0" });
 
-		const processedSelections = await processSelections(
-			selections,
-			vendor._id, // Pass VendorProfile ID
-		);
+		const processedSelections = await processSelections(selections, vendor._id);
 
-		// Store the vendor's original price, then apply the 30% platform markup
 		const originalPrice = Number(basePrice);
-		const markedUpPrice = Math.round(originalPrice * 1.30);
+		// Step 1: apply standard 10% platform markup
+		const withPlatformMarkup = applyMarkup(originalPrice, PLATFORM_MARKUP);
+		// Step 2: apply additional 20% combo markup on top
+		const markedUpPrice = applyMarkup(withPlatformMarkup, COMBO_MARKUP);
 
 		const combo = await Combo.create({
 			comboName,
 			description,
-			originalPrice,           // vendor's true price — used for earnings calculation
-			basePrice: markedUpPrice, // marked-up price — what customers see and pay
-			markupPercent: 30,
+			originalPrice,              // vendor's exact price — used for earnings
+			basePrice: markedUpPrice,   // final price customers see (10% + 20% stacked)
+			markupPercent: 20,
 			selections: processedSelections,
-			vendor: vendor._id, // Use VendorProfile ID, not User ID
+			vendor: vendor._id,
 			img: req.file.path,
 			time,
 			deliveryTime,
-			comboGroup, // Optional field
+			comboGroup,
 		});
+
 		res.status(201).json({
 			success: true,
 			message: "Combo created successfully",
@@ -734,12 +762,13 @@ const updateCombo = async (req, res) => {
 			return res
 				.status(404)
 				.json({ success: false, message: "Combo not found" });
-		// Check if current user owns the vendor profile
+
 		if (!combo.vendor.owner.equals(req.user.id))
 			return res.status(403).json({
 				success: false,
 				message: "Not authorized to update this combo",
 			});
+
 		if (req.body.basePrice !== undefined && req.body.basePrice <= 0)
 			return res
 				.status(400)
@@ -747,22 +776,24 @@ const updateCombo = async (req, res) => {
 
 		const { vendor, selections, ...updateData } = req.body;
 
-		// If vendor is updating their price, re-apply the 30% markup
+		// If vendor is updating their price, re-apply both markups
 		if (updateData.basePrice !== undefined) {
 			const originalPrice = Number(updateData.basePrice);
+			const withPlatformMarkup = applyMarkup(originalPrice, PLATFORM_MARKUP);
+			const markedUpPrice = applyMarkup(withPlatformMarkup, COMBO_MARKUP);
+
 			updateData.originalPrice = originalPrice;
-			updateData.basePrice = Math.round(originalPrice * 1.30);
-			updateData.markupPercent = 30;
+			updateData.basePrice = markedUpPrice;
+			updateData.markupPercent = 20;
 		}
 
 		if (selections) {
 			updateData.selections = await processSelections(
 				selections,
-				combo.vendor._id, // Use VendorProfile ID from populated combo
+				combo.vendor._id,
 			);
 		}
 
-		// Ensure comboGroup is updated if provided
 		if (req.body.comboGroup !== undefined) {
 			updateData.comboGroup = req.body.comboGroup;
 		}
@@ -770,6 +801,7 @@ const updateCombo = async (req, res) => {
 		Object.assign(combo, updateData);
 		if (req.file) combo.img = req.file.path;
 		await combo.save();
+
 		res.status(200).json({
 			success: true,
 			message: "Combo updated successfully",
@@ -798,7 +830,7 @@ const deleteCombo = async (req, res) => {
 			.status(200)
 			.json({ success: true, message: "Combo deleted successfully" });
 	} catch (error) {
-		res.status(500).json({ success: false, message: error.message });
+		res.status(500).json({ success: false, error: error.message });
 	}
 };
 
@@ -816,10 +848,6 @@ const getAllCombos = async (req, res) => {
 			const nearbyVendors = await VendorProfile.aggregate([
 				{
 					$geoNear: {
-						near: {
-							type: "Point",
-							coordinates: [parseFloat(lng), parseFloat(lat)],
-						},
 						near: {
 							type: "Point",
 							coordinates: [parseFloat(lng), parseFloat(lat)],
@@ -903,6 +931,7 @@ const getComboById = async (req, res) => {
 		res.status(500).json({ success: false, message: error.message });
 	}
 };
+
 const getVendorCombos = async (req, res) => {
 	try {
 		const filter = { vendor: req.params.vendorId };
@@ -975,6 +1004,7 @@ const getVendorCombosGrouped = async (req, res) => {
 		res.status(500).json({ success: false, message: error.message });
 	}
 };
+
 const toggleFoodItemAvailability = async (req, res) => {
 	try {
 		const { foodItemId } = req.params;

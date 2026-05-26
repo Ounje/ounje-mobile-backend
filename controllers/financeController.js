@@ -44,39 +44,36 @@ const getDateRange = (period, startDate, endDate) => {
  * GET /api/finance/overview?period=today|week|month|year
  * GET /api/finance/overview?startDate=2026-01-01&endDate=2026-03-19
  *
- * Returns: gross revenue, commission earned, service fees,
- *          total payouts, net platform profit, order count
+ * Returns: gross revenue, total service fees, total delivery fees, vendor earnings,
+ * platform markups, total platform revenue, total payouts, net platform profit, order count
  */
 const getOverview = async (req, res) => {
 	try {
 		const { period = "today", startDate, endDate } = req.query;
 		const { start, end } = getDateRange(period, startDate, endDate);
 
-		// All delivered orders in period (including comboMarkupRevenue selection)
 		const orders = await Order.find({
 			status: "DELIVERED",
 			createdAt: { $gte: start, $lte: end },
-		}).select("totalPrice deliveryFee serviceFee comboMarkupRevenue");
+		}).select("totalPrice deliveryFee serviceFee platformMarkupRevenue comboMarkupRevenue vendorEarning");
 
 		const orderCount = orders.length;
 		const grossRevenue = orders.reduce((sum, o) => sum + (o.totalPrice || 0), 0);
 		const totalDeliveryFees = orders.reduce((sum, o) => sum + (o.deliveryFee || 0), 0);
 		const totalServiceFees = orders.reduce((sum, o) => sum + (o.serviceFee || 0), 0);
-		const totalMarkupRevenue = orders.reduce((sum, o) => sum + (o.comboMarkupRevenue || 0), 0);
+		const totalPlatformMarkup = orders.reduce((sum, o) => sum + (o.platformMarkupRevenue || 0), 0);
+		const totalComboMarkup = orders.reduce((sum, o) => sum + (o.comboMarkupRevenue || 0), 0);
+		const totalVendorEarnings = orders.reduce((sum, o) => sum + (o.vendorEarning || 0), 0);
 
-		// Commission is calculated on the vendor base total (excluding markup)
-		const foodTotal = grossRevenue - totalDeliveryFees - totalServiceFees - totalMarkupRevenue;
-		const commissionEarned = Math.round(foodTotal * 0.1);
-
-		// Total payouts (expenses) — completed payouts in period
 		const payouts = await Payout.find({
 			status: "completed",
 			processedAt: { $gte: start, $lte: end },
 		}).select("amount");
 		const totalPayouts = payouts.reduce((sum, p) => sum + (p.amount || 0), 0);
 
-		// Net platform profit = commission + service fees + markup revenue - operational expenses
-		const netProfit = commissionEarned + totalServiceFees + totalMarkupRevenue - totalPayouts;
+		// Platform total revenue = service fees + 10% markup + combo markup
+		const totalPlatformRevenue = totalServiceFees + totalPlatformMarkup + totalComboMarkup;
+		const netProfit = totalPlatformRevenue - totalPayouts;
 
 		res.json({
 			success: true,
@@ -84,11 +81,12 @@ const getOverview = async (req, res) => {
 			overview: {
 				orderCount,
 				grossRevenue,
-				foodTotal,
-				commissionEarned,
-				totalServiceFees,
 				totalDeliveryFees,
-				totalMarkupRevenue,   // new — markup collected from non-promo combo orders
+				totalVendorEarnings,
+				totalServiceFees,
+				totalPlatformMarkup,    // 10% markup revenue from all items
+				totalComboMarkup,       // extra 20% markup from non-promo combo orders
+				totalPlatformRevenue,   // total platform earnings combined
 				totalPayouts,
 				netProfit,
 			},
@@ -116,7 +114,7 @@ const getTransactions = async (req, res) => {
 				status: "DELIVERED",
 				createdAt: { $gte: start, $lte: end },
 			})
-				.select("orderNumber totalPrice deliveryFee serviceFee zone createdAt placedAt")
+				.select("orderNumber totalPrice deliveryFee serviceFee platformMarkupRevenue comboMarkupRevenue vendorEarning zone createdAt placedAt")
 				.sort({ createdAt: -1 })
 				.skip(skip)
 				.limit(parseInt(limit)),
@@ -127,16 +125,16 @@ const getTransactions = async (req, res) => {
 		]);
 
 		const transactions = orders.map((o) => {
-			const foodTotal = (o.totalPrice || 0) - (o.deliveryFee || 0) - (o.serviceFee || 0);
-			const commission = Math.round(foodTotal * 0.1);
 			return {
 				orderNumber: o.orderNumber,
 				orderId: o._id,
 				grossAmount: o.totalPrice,
 				deliveryFee: o.deliveryFee,
 				serviceFee: o.serviceFee,
-				foodTotal,
-				commission,
+				vendorEarning: o.vendorEarning,
+				platformMarkupRevenue: o.platformMarkupRevenue,
+				comboMarkupRevenue: o.comboMarkupRevenue,
+				platformRevenue: (o.serviceFee || 0) + (o.platformMarkupRevenue || 0) + (o.comboMarkupRevenue || 0),
 				zone: o.zone,
 				date: o.createdAt,
 			};
@@ -161,7 +159,6 @@ const getTransactions = async (req, res) => {
 // ── 3. Revenue Summary (Daily/Weekly/Monthly/Yearly breakdown) ───────────────
 /**
  * GET /api/finance/revenue-summary?groupBy=day|week|month
- * GET /api/finance/revenue-summary?groupBy=day&startDate=2026-01-01&endDate=2026-03-19
  *
  * Returns revenue grouped by time period
  */
@@ -210,21 +207,25 @@ const getRevenueSummary = async (req, res) => {
 					grossRevenue: { $sum: "$totalPrice" },
 					totalDeliveryFees: { $sum: "$deliveryFee" },
 					totalServiceFees: { $sum: "$serviceFee" },
+					totalPlatformMarkup: { $sum: "$platformMarkupRevenue" },
+					totalComboMarkup: { $sum: "$comboMarkupRevenue" },
+					totalVendorEarnings: { $sum: "$vendorEarning" },
 				},
 			},
 			{ $sort: { "_id.year": 1, "_id.month": 1, "_id.day": 1 } },
 		]);
 
 		const result = summary.map((s) => {
-			const foodTotal = s.grossRevenue - s.totalDeliveryFees - s.totalServiceFees;
 			return {
 				period: s._id,
 				orderCount: s.orderCount,
 				grossRevenue: s.grossRevenue,
-				foodTotal,
-				commission: Math.round(foodTotal * 0.1),
+				totalVendorEarnings: s.totalVendorEarnings,
 				totalServiceFees: s.totalServiceFees,
 				totalDeliveryFees: s.totalDeliveryFees,
+				totalPlatformMarkup: s.totalPlatformMarkup,
+				totalComboMarkup: s.totalComboMarkup,
+				totalPlatformRevenue: (s.totalServiceFees || 0) + (s.totalPlatformMarkup || 0) + (s.totalComboMarkup || 0),
 			};
 		});
 
@@ -310,16 +311,17 @@ const getProfitSummary = async (req, res) => {
 		const orders = await Order.find({
 			status: "DELIVERED",
 			createdAt: { $gte: start, $lte: end },
-		}).select("totalPrice deliveryFee serviceFee");
+		}).select("totalPrice deliveryFee serviceFee platformMarkupRevenue comboMarkupRevenue vendorEarning");
 
 		const grossRevenue = orders.reduce((s, o) => s + (o.totalPrice || 0), 0);
 		const totalDeliveryFees = orders.reduce((s, o) => s + (o.deliveryFee || 0), 0);
 		const totalServiceFees = orders.reduce((s, o) => s + (o.serviceFee || 0), 0);
-		const foodTotal = grossRevenue - totalDeliveryFees - totalServiceFees;
-		const commissionEarned = Math.round(foodTotal * 0.1);
+		const totalPlatformMarkup = orders.reduce((s, o) => s + (o.platformMarkupRevenue || 0), 0);
+		const totalComboMarkup = orders.reduce((s, o) => s + (o.comboMarkupRevenue || 0), 0);
+		const totalVendorEarnings = orders.reduce((s, o) => s + (o.vendorEarning || 0), 0);
 
-		// Platform income = commission + service fees
-		const grossProfit = commissionEarned + totalServiceFees;
+		// Platform gross profit = service fees + platform markup + combo markup
+		const grossProfit = totalServiceFees + totalPlatformMarkup + totalComboMarkup;
 
 		// Expenses = completed payouts sent out
 		const completedPayouts = await Payout.find({
@@ -336,10 +338,11 @@ const getProfitSummary = async (req, res) => {
 			period: { from: start, to: end },
 			profit: {
 				grossRevenue,
-				foodTotal,
-				commissionEarned,
-				totalServiceFees,
 				totalDeliveryFees,
+				totalVendorEarnings,
+				totalServiceFees,
+				totalPlatformMarkup,
+				totalComboMarkup,
 				grossProfit,
 				totalExpenses,
 				netProfit,

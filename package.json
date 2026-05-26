@@ -26,6 +26,8 @@
     "cors": "^2.8.5",
     "crypto": "^1.0.1",
     "dotenv": "^17.2.3",
+    "expo": "^55.0.25",
+    "expo-dev-client": "^55.0.35",
     "express": "^4.22.1",
     "express-rate-limit": "^8.2.1",
     "firebase-admin": "^13.6.0",
