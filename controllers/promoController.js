@@ -39,7 +39,10 @@ function getPromoError(promo, userId, total) {
 		return { status: 400, message: "This promo code has expired" };
 	}
 	if (promo.usageLimit != null && promo.usedCount >= promo.usageLimit) {
-		return { status: 400, message: "This promo code has reached its usage limit" };
+		return {
+			status: 400,
+			message: "This promo code has reached its usage limit",
+		};
 	}
 
 	const alreadyUsed = promo.usedBy.some(
@@ -232,4 +235,13 @@ exports.applyPromoCode = async (req, res) => {
 exports.applyReferralCode = async (req, res) => {
 	try {
 	} catch {}
+};
+
+module.exports = {
+	getPromoError,
+	calculateDiscount,
+	createPromoCode: exports.createPromoCode,
+	validatePromoCode: exports.validatePromoCode,
+	applyPromoCode: exports.applyPromoCode,
+	applyReferralCode: exports.applyReferralCode,
 };
