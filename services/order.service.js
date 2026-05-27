@@ -1070,6 +1070,18 @@ const acceptOrder = async (orderId, riderId) => {
 		message: "A rider has accepted your order and is on the way!",
 	});
 
+	if (global.io) {
+		const payload = {
+			orderId: order._id.toString(),
+			status: order.status,
+			subStatus: order.subStatus,
+		};
+		const rooms = [order.vendor?.toString(), riderId.toString()].filter(Boolean);
+		rooms.forEach((room) => {
+			global.io.to(room).emit("orderUpdate", payload);
+		});
+	}
+
 	try {
 		const { cancelDispatch } = require("./order.rider.service");
 		cancelDispatch(orderId);
@@ -1139,6 +1151,18 @@ const pickUpOrder = async (orderId, riderId) => {
 		logger.error(`Failed to send pickup notification: ${error.message}`);
 	}
 
+	if (global.io) {
+		const payload = {
+			orderId: order._id.toString(),
+			status: order.status,
+			subStatus: order.subStatus,
+		};
+		const rooms = [order.customer?.toString(), order.vendor?.toString(), riderId].filter(Boolean);
+		rooms.forEach((room) => {
+			global.io.to(room).emit("orderUpdate", payload);
+		});
+	}
+
 	return order;
 };
 
@@ -1173,13 +1197,17 @@ const completeDelivery = async (orderId, riderId, otp) => {
 		message: "Delivery confirmed! Enjoy your meal.",
 	});
 
-	if (global.io && order.vendor) {
-		global.io.to(order.vendor.toString()).emit("orderUpdate", {
-			orderId: order._id,
+	if (global.io) {
+		const payload = {
+			orderId: order._id.toString(),
 			status: ORDER_STATUS.DELIVERED,
 			subStatus: ORDER_SUB_STATUS.DELIVERED,
+		};
+		const rooms = [order.vendor?.toString(), riderId.toString()].filter(Boolean);
+		rooms.forEach((room) => {
+			global.io.to(room).emit("orderUpdate", payload);
 		});
-		logger.info(`Delivered status emitted to vendor ${order.vendor}`);
+		logger.info(`Delivered status emitted to vendor ${order.vendor} and rider ${riderId}`);
 	}
 
 	logger.info(`Order ${orderId} delivered by Rider ${riderId}`);

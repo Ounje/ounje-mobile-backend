@@ -114,6 +114,12 @@ const declineOrder = async (orderId, vendorId, declineData = {}) => {
 			status: order.status,
 			subStatus: order.subStatus,
 		});
+		// Also notify the vendor's own socket room so their Cancelled tab updates instantly
+		global.io.to(vendorId.toString()).emit("orderUpdate", {
+			orderId: order._id,
+			status: order.status,
+			subStatus: order.subStatus,
+		});
 	}
 
 	return order;
@@ -162,6 +168,11 @@ const vendorAcceptOrder = async (orderId, vendorId) => {
 			status: order.status,
 			subStatus: order.subStatus,
 		});
+		global.io.to(vendorId.toString()).emit("orderUpdate", {
+			orderId: order._id,
+			status: order.status,
+			subStatus: order.subStatus,
+		});
 	}
 
 	return order;
@@ -190,6 +201,11 @@ const vendorStartPreparing = async (orderId, vendorId) => {
 	// Notify customer — they see "Restaurant is preparing your order"
 	if (global.io) {
 		global.io.to(order.customer.toString()).emit("orderUpdate", {
+			orderId: order._id,
+			status: order.status,
+			subStatus: order.subStatus,
+		});
+		global.io.to(vendorId.toString()).emit("orderUpdate", {
 			orderId: order._id,
 			status: order.status,
 			subStatus: order.subStatus,
@@ -228,6 +244,11 @@ const vendorMarkReady = async (orderId, vendorId) => {
 			status: order.status,
 			subStatus: order.subStatus,
 		});
+		global.io.to(vendorId.toString()).emit("orderUpdate", {
+			orderId: order._id,
+			status: order.status,
+			subStatus: order.subStatus,
+		});
 	}
 
 	try {
@@ -253,6 +274,11 @@ const vendorMarkReady = async (orderId, vendorId) => {
 		);
 		if (global.io) {
 			global.io.to(order.customer.toString()).emit("orderUpdate", {
+				orderId: order._id,
+				status: ORDER_STATUS.RIDING,
+				subStatus: ORDER_SUB_STATUS.LOOKING_FOR_RIDER,
+			});
+			global.io.to(vendorId.toString()).emit("orderUpdate", {
 				orderId: order._id,
 				status: ORDER_STATUS.RIDING,
 				subStatus: ORDER_SUB_STATUS.LOOKING_FOR_RIDER,

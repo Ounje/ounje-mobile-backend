@@ -467,6 +467,15 @@ const riderDeclineOrder = async (orderId, riderId, declineData = {}) => {
 			note,
 			timestamp: order.cancelledAt,
 		});
+		const payload = {
+			orderId: order._id.toString(),
+			status: order.status,
+			subStatus: order.subStatus,
+		};
+		const rooms = [order.vendor?.toString(), riderId.toString()].filter(Boolean);
+		rooms.forEach((room) => {
+			global.io.to(room).emit("orderUpdate", payload);
+		});
 	}
 
 	return order;
@@ -621,10 +630,14 @@ const riderMarkOnTheWay = async (orderId, riderId) => {
 	await order.save();
 
 	if (global.io) {
-		global.io.to(order.customer.toString()).emit("orderUpdate", {
-			orderId: order._id,
+		const payload = {
+			orderId: order._id.toString(),
 			status: order.status,
 			subStatus: order.subStatus,
+		};
+		const rooms = [order.customer?.toString(), order.vendor?.toString(), riderId.toString()].filter(Boolean);
+		rooms.forEach((room) => {
+			global.io.to(room).emit("orderUpdate", payload);
 		});
 	}
 
@@ -728,7 +741,7 @@ const riderMarkArrived = async (orderId, riderId) => {
 				subStatus: order.subStatus,
 			};
 
-			const rooms = [order.customer?.toString(), riderIdStr].filter(Boolean);
+			const rooms = [order.customer?.toString(), order.vendor?.toString(), riderIdStr].filter(Boolean);
 
 			rooms.forEach((room) => {
 				global.io.to(room).emit("orderUpdate", payload);
