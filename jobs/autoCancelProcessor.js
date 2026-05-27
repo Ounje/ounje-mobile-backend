@@ -99,12 +99,16 @@ const processAutoCancelOrders = async () => {
 
 			// 4. Emit Socket Events for UI update
 			if (global.io) {
-				global.io.to(order.customer.toString()).emit("orderCancelled", {
+				global.io.to(order.customer.toString()).emit("orderUpdate", {
 					orderId: order._id,
+					status: order.status,
+					subStatus: order.subStatus,
 					message: "Order cancelled automatically due to vendor unresponsiveness.",
 				});
-				global.io.to(order.vendor.toString()).emit("orderCancelled", {
+				global.io.to(order.vendor.toString()).emit("orderUpdate", {
 					orderId: order._id,
+					status: order.status,
+					subStatus: order.subStatus,
 					message: "Order cancelled because it was not accepted in time.",
 				});
 			}
