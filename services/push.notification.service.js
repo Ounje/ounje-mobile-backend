@@ -33,25 +33,48 @@ const sendPushNotification = async (token, title, body, options = {}) => {
 		const iosSoundName = isOrderAlert ? "new_alert.wav" : "default";
 
 
-		const message = {
-			token,
-			notification: { title, body },
-			android: {
-				priority: "high",
-				notification: {
-					channelId: resolvedChannelId,
-					priority: "high",
-					defaultSound: !isOrderAlert,
-					...(isOrderAlert && { sound: soundName }),
-				},
-			},
-			apns: {
-				payload: {
-					aps: { sound: iosSoundName, badge: 1 },
-				},
-			},
-			...(Object.keys(dataPayload).length > 0 && { data: dataPayload }),
-		};
+		// For order alerts: send a DATA-ONLY message so the app's background
+		// message handler fires and schedules a local notification using the
+		// orders_v8 channel (which has the custom sound). If we include a
+		// `notification` payload, Android auto-displays it without going through
+		// our handler, bypassing the custom sound entirely.
+		//
+		// For all other notifications: keep the notification payload so Android
+		// auto-displays them normally even if the app is fully killed.
+		const message = isOrderAlert
+			? {
+					token,
+					// data-only — no `notification` key
+					android: { priority: "high" },
+					apns: {
+						headers: { "apns-priority": "10" },
+						payload: { aps: { "content-available": 1 } },
+					},
+					data: {
+						...dataPayload,
+						title: String(title),
+						body: String(body),
+						channelId: resolvedChannelId,
+						sound: soundName,
+					},
+			  }
+			: {
+					token,
+					notification: { title, body },
+					android: {
+						priority: "high",
+						notification: {
+							channelId: resolvedChannelId,
+							priority: "high",
+						},
+					},
+					apns: {
+						payload: {
+							aps: { sound: iosSoundName, badge: 1 },
+						},
+					},
+					...(Object.keys(dataPayload).length > 0 && { data: dataPayload }),
+			  };
 
 		const messageId = await admin.messaging().send(message);
 		logger.info(`✅ Push sent: "${title}" | messageId: ${messageId}`);
