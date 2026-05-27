@@ -1,11 +1,7 @@
 const Promotion = require("../models/Promotion");
 
-/* ───────────────────────────────
-   CORE LOGIC (SOURCE OF TRUTH)
-────────────────────────────── */
-
 function calculateDiscount(promo, total, comboSubtotal = 0) {
-	const base = promo.applicableTo === "combo" ? comboSubtotal : total;
+	const base = promo.applicableTo === "Combo" ? comboSubtotal : total;
 
 	if (promo.type === "percentage") {
 		let discount = Math.round((base * promo.value) / 100);
@@ -55,8 +51,7 @@ function getPromoError(
 		return { status: 400, message: "Promo already used by you" };
 	}
 
-	// IMPORTANT FIX: combo-aware validation
-	if (promo.applicableTo === "combo") {
+	if (promo.applicableTo === "Combo") {
 		if (comboSubtotal <= 0) {
 			return { status: 400, message: "Promo only valid for combo meals" };
 		}
