@@ -1270,6 +1270,25 @@ const cancelOrder = async (orderId, customerId) => {
 		logger.error(`Failed to send cancellation notification: ${error.message}`);
 	}
 
+	if (global.io) {
+		if (order.vendor) {
+			global.io.to(order.vendor.toString()).emit("orderUpdate", {
+				orderId: order._id,
+				status: order.status,
+				subStatus: order.subStatus,
+				message: "Order was cancelled by the customer.",
+			});
+		}
+		if (order.rider) {
+			global.io.to(order.rider.toString()).emit("orderUpdate", {
+				orderId: order._id,
+				status: order.status,
+				subStatus: order.subStatus,
+				message: "Order was cancelled by the customer.",
+			});
+		}
+	}
+
 	return order;
 };
 

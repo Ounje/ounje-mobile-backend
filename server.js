@@ -258,6 +258,25 @@ app.use(errorHandler);
 // HEALTH CHECK
 // ─────────────────────────────────────────────
 
+// ─────────────────────────────────────────────
+// DEV-ONLY: Test order alert sound
+// POST /test-alert/:vendorProfileId
+// Fires newOrderAvailable socket event to the vendor room.
+// ─────────────────────────────────────────────
+if (process.env.NODE_ENV !== "production") {
+  app.post("/test-alert/:vendorProfileId", (req, res) => {
+    const { vendorProfileId } = req.params;
+    if (!global.io) return res.status(500).json({ error: "Socket not ready" });
+    global.io.to(vendorProfileId).emit("newOrderAvailable", {
+      orderId: "TEST-" + Date.now(),
+      message: "🔔 Test order alert!",
+    });
+    logger.info(`[TEST] newOrderAvailable fired to vendor room: ${vendorProfileId}`);
+    return res.json({ success: true, firedTo: vendorProfileId });
+  });
+}
+
+
 app.get("/", (req, res) => {
 	res.send("Food Service API running 🚀");
 });
