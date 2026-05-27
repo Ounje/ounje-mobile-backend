@@ -24,9 +24,14 @@ const sendPushNotification = async (token, title, body, options = {}) => {
 			}
 		}
 
-		const isOrderAlert = options.channelId === "orders";
-		const soundName = isOrderAlert ? "order_alert" : "default";
-		const iosSoundName = isOrderAlert ? "order_alert.mp3" : "default";
+		// "orders" is the legacy channel id — map it to the current v8 channel
+		// so both old callers (channelId:"orders") and new ones work correctly.
+		const rawChannel = options.channelId ?? "general";
+		const resolvedChannelId = rawChannel === "orders" ? "orders_v8" : rawChannel;
+		const isOrderAlert = resolvedChannelId === "orders_v8";
+		const soundName = isOrderAlert ? "new_alert" : "default";
+		const iosSoundName = isOrderAlert ? "new_alert.wav" : "default";
+
 
 		const message = {
 			token,
@@ -34,7 +39,7 @@ const sendPushNotification = async (token, title, body, options = {}) => {
 			android: {
 				priority: "high",
 				notification: {
-					channelId: options.channelId ?? "general",
+					channelId: resolvedChannelId,
 					priority: "high",
 					defaultSound: !isOrderAlert,
 					...(isOrderAlert && { sound: soundName }),
