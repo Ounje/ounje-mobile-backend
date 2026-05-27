@@ -27,15 +27,15 @@ const sendPushNotification = async (token, title, body, options = {}) => {
 		// "orders" is the legacy channel id — map it to the current v8 channel
 		// so both old callers (channelId:"orders") and new ones work correctly.
 		const rawChannel = options.channelId ?? "general";
-		const resolvedChannelId = rawChannel === "orders" ? "orders_v8" : rawChannel;
-		const isOrderAlert = resolvedChannelId === "orders_v8";
+		const resolvedChannelId = rawChannel === "orders" ? "orders_v14" : rawChannel;
+		const isOrderAlert = resolvedChannelId === "orders_v14";
 		const soundName = isOrderAlert ? "new_alert" : "default";
 		const iosSoundName = isOrderAlert ? "new_alert.wav" : "default";
 
 
 		// For order alerts: send a DATA-ONLY message so the app's background
 		// message handler fires and schedules a local notification using the
-		// orders_v8 channel (which has the custom sound). If we include a
+		// orders_v14 channel (which has the custom sound). If we include a
 		// `notification` payload, Android auto-displays it without going through
 		// our handler, bypassing the custom sound entirely.
 		//
@@ -48,7 +48,7 @@ const sendPushNotification = async (token, title, body, options = {}) => {
 					android: { priority: "high" },
 					apns: {
 						headers: { "apns-priority": "10" },
-						payload: { aps: { "content-available": 1 } },
+						payload: { aps: { alert: { title: String(title), body: String(body) }, "content-available": 1, sound: iosSoundName } },
 					},
 					data: {
 						...dataPayload,
