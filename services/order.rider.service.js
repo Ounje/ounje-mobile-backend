@@ -472,18 +472,13 @@ const riderDeclineOrder = async (orderId, riderId, declineData = {}) => {
 	return order;
 };
 
-const getAvailableRiderRequests = async (riderZones = []) => {
+const getAvailableRiderRequests = async (riderZones = [], riderUserIdStr = null, riderCoords = null) => {
 	try {
-		// Only return orders in the rider's operating zones.
-		// If the rider has no zones configured yet, return nothing.
-		if (riderZones.length === 0) return [];
-
 		// Only show orders created in the last 24 hours to prevent
 		// stale seeded/test orders from appearing in the rider's feed.
 		const since = new Date(Date.now() - 24 * 60 * 60 * 1000);
 
-		const orders = await Order.find({
-			zone: { $in: riderZones },
+		const availableOrders = await Order.find({
 			createdAt: { $gte: since },
 			$or: [
 				{ status: ORDER_STATUS.PENDING, rider: null },
@@ -506,7 +501,34 @@ const getAvailableRiderRequests = async (riderZones = []) => {
 			.sort({ createdAt: -1 })
 			.lean();
 
-		return orders;
+		// Filter down to orders that are relevant to this specific rider
+		const validOrders = availableOrders.filter((order) => {
+			const orderIdStr = order._id.toString();
+
+			// Condition 1: Rider is actively a candidate in an ongoing broadcast for this order
+			const dispatchInfo = broadcastTimers.get(orderIdStr);
+			if (dispatchInfo && dispatchInfo.candidates) {
+				const isCandidate = dispatchInfo.candidates.some(
+					(c) => c.user && c.user.toString() === riderUserIdStr,
+				);
+				if (isCandidate) return true;
+			}
+
+			// Condition 2: Order is in one of the rider's configured zones
+			if (order.zone && riderZones.includes(order.zone)) return true;
+
+			// Condition 3: Rider is physically within 3km of the vendor location
+			if (riderCoords && hasValidGPS(riderCoords) && order.vendor?.location?.coordinates) {
+				const vendorCoords = order.vendor.location.coordinates;
+				if (hasValidGPS(vendorCoords)) {
+					if (distanceKm(riderCoords, vendorCoords) <= 3) return true;
+				}
+			}
+
+			return false; // Skip if none matched
+		});
+
+		return validOrders;
 	} catch (error) {
 		logger.error(`Error fetching available rider requests: ${error.message}`);
 		throw new Error("Failed to fetch available orders");
