@@ -674,6 +674,9 @@ const createOrder = async (userId, data) => {
 			vendor.storeDetails?.[0]?.preorderPeriods?.[0]?.preparationTime,
 		paymentMethod: data.paymentMethod || "wallet",
 	});
+	logger.info(
+		`[Promo Debug] itemsTotalPrice=${itemsTotalPrice} fee=${fee} serviceFee=${serviceFee} discountAmount=${discountAmount} expectedTotal=${itemsTotalPrice + fee + serviceFee - discountAmount}`,
+	);
 	order.orderNumber = await generateOrderNumber(order._id);
 	await order.save();
 
@@ -743,7 +746,7 @@ const sendOrderConfirmationEmailForOrder = async (order, vendor, user) => {
 /**
  * Calculate totalPrice, deliveryFee, serviceFee for a cart WITHOUT creating an order.
  */
-const estimateOrderPrice = async (cartData, userId) => {
+const estimateOrderPrice = async (cartData, userId = null) => {
 	const { items, vendorId, deliveryAddress, promoCode } = cartData;
 
 	if (!mongoose.isValidObjectId(vendorId))
@@ -785,19 +788,16 @@ const estimateOrderPrice = async (cartData, userId) => {
 		});
 	}
 
-	const promoApplied = !!promoCode;
-	const { serviceFee, vendorEarning, comboSubtotal } = _calculateFees(
-		formattedItems,
-		promoApplied,
-	);
+	const { serviceFee, vendorEarning, comboSubtotal } =
+		_calculateFees(formattedItems); // ← removed promoApplied
 
 	let discountAmount = 0;
-	if (promoApplied) {
+	if (promoCode) {
 		const promo = await promoService.findPromoByCode(promoCode);
 
 		const promoError = promoService.getPromoError(promo, userId, {
 			total: itemsTotalPrice,
-			comboSubtotal, // ← was hardcoded 0
+			comboSubtotal,
 		});
 
 		if (!promoError && promo) {
