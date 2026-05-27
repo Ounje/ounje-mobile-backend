@@ -389,10 +389,13 @@ exports.completeDelivery = asyncHandler(async (req, res) => {
 
 // Get available rider requests
 exports.getAvailableRiderRequests = asyncHandler(async (req, res) => {
-	// Filter to the rider's own operating zones so riders never see
-	// orders outside their area (and demo seed data from other zones is hidden).
+	// Filter to the rider's own operating zones, or by active broadcast candidates,
+	// or by physical proximity (3km) to ensure riders who receive push notifications
+	// can actually see the order.
 	const riderZones = req.rider?.operatingArea ?? [];
-	const orders = await orderRiderService.getAvailableRiderRequests(riderZones);
+	const riderUserIdStr = req.user?.id;
+	const riderCoords = req.rider?.currentLocation?.coordinates ?? null;
+	const orders = await orderRiderService.getAvailableRiderRequests(riderZones, riderUserIdStr, riderCoords);
 	res.status(200).json({
 		count: orders.length,
 		orders: orders.map(formatRiderOrder),
