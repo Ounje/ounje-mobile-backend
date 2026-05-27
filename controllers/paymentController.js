@@ -181,6 +181,7 @@ const initialisePayment = async (req, res) => {
 			deliveryFee: priceBreakdown?.deliveryFee ?? null,
 			serviceFee: priceBreakdown?.serviceFee ?? null,
 			foodTotal: priceBreakdown?.foodTotal ?? null,
+			discountAmount: priceBreakdown?.discountAmount ?? null,
 		});
 	} catch (err) {
 		logger.error(
