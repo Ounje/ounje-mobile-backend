@@ -607,7 +607,7 @@ const createOrder = async (userId, data) => {
 		platformMarkupRevenue,
 		comboMarkupRevenue,
 		comboSubtotal,
-	} = _calculateFees(orderItems, promoApplied);
+	} = _calculateFees(orderItems);
 
 	if (promoApplied) {
 		promo = await promoService.findPromoByCode(data.promoCode); // ← no `const`
