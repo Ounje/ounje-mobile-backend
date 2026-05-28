@@ -8,7 +8,7 @@ const {
 	RiderProfile,
 	Payment,
 	User,
-	Promotion, // Added
+	Promotion,
 } = require("../models");
 const promoService = require("../services/promo.service");
 const { calculateOunjeFee, identifyZone } = require("../utils/delivery");
@@ -39,17 +39,18 @@ const calculateRiderRank = (totalDeliveries) => {
 	return "New Rider";
 };
 
-// ── UPDATED CONSTANTS ─────────────────────────────────────────────────────────
+// ── Constants ─────────────────────────────────────────────────────────────────
 // The 10% service fee is permanent and independent of food item markups.
 const SERVICE_FEE_RATE = 0.1;
 const EXEMPT_CATEGORIES = ["drinks"];
 
 // ── _calculateFees ────────────────────────────────────────────────────────────
-// Full replacement. Vendor always receives originalPrice. Platform keeps the markup.
-const _calculateFees = (items, promoApplied = false) => {
+// Combos now carry the same standard 10% platform markup as FoodItems/Plates.
+// The extra 20% combo markup has been removed.
+// Vendor always receives originalPrice. Platform keeps the 10% markup.
+const _calculateFees = (items) => {
 	let vendorEarning = 0;
 	let platformMarkupRevenue = 0;
-	let comboMarkupRevenue = 0;
 	let comboSubtotal = 0;
 
 	for (const item of items) {
@@ -59,22 +60,13 @@ const _calculateFees = (items, promoApplied = false) => {
 
 		if (item.itemType === "Combo") {
 			// Vendor always gets originalPrice.
-			// Standard Markup is 10%. Combo Markup is extra 20%.
-			// Reverse: Price / (1.10 * 1.20)
-			const originalPrice =
-				item.originalPrice ?? Math.round(paidPrice / (1.1 * 1.2));
-			const withPlatformMarkup = Math.round(originalPrice * 1.1);
+			// Standard 10% platform markup only — no extra combo markup.
+			// Reverse: originalPrice = paidPrice / 1.1
+			const originalPrice = item.originalPrice ?? Math.round(paidPrice / 1.1);
 
 			vendorEarning += originalPrice * qty;
-			platformMarkupRevenue += (withPlatformMarkup - originalPrice) * qty;
-
-			if (!promoApplied) {
-				comboMarkupRevenue += (paidPrice - withPlatformMarkup) * qty;
-			} else {
-				// If promo applied, we effectively drop the 20% markup
-				// The discount calculation handles the subtraction from totalPrice later
-			}
-			comboSubtotal += item.price * qty;
+			platformMarkupRevenue += (paidPrice - originalPrice) * qty;
+			comboSubtotal += paidPrice * qty;
 		} else {
 			// FoodItem or Plate
 			const originalPrice =
@@ -95,7 +87,6 @@ const _calculateFees = (items, promoApplied = false) => {
 		serviceFee,
 		vendorEarning,
 		platformMarkupRevenue,
-		comboMarkupRevenue,
 		comboSubtotal,
 	};
 };
@@ -295,8 +286,8 @@ const _calculateAndValidateItemPrice = async (item, models) => {
 			);
 
 		itemPrice = product.basePrice;
-		originalPrice =
-			product.originalPrice ?? Math.round(itemPrice / (1.1 * 1.2));
+		// Combo originalPrice now uses the same 10% reverse as FoodItem/Plate
+		originalPrice = product.originalPrice ?? Math.round(itemPrice / 1.1);
 		resolvedName = product.comboName;
 
 		validatedComboSelections = [];
@@ -527,8 +518,8 @@ const createOrder = async (userId, data) => {
 			item: actualItemId,
 			name: resolvedName,
 			quantity,
-			price: itemPrice, // marked-up price customer pays
-			originalPrice: originalPrice, // vendor's true price
+			price: itemPrice,
+			originalPrice,
 			notes,
 			subCategoryItemId: finalSubCatId || null,
 		};
@@ -596,21 +587,16 @@ const createOrder = async (userId, data) => {
 	const customer = await Customer.findOne({ user: userId });
 	if (!customer) throw new AppError("Customer profile not found", 404);
 
-	// 6. Calculate fees with the promo code flag
-	const promoApplied = !!data.promoCode;
+	// 6. Calculate fees
+	const { serviceFee, vendorEarning, platformMarkupRevenue, comboSubtotal } =
+		_calculateFees(orderItems);
 
+	// 6a. Apply promo code if provided
 	let discountAmount = 0;
 	let promo = null;
-	const {
-		serviceFee,
-		vendorEarning,
-		platformMarkupRevenue,
-		comboMarkupRevenue,
-		comboSubtotal,
-	} = _calculateFees(orderItems);
 
-	if (promoApplied) {
-		promo = await promoService.findPromoByCode(data.promoCode); // ← no `const`
+	if (data.promoCode) {
+		promo = await promoService.findPromoByCode(data.promoCode);
 
 		const promoError = promoService.getPromoError(promo, userId, {
 			total: itemsTotalPrice,
@@ -661,8 +647,7 @@ const createOrder = async (userId, data) => {
 		discountAmount,
 		promoCodeApplied: promo ? promo.code : null,
 		vendorEarning,
-		platformMarkupRevenue, // new field
-		comboMarkupRevenue, // new field
+		platformMarkupRevenue,
 		deliveryAddress,
 		deliveryLatitude: finalDeliveryLat,
 		deliveryLongitude: finalDeliveryLng,
@@ -674,9 +659,11 @@ const createOrder = async (userId, data) => {
 			vendor.storeDetails?.[0]?.preorderPeriods?.[0]?.preparationTime,
 		paymentMethod: data.paymentMethod || "wallet",
 	});
+
 	logger.info(
-		`[Promo Debug] itemsTotalPrice=${itemsTotalPrice} fee=${fee} serviceFee=${serviceFee} discountAmount=${discountAmount} expectedTotal=${itemsTotalPrice + fee + serviceFee - discountAmount}`,
+		`[Order] itemsTotalPrice=${itemsTotalPrice} fee=${fee} serviceFee=${serviceFee} discountAmount=${discountAmount} totalPrice=${order.totalPrice}`,
 	);
+
 	order.orderNumber = await generateOrderNumber(order._id);
 	await order.save();
 
@@ -687,7 +674,7 @@ const createOrder = async (userId, data) => {
 		});
 	}
 
-	// 8. Notify vendor
+	// 7. Notify vendor
 	try {
 		await notificationService.notifyNewOrder(vendorId, order);
 		logger.info(`New order notification sent to vendor ${vendorId}`);
@@ -784,12 +771,12 @@ const estimateOrderPrice = async (cartData, userId = null) => {
 			...item,
 			name: resolvedName,
 			price: itemPrice,
-			originalPrice: originalPrice,
+			originalPrice,
 		});
 	}
 
 	const { serviceFee, vendorEarning, comboSubtotal } =
-		_calculateFees(formattedItems); // ← removed promoApplied
+		_calculateFees(formattedItems);
 
 	let discountAmount = 0;
 	if (promoCode) {
@@ -1120,7 +1107,9 @@ const pickUpOrder = async (orderId, riderId) => {
 	if (order.rider.toString() !== riderId) {
 		throw new AppError("You are not the assigned rider for this order", 403);
 	}
-
+	if (order.subStatus === ORDER_SUB_STATUS.PICKED_UP) {
+		throw new AppError("Order has already been picked up", 400);
+	}
 	order.status = ORDER_STATUS.RIDING;
 	order.subStatus = ORDER_SUB_STATUS.PICKED_UP;
 	await order.save();
