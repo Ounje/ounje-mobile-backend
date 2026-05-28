@@ -1233,44 +1233,74 @@ const cancelOrder = async (orderId, customerId) => {
 		);
 	}
 
-	order.status = ORDER_STATUS.CANCELLED;
-	order.subStatus = ORDER_SUB_STATUS.CANCELLED;
-	order.cancelledAt = new Date();
-	order.cancelledBy = customerId;
-	order.cancellationCategory = "customer";
+	// Atomically transition the order to cancelled only if it is still confirming
+	const updatedOrder = await Order.findOneAndUpdate(
+		{ 
+			_id: orderId, 
+			status: ORDER_STATUS.CONFIRMING,
+			subStatus: ORDER_SUB_STATUS.CONFIRMING
+		},
+		{
+			$set: {
+				status: ORDER_STATUS.CANCELLED,
+				subStatus: ORDER_SUB_STATUS.CANCELLED,
+				cancelledAt: new Date(),
+				cancelledBy: customerId,
+				cancellationCategory: "customer",
+			}
+		},
+		{ new: true }
+	);
 
-	await order.save();
+	if (!updatedOrder) {
+		throw new AppError(
+			"Order has already been accepted, cancelled, or declined.",
+			400,
+		);
+	}
 
-	if (order.paymentStatus === "paid") {
+	if (updatedOrder.paymentStatus === "paid") {
 		try {
-			if (order.paymentMethod === "wallet") {
-				await ledgerService.creditAccount(
-					order.customer,
-					"CUSTOMER",
-					order.totalPrice,
-					"REFUND",
-					order._id,
-					{ reason: "customer_cancelled" },
+			if (updatedOrder.paymentMethod === "wallet") {
+				// Atomically transition paymentStatus from paid to refunded
+				const refundedOrder = await Order.findOneAndUpdate(
+					{ _id: updatedOrder._id, paymentStatus: "paid" },
+					{ $set: { paymentStatus: "refunded" } },
+					{ new: true }
 				);
-				order.paymentStatus = "refunded";
-				await order.save();
-			} else if (order.paymentMethod === "paystack") {
+				if (refundedOrder) {
+					await ledgerService.creditAccount(
+						updatedOrder.customer,
+						"CUSTOMER",
+						updatedOrder.totalPrice,
+						"REFUND",
+						updatedOrder._id,
+						{ reason: "customer_cancelled" },
+					);
+				}
+			} else if (updatedOrder.paymentMethod === "paystack") {
 				const payment = await Payment.findOne({
-					orderId: order._id,
+					orderId: updatedOrder._id,
 					status: "success",
 				});
 				if (payment) {
-					try {
-						await refundTransaction(payment.reference, order.totalPrice * 100);
-						order.paymentStatus = "refunded";
-						await order.save();
-						logger.info(
-							`[REFUND] Paystack refund issued for cancelled order ${order._id}`,
-						);
-					} catch (refundErr) {
-						logger.error(
-							`[REFUND] Paystack refund failed for order ${order._id}: ${refundErr.message}`,
-						);
+					// Atomically transition paymentStatus from paid to refunded
+					const refundedOrder = await Order.findOneAndUpdate(
+						{ _id: updatedOrder._id, paymentStatus: "paid" },
+						{ $set: { paymentStatus: "refunded" } },
+						{ new: true }
+					);
+					if (refundedOrder) {
+						try {
+							await refundTransaction(payment.reference, updatedOrder.totalPrice * 100);
+							logger.info(
+								`[REFUND] Paystack refund issued for cancelled order ${updatedOrder._id}`,
+							);
+						} catch (refundErr) {
+							logger.error(
+								`[REFUND] Paystack refund failed for order ${updatedOrder._id}: ${refundErr.message}`,
+							);
+						}
 					}
 				}
 			}
@@ -1282,7 +1312,7 @@ const cancelOrder = async (orderId, customerId) => {
 	}
 
 	try {
-		await ledgerService.reverseOrderEarnings(order);
+		await ledgerService.reverseOrderEarnings(updatedOrder);
 	} catch (error) {
 		logger.error(
 			`Failed to reverse ledger for cancelled order ${orderId}: ${error.message}`,
@@ -1290,34 +1320,34 @@ const cancelOrder = async (orderId, customerId) => {
 	}
 
 	try {
-		await notificationService.notifyOrderCancelled(order.vendor, order);
+		await notificationService.notifyOrderCancelled(updatedOrder.vendor, updatedOrder);
 		logger.info(
-			`Order ${orderId} cancelled by customer ${customerId}, vendor ${order.vendor} notified`,
+			`Order ${orderId} cancelled by customer ${customerId}, vendor ${updatedOrder.vendor} notified`,
 		);
 	} catch (error) {
 		logger.error(`Failed to send cancellation notification: ${error.message}`);
 	}
 
 	if (global.io) {
-		if (order.vendor) {
-			global.io.to(order.vendor.toString()).emit("orderUpdate", {
-				orderId: order._id,
-				status: order.status,
-				subStatus: order.subStatus,
+		if (updatedOrder.vendor) {
+			global.io.to(updatedOrder.vendor.toString()).emit("orderUpdate", {
+				orderId: updatedOrder._id,
+				status: updatedOrder.status,
+				subStatus: updatedOrder.subStatus,
 				message: "Order was cancelled by the customer.",
 			});
 		}
-		if (order.rider) {
-			global.io.to(order.rider.toString()).emit("orderUpdate", {
-				orderId: order._id,
-				status: order.status,
-				subStatus: order.subStatus,
+		if (updatedOrder.rider) {
+			global.io.to(updatedOrder.rider.toString()).emit("orderUpdate", {
+				orderId: updatedOrder._id,
+				status: updatedOrder.status,
+				subStatus: updatedOrder.subStatus,
 				message: "Order was cancelled by the customer.",
 			});
 		}
 	}
 
-	return order;
+	return updatedOrder;
 };
 
 const vendorAcceptOrder = async (orderId, vendorId) => {

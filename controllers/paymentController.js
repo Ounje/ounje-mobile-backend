@@ -698,7 +698,7 @@ const walletPayment = async (req, res) => {
 			await ledgerService.debitAccount(
 				customer._id,
 				"CUSTOMER",
-				totalKobo,
+				order.totalPrice,
 				"WALLET_PAYMENT",
 				order._id,
 			);
