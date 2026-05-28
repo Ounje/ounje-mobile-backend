@@ -5,7 +5,7 @@ const VendorProfile = require('./models/VendorProfile'); // Use VendorProfile in
 const migrate = async () => {
   try {
     // This finds all Vendors who don't have a 'location' field yet
-    const vendorsToUpdate = await Vendor.find({
+    const vendorsToUpdate = await VendorProfile.find({
       $or: [
         { location: { $exists: false } },
         { "location.coordinates": { $size: 0 } }
