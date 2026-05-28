@@ -1,9 +1,9 @@
 const mongoose = require("mongoose");
-const { Order, VendorProfile, Payment } = require("../models");
+const { Order, VendorProfile } = require("../models");
 const orderService = require("./order.service");
 const notificationService = require("./notification.service");
 const ledgerService = require("./ledger.service");
-const { refundTransaction } = require("./dva.service");
+
 const { ORDER_STATUS, ORDER_SUB_STATUS } = require("../utils/constants");
 const logger = require("../utils/logger");
 
@@ -92,22 +92,22 @@ const declineOrder = async (orderId, vendorId, declineData = {}) => {
 				);
 			}
 		} else if (updatedOrder.paymentMethod === "paystack") {
-			const payment = await Payment.findOne({ orderId: updatedOrder._id, status: "success" });
-			if (payment) {
-				// Atomically transition paymentStatus from paid to refunded
-				const refundedOrder = await Order.findOneAndUpdate(
-					{ _id: updatedOrder._id, paymentStatus: "paid" },
-					{ $set: { paymentStatus: "refunded" } },
-					{ new: true }
+			// Refund to O-Credit wallet instantly (instead of slow 3-10 day Paystack bank refund)
+			const refundedOrder = await Order.findOneAndUpdate(
+				{ _id: updatedOrder._id, paymentStatus: "paid" },
+				{ $set: { paymentStatus: "refunded" } },
+				{ new: true }
+			);
+			if (refundedOrder) {
+				await ledgerService.creditAccount(
+					updatedOrder.customer,
+					"CUSTOMER",
+					updatedOrder.totalPrice,
+					"REFUND",
+					updatedOrder._id,
+					{ reason: "vendor_declined", originalPaymentMethod: "paystack" },
 				);
-				if (refundedOrder) {
-					try {
-						await refundTransaction(payment.reference, updatedOrder.totalPrice * 100);
-						logger.info(`[REFUND] Paystack refund issued for order ${updatedOrder._id} ref ${payment.reference}`);
-					} catch (err) {
-						logger.error(`[REFUND] Paystack refund failed for order ${updatedOrder._id}: ${err.message}`);
-					}
-				}
+				logger.info(`[REFUND] Paystack payment refunded to O-Credit wallet for order ${updatedOrder._id}`);
 			}
 		}
 
