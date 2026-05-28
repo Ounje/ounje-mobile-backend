@@ -41,7 +41,7 @@ const promotionSchema = new mongoose.Schema(
 		},
 		applicableTo: {
 			type: String,
-			enum: ["all", "combo"],
+			enum: ["all", "Combo"],
 			default: "all",
 		},
 		approvedBy: {
