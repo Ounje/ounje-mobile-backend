@@ -1279,29 +1279,24 @@ const cancelOrder = async (orderId, customerId) => {
 					);
 				}
 			} else if (updatedOrder.paymentMethod === "paystack") {
-				const payment = await Payment.findOne({
-					orderId: updatedOrder._id,
-					status: "success",
-				});
-				if (payment) {
-					// Atomically transition paymentStatus from paid to refunded
-					const refundedOrder = await Order.findOneAndUpdate(
-						{ _id: updatedOrder._id, paymentStatus: "paid" },
-						{ $set: { paymentStatus: "refunded" } },
-						{ new: true }
+				// Refund to O-Credit wallet instantly (instead of slow 3-10 day Paystack bank refund)
+				const refundedOrder = await Order.findOneAndUpdate(
+					{ _id: updatedOrder._id, paymentStatus: "paid" },
+					{ $set: { paymentStatus: "refunded" } },
+					{ new: true }
+				);
+				if (refundedOrder) {
+					await ledgerService.creditAccount(
+						updatedOrder.customer,
+						"CUSTOMER",
+						updatedOrder.totalPrice,
+						"REFUND",
+						updatedOrder._id,
+						{ reason: "customer_cancelled", originalPaymentMethod: "paystack" },
 					);
-					if (refundedOrder) {
-						try {
-							await refundTransaction(payment.reference, updatedOrder.totalPrice * 100);
-							logger.info(
-								`[REFUND] Paystack refund issued for cancelled order ${updatedOrder._id}`,
-							);
-						} catch (refundErr) {
-							logger.error(
-								`[REFUND] Paystack refund failed for order ${updatedOrder._id}: ${refundErr.message}`,
-							);
-						}
-					}
+					logger.info(
+						`[REFUND] Paystack payment refunded to O-Credit wallet for cancelled order ${updatedOrder._id}`,
+					);
 				}
 			}
 		} catch (error) {
