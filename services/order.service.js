@@ -428,6 +428,42 @@ const _calculateAndValidateItemPrice = async (item, models) => {
 	};
 };
 
+const doesOrderRequirePackaging = async (items, categoriesRequiringPlate) => {
+	if (!categoriesRequiringPlate || categoriesRequiringPlate.length === 0) return false;
+	const reqCategories = categoriesRequiringPlate.map(c => c.toLowerCase());
+
+	for (const item of items) {
+		const { itemId, itemType, comboSelections } = item;
+
+		if (itemType === "FoodItem") {
+			const food = await FoodItem.findById(itemId).select("category").lean();
+			if (food && food.category && reqCategories.includes(food.category.toLowerCase())) {
+				return true;
+			}
+		} else if (itemType === "Plate") {
+			const plate = await Plate.findById(itemId).populate("items", "category").lean();
+			if (plate && plate.items) {
+				for (const subItem of plate.items) {
+					if (subItem && subItem.category && reqCategories.includes(subItem.category.toLowerCase())) {
+						return true;
+					}
+				}
+			}
+		} else if (itemType === "Combo") {
+			if (comboSelections && comboSelections.length > 0) {
+				const selectionItemIds = comboSelections.flatMap(s => (s.items || []).map(i => i.itemId));
+				const foodItems = await FoodItem.find({ _id: { $in: selectionItemIds } }).select("category").lean();
+				for (const food of foodItems) {
+					if (food && food.category && reqCategories.includes(food.category.toLowerCase())) {
+						return true;
+					}
+				}
+			}
+		}
+	}
+	return false;
+};
+
 const createOrder = async (userId, data) => {
 	const {
 		items,
@@ -462,6 +498,26 @@ const createOrder = async (userId, data) => {
 	const vendorAddress = vendor.location.address;
 	if (!vendorAddress) {
 		throw new AppError("Vendor address is missing", 400);
+	}
+
+	// 1a. Check and auto-inject takeaway packaging if needed
+	if (vendor.fulfillmentSettings?.requiresTakeawayPackaging && vendor.fulfillmentSettings?.packagingItemId) {
+		const reqPlate = await doesOrderRequirePackaging(items, vendor.fulfillmentSettings.categoriesRequiringPlate);
+		const alreadyHasPlate = items.some(item => item.itemId.toString() === vendor.fulfillmentSettings.packagingItemId.toString());
+
+		if (reqPlate && !alreadyHasPlate) {
+			const pkgItem = await FoodItem.findById(vendor.fulfillmentSettings.packagingItemId).lean();
+			if (pkgItem) {
+				const pkgOption = pkgItem.subCategory?.[0]?.items?.[0];
+				items.push({
+					itemId: pkgItem._id.toString(),
+					itemType: "FoodItem",
+					subCategoryItemId: pkgOption ? pkgOption._id.toString() : undefined,
+					quantity: 1,
+				});
+				logger.info(`Auto-injected Takeaway Packaging item ${pkgItem._id} to order`);
+			}
+		}
 	}
 
 	// 1b. Enforce vendor operating schedule
@@ -754,6 +810,26 @@ const estimateOrderPrice = async (cartData, userId = null) => {
 	if (!vendor.location?.address)
 		throw new AppError("Vendor address is missing", 400);
 
+	// Check and auto-inject takeaway packaging if needed
+	if (vendor.fulfillmentSettings?.requiresTakeawayPackaging && vendor.fulfillmentSettings?.packagingItemId) {
+		const reqPlate = await doesOrderRequirePackaging(items, vendor.fulfillmentSettings.categoriesRequiringPlate);
+		const alreadyHasPlate = items.some(item => item.itemId.toString() === vendor.fulfillmentSettings.packagingItemId.toString());
+
+		if (reqPlate && !alreadyHasPlate) {
+			const pkgItem = await FoodItem.findById(vendor.fulfillmentSettings.packagingItemId).lean();
+			if (pkgItem) {
+				const pkgOption = pkgItem.subCategory?.[0]?.items?.[0];
+				items.push({
+					itemId: pkgItem._id.toString(),
+					itemType: "FoodItem",
+					subCategoryItemId: pkgOption ? pkgOption._id.toString() : undefined,
+					quantity: 1,
+				});
+				logger.info(`[Estimate] Auto-injected Takeaway Packaging item ${pkgItem._id}`);
+			}
+		}
+	}
+
 	if (!isVendorOpenNow(vendor)) {
 		throw new AppError(buildClosedReason(vendor), 400);
 	}
@@ -835,10 +911,29 @@ const updateOrderStatus = async (orderId, status, subStatus) => {
 	return order;
 };
 
-const sendDeliveryOtp = async (order) => {
+const sendDeliveryOtp = async (order, forceRegenerate = false) => {
 	if (!order) throw new AppError("Order required", 400);
 	const customer = await Customer.findById(order.customer);
 	if (!customer) throw new AppError("Customer not found", 404);
+
+	const hasExpired = order.deliveryOtpExpiresAt && new Date() > new Date(order.deliveryOtpExpiresAt);
+
+	if (order.deliveryOtpCode && !hasExpired && !forceRegenerate) {
+		logger.info(`Reusing existing OTP for order ${order._id}`);
+		try {
+			if (global.io) {
+				global.io.to(order.customer.toString()).emit("delivery-otp", {
+					orderId: order._id,
+					customerId: order.customer,
+					otp: order.deliveryOtpCode,
+					expiresAt: order.deliveryOtpExpiresAt,
+				});
+			}
+		} catch (err) {
+			logger.error(`Failed to emit existing delivery OTP via socket.io: ${err.message}`);
+		}
+		return { success: true };
+	}
 
 	const otp = generateNumericOtp(
 		parseInt(process.env.DELIVERY_OTP_LENGTH || 6),
@@ -853,7 +948,7 @@ const sendDeliveryOtp = async (order) => {
 	await order.save();
 
 	logger.info(
-		`Generated OTP for order ${order._id} (hash stored, plaintext not persisted)`,
+		`Generated new OTP for order ${order._id} (hash stored, plaintext not persisted)`,
 	);
 
 	try {
@@ -1057,6 +1152,18 @@ const acceptOrder = async (orderId, riderId) => {
 		message: "A rider has accepted your order and is on the way!",
 	});
 
+	if (global.io) {
+		const payload = {
+			orderId: order._id.toString(),
+			status: order.status,
+			subStatus: order.subStatus,
+		};
+		const rooms = [order.vendor?.toString(), riderId.toString()].filter(Boolean);
+		rooms.forEach((room) => {
+			global.io.to(room).emit("orderUpdate", payload);
+		});
+	}
+
 	try {
 		const { cancelDispatch } = require("./order.rider.service");
 		cancelDispatch(orderId);
@@ -1128,6 +1235,18 @@ const pickUpOrder = async (orderId, riderId) => {
 		logger.error(`Failed to send pickup notification: ${error.message}`);
 	}
 
+	if (global.io) {
+		const payload = {
+			orderId: order._id.toString(),
+			status: order.status,
+			subStatus: order.subStatus,
+		};
+		const rooms = [order.customer?.toString(), order.vendor?.toString(), riderId].filter(Boolean);
+		rooms.forEach((room) => {
+			global.io.to(room).emit("orderUpdate", payload);
+		});
+	}
+
 	return order;
 };
 
@@ -1162,13 +1281,17 @@ const completeDelivery = async (orderId, riderId, otp) => {
 		message: "Delivery confirmed! Enjoy your meal.",
 	});
 
-	if (global.io && order.vendor) {
-		global.io.to(order.vendor.toString()).emit("orderUpdate", {
-			orderId: order._id,
+	if (global.io) {
+		const payload = {
+			orderId: order._id.toString(),
 			status: ORDER_STATUS.DELIVERED,
 			subStatus: ORDER_SUB_STATUS.DELIVERED,
+		};
+		const rooms = [order.vendor?.toString(), riderId.toString()].filter(Boolean);
+		rooms.forEach((room) => {
+			global.io.to(room).emit("orderUpdate", payload);
 		});
-		logger.info(`Delivered status emitted to vendor ${order.vendor}`);
+		logger.info(`Delivered status emitted to vendor ${order.vendor} and rider ${riderId}`);
 	}
 
 	logger.info(`Order ${orderId} delivered by Rider ${riderId}`);
@@ -1194,45 +1317,70 @@ const cancelOrder = async (orderId, customerId) => {
 		);
 	}
 
-	order.status = ORDER_STATUS.CANCELLED;
-	order.subStatus = ORDER_SUB_STATUS.CANCELLED;
-	order.cancelledAt = new Date();
-	order.cancelledBy = customerId;
-	order.cancellationCategory = "customer";
+	// Atomically transition the order to cancelled only if it is still confirming
+	const updatedOrder = await Order.findOneAndUpdate(
+		{ 
+			_id: orderId, 
+			status: ORDER_STATUS.CONFIRMING,
+			subStatus: ORDER_SUB_STATUS.CONFIRMING
+		},
+		{
+			$set: {
+				status: ORDER_STATUS.CANCELLED,
+				subStatus: ORDER_SUB_STATUS.CANCELLED,
+				cancelledAt: new Date(),
+				cancelledBy: customerId,
+				cancellationCategory: "customer",
+			}
+		},
+		{ new: true }
+	);
 
-	await order.save();
+	if (!updatedOrder) {
+		throw new AppError(
+			"Order has already been accepted, cancelled, or declined.",
+			400,
+		);
+	}
 
-	if (order.paymentStatus === "paid") {
+	if (updatedOrder.paymentStatus === "paid") {
 		try {
-			if (order.paymentMethod === "wallet") {
-				await ledgerService.creditAccount(
-					order.customer,
-					"CUSTOMER",
-					order.totalPrice,
-					"REFUND",
-					order._id,
-					{ reason: "customer_cancelled" },
+			if (updatedOrder.paymentMethod === "wallet") {
+				// Atomically transition paymentStatus from paid to refunded
+				const refundedOrder = await Order.findOneAndUpdate(
+					{ _id: updatedOrder._id, paymentStatus: "paid" },
+					{ $set: { paymentStatus: "refunded" } },
+					{ new: true }
 				);
-				order.paymentStatus = "refunded";
-				await order.save();
-			} else if (order.paymentMethod === "paystack") {
-				const payment = await Payment.findOne({
-					orderId: order._id,
-					status: "success",
-				});
-				if (payment) {
-					try {
-						await refundTransaction(payment.reference, order.totalPrice * 100);
-						order.paymentStatus = "refunded";
-						await order.save();
-						logger.info(
-							`[REFUND] Paystack refund issued for cancelled order ${order._id}`,
-						);
-					} catch (refundErr) {
-						logger.error(
-							`[REFUND] Paystack refund failed for order ${order._id}: ${refundErr.message}`,
-						);
-					}
+				if (refundedOrder) {
+					await ledgerService.creditAccount(
+						updatedOrder.customer,
+						"CUSTOMER",
+						updatedOrder.totalPrice,
+						"REFUND",
+						updatedOrder._id,
+						{ reason: "customer_cancelled" },
+					);
+				}
+			} else if (updatedOrder.paymentMethod === "paystack") {
+				// Refund to O-Credit wallet instantly (instead of slow 3-10 day Paystack bank refund)
+				const refundedOrder = await Order.findOneAndUpdate(
+					{ _id: updatedOrder._id, paymentStatus: "paid" },
+					{ $set: { paymentStatus: "refunded" } },
+					{ new: true }
+				);
+				if (refundedOrder) {
+					await ledgerService.creditAccount(
+						updatedOrder.customer,
+						"CUSTOMER",
+						updatedOrder.totalPrice,
+						"REFUND",
+						updatedOrder._id,
+						{ reason: "customer_cancelled", originalPaymentMethod: "paystack" },
+					);
+					logger.info(
+						`[REFUND] Paystack payment refunded to O-Credit wallet for cancelled order ${updatedOrder._id}`,
+					);
 				}
 			}
 		} catch (error) {
@@ -1243,7 +1391,7 @@ const cancelOrder = async (orderId, customerId) => {
 	}
 
 	try {
-		await ledgerService.reverseOrderEarnings(order);
+		await ledgerService.reverseOrderEarnings(updatedOrder);
 	} catch (error) {
 		logger.error(
 			`Failed to reverse ledger for cancelled order ${orderId}: ${error.message}`,
@@ -1251,34 +1399,34 @@ const cancelOrder = async (orderId, customerId) => {
 	}
 
 	try {
-		await notificationService.notifyOrderCancelled(order.vendor, order);
+		await notificationService.notifyOrderCancelled(updatedOrder.vendor, updatedOrder);
 		logger.info(
-			`Order ${orderId} cancelled by customer ${customerId}, vendor ${order.vendor} notified`,
+			`Order ${orderId} cancelled by customer ${customerId}, vendor ${updatedOrder.vendor} notified`,
 		);
 	} catch (error) {
 		logger.error(`Failed to send cancellation notification: ${error.message}`);
 	}
 
 	if (global.io) {
-		if (order.vendor) {
-			global.io.to(order.vendor.toString()).emit("orderUpdate", {
-				orderId: order._id,
-				status: order.status,
-				subStatus: order.subStatus,
+		if (updatedOrder.vendor) {
+			global.io.to(updatedOrder.vendor.toString()).emit("orderUpdate", {
+				orderId: updatedOrder._id,
+				status: updatedOrder.status,
+				subStatus: updatedOrder.subStatus,
 				message: "Order was cancelled by the customer.",
 			});
 		}
-		if (order.rider) {
-			global.io.to(order.rider.toString()).emit("orderUpdate", {
-				orderId: order._id,
-				status: order.status,
-				subStatus: order.subStatus,
+		if (updatedOrder.rider) {
+			global.io.to(updatedOrder.rider.toString()).emit("orderUpdate", {
+				orderId: updatedOrder._id,
+				status: updatedOrder.status,
+				subStatus: updatedOrder.subStatus,
 				message: "Order was cancelled by the customer.",
 			});
 		}
 	}
 
-	return order;
+	return updatedOrder;
 };
 
 const vendorAcceptOrder = async (orderId, vendorId) => {

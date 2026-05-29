@@ -453,7 +453,9 @@ const getCustomerWallet = asyncHandler(async (req, res) => {
 			customer._id,
 			"CUSTOMER",
 		);
-	} catch (_) {}
+	} catch (_) {
+		// Ignore ledger service balance query failure
+	}
 
 	try {
 		const result = await ledgerService.getTransactionHistory(
@@ -463,7 +465,9 @@ const getCustomerWallet = asyncHandler(async (req, res) => {
 			0,
 		);
 		transactions = result.transactions ?? [];
-	} catch (_) {}
+	} catch (_) {
+		// Ignore ledger service transaction query failure
+	}
 
 	return res.json({
 		success: true,

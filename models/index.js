@@ -25,8 +25,10 @@ const SupportTicket = require("./SupportTicket");
 const User = require("./User");
 const VendorProfile = require("./VendorProfile");
 const PendingProfileChange = require("./pendingProfileChange");
+const CronLock = require("./CronLock");
 
 module.exports = {
+	CronLock,
 	Admin,
 	Announcement,
 	Category,

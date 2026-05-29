@@ -257,6 +257,9 @@ orderSchema.pre(["update", "updateOne", "updateMany", "findOneAndUpdate"], funct
 orderSchema.index({ customer: 1, status: 1 });
 orderSchema.index({ vendor: 1, status: 1 });
 orderSchema.index({ rider: 1, status: 1 });
+orderSchema.index({ customer: 1, status: 1, createdAt: -1 });
+orderSchema.index({ vendor: 1, status: 1, createdAt: -1 });
+orderSchema.index({ rider: 1, status: 1, createdAt: -1 });
 orderSchema.index({ status: 1, subStatus: 1 });
 orderSchema.index({ createdAt: -1 });
 orderSchema.index({ cancelledAt: -1 });
