@@ -2,6 +2,15 @@ const globals = require("globals");
 const js = require("@eslint/js");
 
 module.exports = [
+    {
+        ignores: [
+            "node_modules/",
+            "dist/",
+            "coverage/",
+            "old_order_vendor.js",
+            "**/old_order_vendor.js"
+        ]
+    },
     js.configs.recommended,
     {
         languageOptions: {
@@ -16,6 +25,5 @@ module.exports = [
             "no-unused-vars": ["warn", { argsIgnorePattern: "^_" }],
             "no-console": "off",
         },
-        ignores: ["node_modules/", "dist/", "coverage/"],
     },
 ];

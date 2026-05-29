@@ -87,6 +87,9 @@ const vendorProfileSchema = new mongoose.Schema(
 			autoAcceptOrders: { type: Boolean, default: false },
 			minOrderAmount: { type: Number, default: 0 },
 			deliveryPrice: { type: Number, default: 0 },
+			requiresTakeawayPackaging: { type: Boolean, default: false },
+			packagingItemId: { type: mongoose.Schema.Types.ObjectId, ref: "FoodItem", default: null },
+			categoriesRequiringPlate: { type: [String], default: [] },
 		},
 		bankDetails: {
 			accountNumber: String,
