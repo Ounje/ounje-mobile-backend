@@ -1003,6 +1003,77 @@ const verifyDeliveryOtp = async (order, otp, riderId) => {
 
 	await order.save();
 
+	// Referral reward processing
+	try {
+		if (order.promoCodeApplied) {
+			const promoCode = order.promoCodeApplied.trim().toUpperCase();
+			const Referral = require("../models/referralCode");
+			const referral = await Referral.findOne({ code: promoCode, isActive: true });
+			if (referral) {
+				// Verify order qualifying threshold of ₦2,500
+				if (order.totalPrice >= 2500) {
+					// Check for self-referral
+					if (referral.referrer.toString() !== order.customer.toString()) {
+						// Check if this customer has already been referred for this code, or if this is their first order with it
+						const alreadyReferred = referral.referredUsers.some(
+							(ru) => ru.user && ru.user.toString() === order.customer.toString() && ru.rewardGranted
+						);
+						if (!alreadyReferred) {
+							// Credit the referrer's wallet
+							const creditRes = await ledgerService.creditAccount(
+								referral.referrer,
+								"CUSTOMER",
+								200,
+								"REFERRAL_REWARD",
+								order._id,
+								{ referralCode: promoCode, refereeId: order.customer }
+							);
+							
+							if (creditRes && creditRes.success) {
+								// Update referral stats
+								referral.referredUsers.push({
+									user: order.customer,
+									joinedAt: new Date(),
+									rewardGranted: true,
+									rewardGrantedAt: new Date(),
+								});
+								referral.successfulReferrals = (referral.successfulReferrals || 0) + 1;
+								await referral.save();
+
+								logger.info(
+									`[REFERRAL] Successfully credited ₦200 to referrer ${referral.referrer} for order ${order._id} using code ${promoCode}`
+								);
+
+								// Send push notification to referrer
+								try {
+									const User = require("../models/User");
+									const referrerUser = await User.findById(referral.referrer);
+									if (referrerUser) {
+										const { sendPushNotification } = require("./push.notification.service");
+										await sendPushNotification(
+											referral.referrer.toString(),
+											"Referral Reward Credited!",
+											`You've earned ₦200 from your referral code ${promoCode}!`,
+											{ type: "wallet_topup", orderId: order._id.toString() }
+										);
+									}
+								} catch (err) {
+									logger.error(`Failed to send referral push notification: ${err.message}`);
+								}
+							}
+						}
+					} else {
+						logger.info(`[REFERRAL] Self-referral detected for order ${order._id}. Skipping reward.`);
+					}
+				} else {
+					logger.info(`[REFERRAL] Order total ₦${order.totalPrice} is less than qualifying threshold ₦2,500. Skipping reward.`);
+				}
+			}
+		}
+	} catch (referralErr) {
+		logger.error(`[REFERRAL] Failed to process referral reward: ${referralErr.message}`);
+	}
+
 	await ledgerService.releaseRiderFee(order.rider, order._id);
 
 	try {

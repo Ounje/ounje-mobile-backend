@@ -34,6 +34,7 @@ const newflashRouter = require("./routes/newflash.route");
 const searchRouter = require("./routes/search.routes");
 const notificationRouter = require("./routes/notification.router");
 const promoRouter = require("./routes/promo.routes");
+const referralRoutes = require("./routes/referralRoutes");
 const adminRoutes = require("./routes/adminRoutes");
 
 
@@ -86,6 +87,7 @@ app.use("/api/rating", ratingRouter);
 app.use("/api/search", searchRouter);
 app.use("/api/notifications", notificationRouter);
 app.use("/api/promo", promoRouter);
+app.use("/api/referrals", referralRoutes);
 app.use("/api/announcements", require("./routes/announcementRoutes"));
 app.use("/api/finance", require("./routes/financeRoutes"));
 app.use("/api/dva", require("./routes/dvaRoutes"));
