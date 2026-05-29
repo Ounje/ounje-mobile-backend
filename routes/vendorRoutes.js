@@ -18,6 +18,7 @@ const {
 	updateOperatingPeriods,
 	addOperatingPeriod,
 	deleteOperatingPeriod,
+	updatePackagingSettings,
 } = require("../controllers/vendorController");
 const {
 	authMiddleware,
@@ -316,6 +317,14 @@ router.put(
 	checkActiveUser,
 	roleGuard(["vendor"]),
 	updateBankDetails,
+);
+
+router.put(
+	"/profile/packaging",
+	authMiddleware,
+	checkActiveUser,
+	roleGuard(["vendor"]),
+	updatePackagingSettings,
 );
 
 /**
