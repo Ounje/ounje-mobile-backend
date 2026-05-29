@@ -477,6 +477,40 @@ const deleteOperatingPeriod = async (req, res) => {
 	}
 };
 
+const updatePackagingSettings = async (req, res) => {
+	try {
+		const { requiresTakeawayPackaging, packagingItemId, categoriesRequiringPlate } = req.body;
+
+		const vendor = await VendorProfile.findOneAndUpdate(
+			{ owner: req.user.id },
+			{
+				$set: {
+					"fulfillmentSettings.requiresTakeawayPackaging": !!requiresTakeawayPackaging,
+					"fulfillmentSettings.packagingItemId": packagingItemId || null,
+					"fulfillmentSettings.categoriesRequiringPlate": Array.isArray(categoriesRequiringPlate) ? categoriesRequiringPlate : [],
+				},
+			},
+			{ new: true },
+		);
+
+		if (!vendor) {
+			return res.status(404).json({ success: false, message: "Vendor not found" });
+		}
+
+		return res.status(200).json({
+			success: true,
+			message: "Packaging settings updated successfully",
+			fulfillmentSettings: vendor.fulfillmentSettings,
+		});
+	} catch (error) {
+		logger.error(`Update Packaging Settings Error: ${error.message}`);
+		return res.status(500).json({
+			success: false,
+			message: error.message || "Error updating packaging settings",
+		});
+	}
+};
+
 module.exports = {
 	completeVendorRegistration,
 	getPopularVendors,
@@ -496,4 +530,5 @@ module.exports = {
 	updateOperatingPeriods,
 	addOperatingPeriod,
 	deleteOperatingPeriod,
+	updatePackagingSettings,
 };

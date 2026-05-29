@@ -437,6 +437,42 @@ const _calculateAndValidateItemPrice = async (item, models) => {
 	};
 };
 
+const doesOrderRequirePackaging = async (items, categoriesRequiringPlate) => {
+	if (!categoriesRequiringPlate || categoriesRequiringPlate.length === 0) return false;
+	const reqCategories = categoriesRequiringPlate.map(c => c.toLowerCase());
+
+	for (const item of items) {
+		const { itemId, itemType, comboSelections } = item;
+
+		if (itemType === "FoodItem") {
+			const food = await FoodItem.findById(itemId).select("category").lean();
+			if (food && food.category && reqCategories.includes(food.category.toLowerCase())) {
+				return true;
+			}
+		} else if (itemType === "Plate") {
+			const plate = await Plate.findById(itemId).populate("items", "category").lean();
+			if (plate && plate.items) {
+				for (const subItem of plate.items) {
+					if (subItem && subItem.category && reqCategories.includes(subItem.category.toLowerCase())) {
+						return true;
+					}
+				}
+			}
+		} else if (itemType === "Combo") {
+			if (comboSelections && comboSelections.length > 0) {
+				const selectionItemIds = comboSelections.flatMap(s => (s.items || []).map(i => i.itemId));
+				const foodItems = await FoodItem.find({ _id: { $in: selectionItemIds } }).select("category").lean();
+				for (const food of foodItems) {
+					if (food && food.category && reqCategories.includes(food.category.toLowerCase())) {
+						return true;
+					}
+				}
+			}
+		}
+	}
+	return false;
+};
+
 const createOrder = async (userId, data) => {
 	const {
 		items,
@@ -471,6 +507,26 @@ const createOrder = async (userId, data) => {
 	const vendorAddress = vendor.location.address;
 	if (!vendorAddress) {
 		throw new AppError("Vendor address is missing", 400);
+	}
+
+	// 1a. Check and auto-inject takeaway packaging if needed
+	if (vendor.fulfillmentSettings?.requiresTakeawayPackaging && vendor.fulfillmentSettings?.packagingItemId) {
+		const reqPlate = await doesOrderRequirePackaging(items, vendor.fulfillmentSettings.categoriesRequiringPlate);
+		const alreadyHasPlate = items.some(item => item.itemId.toString() === vendor.fulfillmentSettings.packagingItemId.toString());
+
+		if (reqPlate && !alreadyHasPlate) {
+			const pkgItem = await FoodItem.findById(vendor.fulfillmentSettings.packagingItemId).lean();
+			if (pkgItem) {
+				const pkgOption = pkgItem.subCategory?.[0]?.items?.[0];
+				items.push({
+					itemId: pkgItem._id.toString(),
+					itemType: "FoodItem",
+					subCategoryItemId: pkgOption ? pkgOption._id.toString() : undefined,
+					quantity: 1,
+				});
+				logger.info(`Auto-injected Takeaway Packaging item ${pkgItem._id} to order`);
+			}
+		}
 	}
 
 	// 1b. Enforce vendor operating schedule
@@ -764,6 +820,26 @@ const estimateOrderPrice = async (cartData, userId) => {
 	if (!vendor.location?.address)
 		throw new AppError("Vendor address is missing", 400);
 
+	// Check and auto-inject takeaway packaging if needed
+	if (vendor.fulfillmentSettings?.requiresTakeawayPackaging && vendor.fulfillmentSettings?.packagingItemId) {
+		const reqPlate = await doesOrderRequirePackaging(items, vendor.fulfillmentSettings.categoriesRequiringPlate);
+		const alreadyHasPlate = items.some(item => item.itemId.toString() === vendor.fulfillmentSettings.packagingItemId.toString());
+
+		if (reqPlate && !alreadyHasPlate) {
+			const pkgItem = await FoodItem.findById(vendor.fulfillmentSettings.packagingItemId).lean();
+			if (pkgItem) {
+				const pkgOption = pkgItem.subCategory?.[0]?.items?.[0];
+				items.push({
+					itemId: pkgItem._id.toString(),
+					itemType: "FoodItem",
+					subCategoryItemId: pkgOption ? pkgOption._id.toString() : undefined,
+					quantity: 1,
+				});
+				logger.info(`[Estimate] Auto-injected Takeaway Packaging item ${pkgItem._id}`);
+			}
+		}
+	}
+
 	if (!isVendorOpenNow(vendor)) {
 		throw new AppError(buildClosedReason(vendor), 400);
 	}
@@ -848,10 +924,29 @@ const updateOrderStatus = async (orderId, status, subStatus) => {
 	return order;
 };
 
-const sendDeliveryOtp = async (order) => {
+const sendDeliveryOtp = async (order, forceRegenerate = false) => {
 	if (!order) throw new AppError("Order required", 400);
 	const customer = await Customer.findById(order.customer);
 	if (!customer) throw new AppError("Customer not found", 404);
+
+	const hasExpired = order.deliveryOtpExpiresAt && new Date() > new Date(order.deliveryOtpExpiresAt);
+
+	if (order.deliveryOtpCode && !hasExpired && !forceRegenerate) {
+		logger.info(`Reusing existing OTP for order ${order._id}`);
+		try {
+			if (global.io) {
+				global.io.to(order.customer.toString()).emit("delivery-otp", {
+					orderId: order._id,
+					customerId: order.customer,
+					otp: order.deliveryOtpCode,
+					expiresAt: order.deliveryOtpExpiresAt,
+				});
+			}
+		} catch (err) {
+			logger.error(`Failed to emit existing delivery OTP via socket.io: ${err.message}`);
+		}
+		return { success: true };
+	}
 
 	const otp = generateNumericOtp(
 		parseInt(process.env.DELIVERY_OTP_LENGTH || 6),
@@ -866,7 +961,7 @@ const sendDeliveryOtp = async (order) => {
 	await order.save();
 
 	logger.info(
-		`Generated OTP for order ${order._id} (hash stored, plaintext not persisted)`,
+		`Generated new OTP for order ${order._id} (hash stored, plaintext not persisted)`,
 	);
 
 	try {
