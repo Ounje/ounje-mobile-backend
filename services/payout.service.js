@@ -186,8 +186,8 @@ const requestWithdrawal = async ({
 
 	// ── 2. Calculate fees (naira) ─────────────────────────────────────────────
 	const fees = calculateFees(amount);
-	const totalDebit = amount + fees.total; // what leaves available balance
-	const netAmount = amount; // what lands in their bank
+	const totalDebit = amount; // what leaves available balance (amount entered is gross debit)
+	const netAmount = Math.max(0, amount - fees.total); // what lands in their bank after deducting fees
 
 	logger.info(
 		`[requestWithdrawal] Fees — gross=₦${amount} paystackFee=₦${fees.paystackFee} stampDuty=₦${fees.stampDuty} totalFee=₦${fees.total} totalDebit=₦${totalDebit} netSentToBank=₦${netAmount}`,
@@ -237,7 +237,7 @@ const requestWithdrawal = async ({
 		return {
 			success: false,
 			reason: "insufficient_funds",
-			detail: `Insufficient balance. You need ₦${totalDebit} (₦${amount} + ₦${fees.total} fees). Available: ₦${balance.availableBalance}`,
+			detail: `Insufficient balance. You requested ₦${amount} (which includes ₦${fees.total} in fees). Available balance: ₦${balance.availableBalance}`,
 			availableBalance: balance.availableBalance,
 			fees,
 		};

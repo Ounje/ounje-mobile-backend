@@ -177,8 +177,8 @@ const requestPayout = async (req, res) => {
 				paystackFee: result.fees.paystackFee,
 				stampDuty: result.fees.stampDuty,
 				totalFee: result.fees.total,
-				totalDeducted: amount + result.fees.total,
-				netAmountSent: amount,
+				totalDeducted: amount,
+				netAmountSent: Math.max(0, amount - result.fees.total),
 			},
 		});
 	} catch (err) {
@@ -211,8 +211,8 @@ const getFeeEstimate = async (req, res) => {
 			paystackFee: fees.paystackFee,
 			stampDuty: fees.stampDuty,
 			totalFee: fees.total,
-			totalDeducted: amount + fees.total,
-			netAmountSent: amount,
+			totalDeducted: amount,
+			netAmountSent: Math.max(0, amount - fees.total),
 		});
 	} catch (err) {
 		logger.error("[getFeeEstimate]", { message: err.message });
