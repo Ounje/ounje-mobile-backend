@@ -36,6 +36,7 @@ const notificationRouter = require("./routes/notification.router");
 const promoRouter = require("./routes/promo.routes");
 const referralRoutes = require("./routes/referralRoutes");
 const adminRoutes = require("./routes/adminRoutes");
+const reconcileRoutes = require("./routes/reconcileRoutes");
 
 
 const app = express();
@@ -92,6 +93,7 @@ app.use("/api/announcements", require("./routes/announcementRoutes"));
 app.use("/api/finance", require("./routes/financeRoutes"));
 app.use("/api/dva", require("./routes/dvaRoutes"));
 app.use("/api/admin", adminRoutes);
+app.use("/api/admin/reconcile", reconcileRoutes);
 
 
 // Deep link fallback

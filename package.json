@@ -8,6 +8,7 @@
     "dev": "nodemon server.js",
     "lint": "eslint .",
     "build": "npm install --legacy-peer-deps && npm run lint",
+    "reconcile": "node scripts/reconcile.js",
     "seed:rider": "node seeds/riderDemo.js",
     "seed:rider:reset": "node seeds/riderDemo.js --reset",
     "seed": "node seeds/fullDemo.js",

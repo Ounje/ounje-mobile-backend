@@ -560,8 +560,25 @@ const webhookHandler = async (req, res) => {
 							),
 						);
 
-					await _holdVendorEarnings(order);
-					await _holdRiderFee(order);
+					// ── Idempotency guard — prevent double-hold ──────────────────
+					const { LedgerEntry, LedgerAccount } = require("../models");
+					const vendorAcct = await LedgerAccount.findOne({ userId: order.vendor, type: "VENDOR" });
+					const alreadyHeld = vendorAcct
+						? await LedgerEntry.findOne({
+								accountId: vendorAcct._id,
+								orderId: order._id,
+								reason: "VENDOR_EARNING_HOLD",
+						  })
+						: null;
+
+					if (!alreadyHeld) {
+						await _holdVendorEarnings(order);
+						await _holdRiderFee(order);
+					} else {
+						logger.warn(
+							`[Webhook] cart: holds already exist for order ${order._id} — skipping to prevent double-hold`,
+						);
+					}
 
 					if (global.io) {
 						global.io.to(order.vendor.toString()).emit("newOrderAvailable", {
@@ -597,18 +614,35 @@ const webhookHandler = async (req, res) => {
 					),
 				);
 
+		// ── Idempotency guard — prevent double-hold if Paystack retries webhook ──
+		const { LedgerEntry: _LE, LedgerAccount: _LA } = require("../models");
+		const _legacyVendorAcct = await _LA.findOne({ userId: order.vendor, type: "VENDOR" });
+		const _legacyAlreadyHeld = _legacyVendorAcct
+			? await _LE.findOne({
+					accountId: _legacyVendorAcct._id,
+					orderId: order._id,
+					reason: "VENDOR_EARNING_HOLD",
+			  })
+			: null;
+
+		if (!_legacyAlreadyHeld) {
 			await _holdVendorEarnings(order);
 			await _holdRiderFee(order);
-
-			if (global.io) {
-				global.io.to(order.vendor.toString()).emit("newOrderAvailable", {
-					orderId: order._id,
-					message: "New order received!",
-				});
-			}
-
-			logger.info(`[Webhook] legacy: Order ${order._id} distributed`);
+		} else {
+			logger.warn(
+				`[Webhook] legacy: holds already exist for order ${order._id} — skipping to prevent double-hold`,
+			);
 		}
+
+		if (global.io) {
+			global.io.to(order.vendor.toString()).emit("newOrderAvailable", {
+				orderId: order._id,
+				message: "New order received!",
+			});
+		}
+
+		logger.info(`[Webhook] legacy: Order ${order._id} distributed`);
+	}
 
 		return res.status(200).send("Webhook processed");
 	} catch (err) {
@@ -727,8 +761,25 @@ const walletPayment = async (req, res) => {
 				),
 			);
 
-		await _holdVendorEarnings(order);
-		await _holdRiderFee(order);
+		// ── Idempotency guard — prevent double-hold if Paystack retries webhook ──
+		const { LedgerEntry: LE, LedgerAccount: LA } = require("../models");
+		const legacyVendorAcct = await LA.findOne({ userId: order.vendor, type: "VENDOR" });
+		const legacyAlreadyHeld = legacyVendorAcct
+			? await LE.findOne({
+					accountId: legacyVendorAcct._id,
+					orderId: order._id,
+					reason: "VENDOR_EARNING_HOLD",
+			  })
+			: null;
+
+		if (!legacyAlreadyHeld) {
+			await _holdVendorEarnings(order);
+			await _holdRiderFee(order);
+		} else {
+			logger.warn(
+				`[Webhook] legacy: holds already exist for order ${order._id} — skipping to prevent double-hold`,
+			);
+		}
 
 		if (global.io) {
 			global.io.to(order.vendor.toString()).emit("newOrderAvailable", {
