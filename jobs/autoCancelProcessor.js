@@ -5,12 +5,13 @@ const { refundTransaction } = require("../services/dva.service");
 const logger = require("../utils/logger");
 
 const processAutoCancelOrders = async () => {
-	// Find orders that are in "confirming" status and were created more than 5 minutes ago
-	const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000);
+	// Find orders that are in "confirming" status, still pending vendor acceptance, and were created more than 10 minutes ago
+	const tenMinutesAgo = new Date(Date.now() - 10 * 60 * 1000);
 
 	const staleOrders = await Order.find({
 		status: "confirming",
-		createdAt: { $lte: fiveMinutesAgo },
+		subStatus: "confirming",
+		createdAt: { $lte: tenMinutesAgo },
 	});
 
 	if (staleOrders.length === 0) return;
@@ -23,7 +24,7 @@ const processAutoCancelOrders = async () => {
 
 			// Atomically transition the order to cancelled only if it is still confirming
 			const updatedOrder = await Order.findOneAndUpdate(
-				{ _id: order._id, status: "confirming" },
+				{ _id: order._id, status: "confirming", subStatus: "confirming" },
 				{
 					$set: {
 						status: "cancelled",
@@ -43,41 +44,23 @@ const processAutoCancelOrders = async () => {
 			// 1. Process Refund
 			if (updatedOrder.paymentStatus === "paid") {
 				try {
-					if (updatedOrder.paymentMethod === "wallet") {
-						// Atomically transition paymentStatus from paid to refunded to prevent double refund
-						const refundedOrder = await Order.findOneAndUpdate(
-							{ _id: updatedOrder._id, paymentStatus: "paid" },
-							{ $set: { paymentStatus: "refunded" } },
-							{ new: true }
+					// Atomically transition paymentStatus from paid to refunded to prevent double refund
+					const refundedOrder = await Order.findOneAndUpdate(
+						{ _id: updatedOrder._id, paymentStatus: "paid" },
+						{ $set: { paymentStatus: "refunded" } },
+						{ new: true }
+					);
+					if (refundedOrder) {
+						const originalPaymentMethod = updatedOrder.paymentMethod || "paystack";
+						await ledgerService.creditAccount(
+							updatedOrder.customer,
+							"CUSTOMER",
+							updatedOrder.totalPrice,
+							"REFUND",
+							updatedOrder._id,
+							{ reason: "vendor_unresponsive_auto_cancel", originalPaymentMethod },
 						);
-						if (refundedOrder) {
-							await ledgerService.creditAccount(
-								updatedOrder.customer,
-								"CUSTOMER",
-								updatedOrder.totalPrice,
-								"REFUND",
-								updatedOrder._id,
-								{ reason: "vendor_unresponsive_auto_cancel" },
-							);
-							logger.info(`[REFUND] Auto Wallet refund issued for order ${updatedOrder._id}`);
-						}
-					} else if (updatedOrder.paymentMethod === "paystack") {
-						const payment = await Payment.findOne({
-							orderId: updatedOrder._id,
-							status: "success",
-						});
-						if (payment) {
-							// Atomically transition paymentStatus from paid to refunded to prevent double refund
-							const refundedOrder = await Order.findOneAndUpdate(
-								{ _id: updatedOrder._id, paymentStatus: "paid" },
-								{ $set: { paymentStatus: "refunded" } },
-								{ new: true }
-							);
-							if (refundedOrder) {
-								await refundTransaction(payment.reference, updatedOrder.totalPrice * 100);
-								logger.info(`[REFUND] Auto Paystack refund issued for order ${updatedOrder._id}`);
-							}
-						}
+						logger.info(`[REFUND] Auto refund issued to O-Credit wallet for order ${updatedOrder._id}`);
 					}
 				} catch (error) {
 					logger.error(
@@ -95,29 +78,31 @@ const processAutoCancelOrders = async () => {
 				);
 			}
 
-			// 3. Send Push Notifications
+			// 3. Send Push & Database/Realtime Notifications
 			// Customer Notification
 			try {
-				await notificationService.pushToUser(
-					updatedOrder.customer,
-					"customer",
-					"Order Cancelled",
-					"The vendor was unresponsive, so your order has been automatically cancelled and a refund initiated.",
-					"orders"
-				);
+				await notificationService.createNotification({
+					recipient: updatedOrder.customer,
+					recipientModel: "customer",
+					type: "order_cancelled",
+					title: "Order Cancelled",
+					message: "The vendor was unresponsive, so your order has been automatically cancelled and a refund initiated.",
+					channelId: "general",
+				});
 			} catch (err) {
 				logger.error(`Failed to notify customer for auto-cancel: ${err.message}`);
 			}
 
 			// Vendor Notification
 			try {
-				await notificationService.pushToUser(
-					updatedOrder.vendor,
-					"vendor",
-					"Missed Order",
-					"An order was automatically cancelled because it wasn't accepted within 5 minutes.",
-					"orders"
-				);
+				await notificationService.createNotification({
+					recipient: updatedOrder.vendor,
+					recipientModel: "vendor",
+					type: "order_cancelled",
+					title: "Missed Order",
+					message: "An order was automatically cancelled because it wasn't accepted within 10 minutes.",
+					channelId: "general",
+				});
 			} catch (err) {
 				logger.error(`Failed to notify vendor for auto-cancel: ${err.message}`);
 			}

@@ -1035,13 +1035,13 @@ const verifyDeliveryOtp = async (order, otp, riderId) => {
 								try {
 									const User = require("../models/User");
 									const referrerUser = await User.findById(referral.referrer);
-									if (referrerUser) {
+									if (referrerUser && referrerUser.fcmToken) {
 										const { sendPushNotification } = require("./push.notification.service");
 										await sendPushNotification(
-											referral.referrer.toString(),
+											referrerUser.fcmToken,
 											"Referral Reward Credited!",
 											`You've earned ₦200 from your referral code ${promoCode}!`,
-											{ type: "wallet_topup", orderId: order._id.toString() }
+											{ data: { type: "wallet_topup", orderId: order._id.toString() } }
 										);
 									}
 								} catch (err) {
@@ -1416,43 +1416,25 @@ const cancelOrder = async (orderId, customerId) => {
 
 	if (updatedOrder.paymentStatus === "paid") {
 		try {
-			if (updatedOrder.paymentMethod === "wallet") {
-				// Atomically transition paymentStatus from paid to refunded
-				const refundedOrder = await Order.findOneAndUpdate(
-					{ _id: updatedOrder._id, paymentStatus: "paid" },
-					{ $set: { paymentStatus: "refunded" } },
-					{ new: true }
+			// Atomically transition paymentStatus from paid to refunded
+			const refundedOrder = await Order.findOneAndUpdate(
+				{ _id: updatedOrder._id, paymentStatus: "paid" },
+				{ $set: { paymentStatus: "refunded" } },
+				{ new: true }
+			);
+			if (refundedOrder) {
+				const originalPaymentMethod = updatedOrder.paymentMethod || "paystack";
+				await ledgerService.creditAccount(
+					updatedOrder.customer,
+					"CUSTOMER",
+					updatedOrder.totalPrice,
+					"REFUND",
+					updatedOrder._id,
+					{ reason: "customer_cancelled", originalPaymentMethod },
 				);
-				if (refundedOrder) {
-					await ledgerService.creditAccount(
-						updatedOrder.customer,
-						"CUSTOMER",
-						updatedOrder.totalPrice,
-						"REFUND",
-						updatedOrder._id,
-						{ reason: "customer_cancelled" },
-					);
-				}
-			} else if (updatedOrder.paymentMethod === "paystack") {
-				// Refund to O-Credit wallet instantly (instead of slow 3-10 day Paystack bank refund)
-				const refundedOrder = await Order.findOneAndUpdate(
-					{ _id: updatedOrder._id, paymentStatus: "paid" },
-					{ $set: { paymentStatus: "refunded" } },
-					{ new: true }
+				logger.info(
+					`[REFUND] Order ${updatedOrder._id} payment refunded to O-Credit wallet`,
 				);
-				if (refundedOrder) {
-					await ledgerService.creditAccount(
-						updatedOrder.customer,
-						"CUSTOMER",
-						updatedOrder.totalPrice,
-						"REFUND",
-						updatedOrder._id,
-						{ reason: "customer_cancelled", originalPaymentMethod: "paystack" },
-					);
-					logger.info(
-						`[REFUND] Paystack payment refunded to O-Credit wallet for cancelled order ${updatedOrder._id}`,
-					);
-				}
 			}
 		} catch (error) {
 			logger.error(
