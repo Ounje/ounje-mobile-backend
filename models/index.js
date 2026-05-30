@@ -26,6 +26,7 @@ const User = require("./User");
 const VendorProfile = require("./VendorProfile");
 const PendingProfileChange = require("./pendingProfileChange");
 const CronLock = require("./CronLock");
+const ReconciliationReport = require("./ReconciliationReport");
 
 module.exports = {
 	CronLock,
@@ -55,4 +56,5 @@ module.exports = {
 	User,
 	VendorProfile,
 	PendingProfileChange,
+	ReconciliationReport,
 };

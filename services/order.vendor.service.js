@@ -110,13 +110,17 @@ const declineOrder = async (orderId, vendorId, declineData = {}) => {
 				logger.info(`[REFUND] Paystack payment refunded to O-Credit wallet for order ${updatedOrder._id}`);
 			}
 		}
-
-		await ledgerService.reverseVendorHold(updatedOrder.vendor, updatedOrder._id);
-
-		if (updatedOrder.rider) {
-			await ledgerService.reverseRiderFeeHold(updatedOrder.rider, updatedOrder._id);
-		}
 	}
+
+	// Always reverse vendor and rider holds on decline — the holds are created
+	// by the Paystack webhook regardless of paymentStatus timing.
+	// reverseVendorHold and reverseRiderFeeHold are idempotent (alreadyReversed guard).
+	await ledgerService.reverseVendorHold(updatedOrder.vendor, updatedOrder._id);
+
+	if (updatedOrder.rider) {
+		await ledgerService.reverseRiderFeeHold(updatedOrder.rider, updatedOrder._id);
+	}
+
 
 	try {
 		const vendorProfile = await VendorProfile.findById(vendorId).select("storeName").lean();

@@ -384,7 +384,7 @@ const verifyEmailOtp = asyncHandler(async (req, res) => {
 	if (!flow) throw new AppError("Flow (login/signup) is required", 400);
 
 	const REVIEW_MODE = process.env.REVIEW_MODE === "true";
-	const testEmailRole = TEST_EMAIL_MAP[email.toLowerCase()];
+	const testEmailRole = TEST_EMAIL_MAP.get(email.toLowerCase());
 	const isTestAccount =
 		REVIEW_MODE && !!testEmailRole && String(otp) === TEST_EMAIL_OTP;
 
