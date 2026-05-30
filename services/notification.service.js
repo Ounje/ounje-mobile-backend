@@ -127,7 +127,7 @@ class NotificationService {
 			title: "Order Cancelled",
 			message: `Order worth ₦${earning.toLocaleString()} (your earnings) has been cancelled`,
 			data: { orderId: order._id },
-			channelId: "orders",
+			channelId: "general",
 		});
 	}
 
@@ -181,7 +181,7 @@ class NotificationService {
 			message: `${riderName} is on the way to pick up your order`,
 			data: { orderId: order._id, riderId: order.rider },
 			priority: "high",
-			channelId: "orders",
+			channelId: "general",
 		});
 	}
 	async notifyCustomerFoodReady(customerId, order) {
@@ -193,7 +193,7 @@ class NotificationService {
 			message: "Your food is ready and waiting for the rider to pick it up",
 			data: { orderId: order._id },
 			priority: "high",
-			channelId: "orders",
+			channelId: "general",
 		});
 	}
 
@@ -206,7 +206,7 @@ class NotificationService {
 			message: `${vendorName} has accepted your order`,
 			data: { orderId: order._id, vendorId: order.vendor },
 			priority: "high",
-			channelId: "orders",
+			channelId: "general",
 		});
 	}
 
@@ -219,7 +219,7 @@ class NotificationService {
 			message: `${vendorName} declined your order`,
 			data: { orderId: order._id, vendorId: order.vendor },
 			priority: "high",
-			channelId: "orders",
+			channelId: "general",
 		});
 	}
 
@@ -232,7 +232,7 @@ class NotificationService {
 			message: "Your rider has picked up your order and is heading your way",
 			data: { orderId: order._id },
 			priority: "high",
-			channelId: "orders",
+			channelId: "general",
 		});
 	}
 
@@ -245,7 +245,7 @@ class NotificationService {
 			message: "Your rider has arrived at the pickup location",
 			data: { orderId: order._id },
 			priority: "high",
-			channelId: "orders",
+			channelId: "general",
 		});
 	}
 
@@ -258,7 +258,7 @@ class NotificationService {
 			message: "Your order has been delivered. Enjoy your meal!",
 			data: { orderId: order._id },
 			priority: "high",
-			channelId: "orders",
+			channelId: "general",
 		});
 	}
 
@@ -271,7 +271,7 @@ class NotificationService {
 			message: "Your order has been declined by the assigned rider",
 			data: { orderId: order._id },
 			priority: "high",
-			channelId: "orders",
+			channelId: "general",
 		});
 	}
 
