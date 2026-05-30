@@ -74,41 +74,23 @@ const declineOrder = async (orderId, vendorId, declineData = {}) => {
 	}
 
 	if (updatedOrder.paymentStatus === "paid") {
-		if (updatedOrder.paymentMethod === "wallet") {
-			// Atomically transition paymentStatus from paid to refunded
-			const refundedOrder = await Order.findOneAndUpdate(
-				{ _id: updatedOrder._id, paymentStatus: "paid" },
-				{ $set: { paymentStatus: "refunded" } },
-				{ new: true }
+		// Atomically transition paymentStatus from paid to refunded
+		const refundedOrder = await Order.findOneAndUpdate(
+			{ _id: updatedOrder._id, paymentStatus: "paid" },
+			{ $set: { paymentStatus: "refunded" } },
+			{ new: true }
+		);
+		if (refundedOrder) {
+			const originalPaymentMethod = updatedOrder.paymentMethod || "paystack";
+			await ledgerService.creditAccount(
+				updatedOrder.customer,
+				"CUSTOMER",
+				updatedOrder.totalPrice,
+				"REFUND",
+				updatedOrder._id,
+				{ reason: "vendor_declined", originalPaymentMethod },
 			);
-			if (refundedOrder) {
-				await ledgerService.creditAccount(
-					updatedOrder.customer,
-					"CUSTOMER",
-					updatedOrder.totalPrice,
-					"REFUND",
-					updatedOrder._id,
-					{ reason: "vendor_declined" },
-				);
-			}
-		} else if (updatedOrder.paymentMethod === "paystack") {
-			// Refund to O-Credit wallet instantly (instead of slow 3-10 day Paystack bank refund)
-			const refundedOrder = await Order.findOneAndUpdate(
-				{ _id: updatedOrder._id, paymentStatus: "paid" },
-				{ $set: { paymentStatus: "refunded" } },
-				{ new: true }
-			);
-			if (refundedOrder) {
-				await ledgerService.creditAccount(
-					updatedOrder.customer,
-					"CUSTOMER",
-					updatedOrder.totalPrice,
-					"REFUND",
-					updatedOrder._id,
-					{ reason: "vendor_declined", originalPaymentMethod: "paystack" },
-				);
-				logger.info(`[REFUND] Paystack payment refunded to O-Credit wallet for order ${updatedOrder._id}`);
-			}
+			logger.info(`[REFUND] Order ${updatedOrder._id} payment refunded to O-Credit wallet`);
 		}
 	}
 
