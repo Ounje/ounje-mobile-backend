@@ -389,6 +389,43 @@ const updateRiderOnlineStatus = async (req, res) => {
 	}
 };
 
+const deleteProfilePicture = async (req, res) => {
+	try {
+		const riderId = req.user.id;
+		const riderProfile = await RiderProfile.findOne({ user: riderId });
+		if (!riderProfile) {
+			return res.status(404).json({ success: false, message: "Rider profile not found" });
+		}
+		if (!riderProfile.profilePicture) {
+			return res.status(400).json({ success: false, message: "No profile picture to delete" });
+		}
+
+		// Delete old image from Cloudinary if it is a Cloudinary URL
+		try {
+			const urlParts = riderProfile.profilePicture.split("/");
+			const publicIdWithExtension = urlParts[urlParts.length - 1];
+			const publicId = publicIdWithExtension.split(".")[0];
+			const folder = urlParts[urlParts.length - 2];
+			const { deleteImage } = require("../config/cloudinary");
+			await deleteImage(`${folder}/${publicId}`);
+		} catch (error) {
+			console.error("Error deleting old rider image from Cloudinary:", error);
+		}
+
+		riderProfile.profilePicture = null;
+		await riderProfile.save();
+
+		// Also sync to User model
+		const User = require("../models/User");
+		await User.findByIdAndUpdate(riderId, { img: null });
+
+		res.status(200).json({ success: true, message: "Profile picture deleted successfully" });
+	} catch (err) {
+		logger.error(`Delete Profile Picture Error: ${err.message}`);
+		res.status(500).json({ success: false, message: "Failed to delete profile picture" });
+	}
+};
+
 module.exports = {
 	completeRiderRegistration,
 	registerRider,
@@ -403,6 +440,7 @@ module.exports = {
 	deactivateRiderAccount,
 	updatePushToken,
 	uploadProfilePicture,
+	deleteProfilePicture,
 	updateNotificationPreferences,
 	updateRiderOnlineStatus,
 };
