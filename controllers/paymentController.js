@@ -99,6 +99,38 @@ const _sendOrderEmail = async (order) => {
 	}
 };
 
+/**
+ * Mark order as paid. Handles webhook race conditions where the order is already
+ * cancelled or declined before the payment webhook arrives.
+ */
+const markOrderAsPaid = async (orderId, paymentMethod) => {
+	const order = await Order.findById(orderId);
+	if (!order) return null;
+	if (order.paymentStatus === "paid" || order.paymentStatus === "refunded") return order;
+
+	if (order.status === "cancelled" || order.status === "declined") {
+		// Already cancelled/declined — mark refunded immediately and credit wallet
+		order.paymentStatus = "refunded";
+		order.paymentMethod = paymentMethod;
+		await order.save();
+
+		await ledgerService.creditAccount(
+			order.customer,
+			"CUSTOMER",
+			order.totalPrice,
+			"REFUND",
+			order._id,
+			{ reason: `payment_received_after_${order.status}`, originalPaymentMethod: paymentMethod },
+		);
+		logger.info(`[REFUND] Payment received after order ${order._id} was ${order.status}. Auto-refunded to O-Credit wallet.`);
+	} else {
+		order.paymentStatus = "paid";
+		order.paymentMethod = paymentMethod;
+		await order.save();
+	}
+	return order;
+};
+
 // ─── CONTROLLERS ──────────────────────────────────────────────────────────────
 
 /**
@@ -263,12 +295,10 @@ const verifyPayment = async (req, res) => {
 					}
 				}
 			} else if (payment.orderId) {
-				await Order.findByIdAndUpdate(payment.orderId, {
-					paymentStatus: "paid",
-					paymentMethod: "paystack",
-				});
-				createdOrder = await Order.findById(payment.orderId);
-				_sendOrderEmail(createdOrder).catch(() => {});
+				createdOrder = await markOrderAsPaid(payment.orderId, "paystack");
+				if (createdOrder) {
+					_sendOrderEmail(createdOrder).catch(() => {});
+				}
 			}
 		}
 
@@ -595,14 +625,13 @@ const webhookHandler = async (req, res) => {
 			}
 
 			// ── Legacy flow (orderId in metadata) ─────────────────────────────
-			const order = await Order.findById(metadata?.orderId).populate("items");
+			let order = await Order.findById(metadata?.orderId).populate("items");
 			if (!order) return res.status(200).send("Order not found");
-			if (order.paymentStatus === "paid")
+			if (order.paymentStatus === "paid" || order.paymentStatus === "refunded")
 				return res.status(200).send("Already processed");
 
-			order.paymentStatus = "paid";
-			order.paymentMethod = "paystack";
-			await order.save();
+			order = await markOrderAsPaid(order._id, "paystack");
+			if (!order) return res.status(200).send("Order update failed");
 
 			_sendOrderEmail(order).catch(() => {});
 

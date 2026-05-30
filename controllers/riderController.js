@@ -324,10 +324,14 @@ const uploadProfilePicture = async (req, res) => {
 				.json({ success: false, message: "No image file provided" });
 		}
 		const imageUrl = req.file.path; // Cloudinary URL set by multer-storage-cloudinary
-		await RiderProfile.findOneAndUpdate(
-			{ user: riderId },
-			{ profilePicture: imageUrl },
-		);
+		const User = require("../models/User");
+		await Promise.all([
+			RiderProfile.findOneAndUpdate(
+				{ user: riderId },
+				{ profilePicture: imageUrl },
+			),
+			User.findByIdAndUpdate(riderId, { img: imageUrl }),
+		]);
 		res.status(200).json({ success: true, profilePicture: imageUrl });
 	} catch (err) {
 		logger.error(`Upload Profile Picture Error: ${err.message}`);

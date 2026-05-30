@@ -25,6 +25,8 @@ const formatCustomerProfile = (customer, walletBalance = 0) => {
 	return {
 		...user,
 		...customerData,
+		profilePic: user.img || null,
+		img: user.img || null,
 		email: user.email ?? null,
 		name:
 			customer.firstName && customer.lastName
