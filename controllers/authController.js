@@ -139,6 +139,16 @@ const register = asyncHandler(async (req, res) => {
 	}
 	await profile.save();
 
+	// Ops email alert for new vendor/rider registration
+	try {
+		const opsAlerts = require("../helpers/opsEmailAlerts");
+		if (role === "vendor") {
+			opsAlerts.newVendorRegistered(user.name, finalPhone, location);
+		} else if (role === "rider") {
+			opsAlerts.newRiderRegistered(user.name, finalPhone);
+		}
+	} catch { /* non-blocking */ }
+
 	if (role === "customer") {
 		setImmediate(() => {
 			(async () => {

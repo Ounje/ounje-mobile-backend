@@ -408,6 +408,17 @@ const webhookHandler = async (req, res) => {
 			return res.status(200).send("Webhook processed");
 		}
 
+		// ── charge.failed ─────────────────────────────────────────────────────
+		if (event.event === "charge.failed") {
+			const { reference, amount, customer: pc, metadata } = event.data ?? {};
+			try {
+				const opsAlerts = require("../helpers/opsEmailAlerts");
+				opsAlerts.paymentFailed(reference, (amount ?? 0) / 100, pc?.email ?? metadata?.email);
+			} catch { /* non-blocking */ }
+			logger.info(`[Webhook] charge.failed | ref=${reference}`);
+			return res.status(200).send("Webhook processed");
+		}
+
 		// ── dedicatedaccount.assign.success ───────────────────────────────────
 		if (event.event === "dedicatedaccount.assign.success") {
 			const { customer, bank, account_number, account_name } = event.data;
