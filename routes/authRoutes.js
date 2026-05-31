@@ -13,6 +13,7 @@ const {
 	checkUserExist,
 	updateFcmToken,
 	checkPhone,
+	oauthSignin,
 } = require("../controllers/authController");
 
 const { authMiddleware } = require("../middleware/auth");
@@ -325,5 +326,35 @@ router.post("/check-phone", checkPhone);
  *         description: Unauthorized
  */
 router.put("/fcm-token", authMiddleware, updateFcmToken);
+
+/**
+ * @swagger
+ * /api/auth/oauth-signin:
+ *   post:
+ *     summary: Sign in using OAuth (Google/Apple)
+ *     tags: [Auth]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [idToken, provider, role]
+ *             properties:
+ *               idToken:
+ *                 type: string
+ *               provider:
+ *                 type: string
+ *                 enum: [google, apple]
+ *               role:
+ *                 type: string
+ *                 enum: [customer, vendor, rider]
+ *               fcmToken:
+ *                 type: string
+ *     responses:
+ *       200:
+ *         description: Login successful or needs registration
+ */
+router.post("/oauth-signin", oauthSignin);
 
 module.exports = router;

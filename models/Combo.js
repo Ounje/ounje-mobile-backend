@@ -29,9 +29,9 @@ const ComboSchema = new mongoose.Schema(
 	{
 		comboName: { type: String, required: true },
 		description: { type: String },
-		basePrice: { type: Number, required: true },    // marked-up price (what customers see)
+		basePrice: { type: Number, required: true }, // marked-up price (what customers see)
 		originalPrice: { type: Number, required: true }, // vendor's original price (before markup)
-		markupPercent: { type: Number, default: 30 },   // platform markup percentage
+		markupPercent: { type: Number, default: 10 }, // platform markup percentage
 		selections: [SelectionGroupSchema],
 		comboGroup: {
 			type: mongoose.Schema.Types.ObjectId,

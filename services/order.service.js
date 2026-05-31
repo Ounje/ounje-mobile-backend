@@ -738,6 +738,13 @@ const createOrder = async (userId, data) => {
 		logger.error(`Failed to send new order notification: ${error.message}`);
 	}
 
+	// 8. Ops email alert
+	try {
+		const opsAlerts = require("../helpers/opsEmailAlerts");
+		const vendorDoc = await require("../models/VendorProfile").findById(vendorId).select("name").lean();
+		opsAlerts.newOrder(order, vendorDoc?.name, customerName);
+	} catch { /* non-blocking */ }
+
 	return order;
 };
 

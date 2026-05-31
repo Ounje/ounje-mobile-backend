@@ -19,6 +19,10 @@ const { syncUserToKitchen } = require("../utils/kitchenSync");
 const asyncHandler = require("../utils/asyncHandler");
 const AppError = require("../utils/AppError");
 const logger = require("../utils/logger");
+const { OAuth2Client } = require("google-auth-library");
+const appleSignin = require("apple-signin-auth");
+
+const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
 
 const generateOtp = () => Math.floor(1000 + Math.random() * 9000).toString();
 const normalizePhone = require("../utils/phoneNormalizer");
@@ -134,6 +138,16 @@ const register = asyncHandler(async (req, res) => {
 		});
 	}
 	await profile.save();
+
+	// Ops email alert for new vendor/rider registration
+	try {
+		const opsAlerts = require("../helpers/opsEmailAlerts");
+		if (role === "vendor") {
+			opsAlerts.newVendorRegistered(user.name, finalPhone, location);
+		} else if (role === "rider") {
+			opsAlerts.newRiderRegistered(user.name, finalPhone);
+		}
+	} catch { /* non-blocking */ }
 
 	if (role === "customer") {
 		setImmediate(() => {
@@ -984,6 +998,107 @@ const checkPhone = asyncHandler(async (req, res) => {
 	return res.json({ exists: false });
 });
 
+const oauthSignin = asyncHandler(async (req, res) => {
+	const { idToken, provider, role, fcmToken } = req.body;
+	if (!idToken || !provider || !role) {
+		throw new AppError("idToken, provider, and role are required", 400);
+	}
+
+	let email, name, googleId, appleId;
+
+	try {
+		if (provider === "google") {
+			const ticket = await googleClient.verifyIdToken({
+				idToken: idToken,
+				audience: process.env.GOOGLE_CLIENT_ID,
+			});
+			const payload = ticket.getPayload();
+			email = payload.email;
+			name = payload.name;
+			googleId = payload.sub;
+		} else if (provider === "apple") {
+			const payload = await appleSignin.verifyIdToken(idToken, {
+				audience: process.env.APPLE_CLIENT_ID,
+				ignoreExpiration: true,
+			});
+			email = payload.email;
+			appleId = payload.sub;
+			name = "Apple User"; // Apple only sends name on first login, typically needs client side passing
+		} else {
+			throw new AppError("Invalid provider", 400);
+		}
+	} catch (err) {
+		logger.error(`OAuth verification failed: ${err.message}`);
+		throw new AppError("Invalid OAuth token", 401);
+	}
+
+	if (!email) {
+		throw new AppError("Email not provided by OAuth provider", 400);
+	}
+
+	let user = await User.findOne({ email });
+
+	if (user) {
+		// Link account
+		if (provider === "google" && !user.googleId) user.googleId = googleId;
+		if (provider === "apple" && !user.appleId) user.appleId = appleId;
+		if (user.authProvider === "local") user.authProvider = provider;
+		if (fcmToken) user.fcmToken = fcmToken;
+		await user.save();
+
+		// Check if profile exists
+		let profile = null;
+		if (user.role === "rider") {
+			profile = await RiderProfile.findOne({ user: user._id });
+		} else if (user.role === "vendor") {
+			profile = await VendorProfile.findOne({ owner: user._id });
+		} else if (user.role === "customer") {
+			profile = await Customer.findOne({ user: user._id });
+		}
+
+		if (!profile) {
+			// Profile missing, but user exists. Edge case.
+			throw new AppError(`No ${role} profile found for this user`, 404);
+		}
+
+		await validateUserStatus(user._id, user.role);
+
+		const accessToken = generateAccessToken({ id: user._id, role: user.role });
+		const refreshToken = generateRefreshToken({ id: user._id, role: user.role });
+		await RefreshToken.create({ token: refreshToken, user: user._id, ip: req.ip });
+
+		return res.json({
+			success: true,
+			action: "login",
+			accessToken,
+			refreshToken,
+			user: {
+				id: user._id,
+				name: user.name,
+				email: user.email,
+				phone: user.phone,
+				role: user.role,
+				profileId: profile._id,
+			},
+		});
+	} else {
+		// New User Registration Required
+		const otpSession = jwt.sign(
+			{ email, name, provider, googleId, appleId },
+			process.env.JWT_SECRET,
+			{ expiresIn: "30m" }
+		);
+		return res.json({
+			success: true,
+			action: "register",
+			otpSession,
+			message: "Phone number required to complete registration",
+			email,
+			name,
+		});
+	}
+});
+
 module.exports = {
 	register,
 	login,
@@ -996,4 +1111,5 @@ module.exports = {
 	checkUserExist,
 	updateFcmToken,
 	checkPhone,
+	oauthSignin,
 };
