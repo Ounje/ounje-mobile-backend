@@ -88,7 +88,56 @@ const register = asyncHandler(async (req, res) => {
 
 	if (finalPhone) {
 		const existingPhone = await User.findOne({ phone: finalPhone });
-		if (existingPhone) throw new AppError("Phone already exists", 400);
+		if (existingPhone) {
+			if (decoded.provider) {
+				// Account already exists with this phone. Since they successfully verified OAuth, link it!
+				if (decoded.provider === "google") {
+					existingPhone.googleId = decoded.googleId;
+				} else if (decoded.provider === "apple") {
+					existingPhone.appleId = decoded.appleId;
+				}
+				if (existingPhone.authProvider === "local") {
+					existingPhone.authProvider = decoded.provider;
+				}
+				await existingPhone.save();
+
+				// Fetch profile
+				let profile = null;
+				if (existingPhone.role === "rider") {
+					profile = await RiderProfile.findOne({ user: existingPhone._id });
+				} else if (existingPhone.role === "vendor") {
+					profile = await VendorProfile.findOne({ owner: existingPhone._id });
+				} else if (existingPhone.role === "customer") {
+					profile = await Customer.findOne({ user: existingPhone._id });
+				}
+
+				if (!profile) {
+					throw new AppError(`No profile found for existing user with phone ${finalPhone}`, 404);
+				}
+
+				const accessToken = generateAccessToken({ id: existingPhone._id, role: existingPhone.role });
+				const refreshToken = generateRefreshToken({ id: existingPhone._id, role: existingPhone.role });
+				await RefreshToken.create({ token: refreshToken, user: existingPhone._id, ip: req.ip });
+
+				return res.status(200).json({
+					success: true,
+					accessToken,
+					refreshToken,
+					user: {
+						id: existingPhone._id,
+						name: existingPhone.name,
+						email: existingPhone.email,
+						phone: existingPhone.phone,
+						role: existingPhone.role,
+						profileId: profile._id,
+						address: existingPhone.address,
+						location: existingPhone.location,
+					},
+				});
+			} else {
+				throw new AppError("Phone already exists", 400);
+			}
+		}
 	}
 
 	const geo = await getCoordsFromAddress(location);
@@ -104,6 +153,9 @@ const register = asyncHandler(async (req, res) => {
 		location: coordinates,
 		role: role.toLowerCase(),
 		fcmToken: fcmToken || null,
+		googleId: decoded.googleId || undefined,
+		appleId: decoded.appleId || undefined,
+		authProvider: decoded.provider || "local",
 	});
 	await user.save();
 
@@ -1079,6 +1131,8 @@ const oauthSignin = asyncHandler(async (req, res) => {
 				phone: user.phone,
 				role: user.role,
 				profileId: profile._id,
+				address: user.address,
+				location: user.location,
 			},
 		});
 	} else {
