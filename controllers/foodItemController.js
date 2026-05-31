@@ -1086,6 +1086,7 @@ const getVendorsByCategory = async (req, res) => {
 							"active",
 						],
 					},
+					storeDetails: "$vendor.storeDetails",
 					averageRating: { $ifNull: ["$vendor.averageRating", 0] },
 					totalRating: { $ifNull: ["$vendor.ratingCount", 0] },
 					deliveryFee: {
