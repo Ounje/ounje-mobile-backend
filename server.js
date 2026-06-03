@@ -161,7 +161,7 @@ cron.schedule(
 	async () => {
 		const acquired = await acquireLock("pending-payouts", 600000);
 		if (!acquired) {
-			logger.warn("[CRON] Skipped pending-payouts — lock already held by another instance");
+			logger.debug("[CRON] Skipped pending-payouts — lock already held by another instance");
 			return;
 		}
 
@@ -191,7 +191,7 @@ cron.schedule(
 	async () => {
 		const acquired = await acquireLock("auto-cancel-orders", 300000);
 		if (!acquired) {
-			logger.warn("[CRON] Skipped auto-cancel-orders — lock already held by another instance");
+			logger.debug("[CRON] Skipped auto-cancel-orders — lock already held by another instance");
 			return;
 		}
 
