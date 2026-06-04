@@ -792,17 +792,35 @@ const verifyPhoneOtp = asyncHandler(async (req, res) => {
 			let profile = null;
 			if (testRole === "rider") {
 				profile = await RiderProfile.findOne({ user: user._id });
+				if (!profile) {
+					profile = new RiderProfile({ user: user._id, status: "pending" });
+					await profile.save();
+					logger.info(`App Store Review: Auto-created missing RiderProfile for ${phone}`);
+				}
 			} else if (testRole === "vendor") {
 				profile = await VendorProfile.findOne({ owner: user._id });
+				if (!profile) {
+					profile = new VendorProfile({
+						owner: user._id,
+						name: "Test Vendor",
+						location: {
+							type: "Point",
+							coordinates: [3.3792, 6.5244],
+							address: "Lagos",
+						},
+						isActive: true,
+					});
+					await profile.save();
+					logger.info(`App Store Review: Auto-created missing VendorProfile for ${phone}`);
+				}
 			} else if (testRole === "customer") {
 				profile = await Customer.findOne({ user: user._id });
+				if (!profile) {
+					profile = new Customer({ user: user._id });
+					await profile.save();
+					logger.info(`App Store Review: Auto-created missing Customer profile for ${phone}`);
+				}
 			}
-
-			if (!profile)
-				throw new AppError(
-					`No ${testRole} account found with this phone number`,
-					404,
-				);
 
 			if (fcmToken) {
 				user.fcmToken = fcmToken;
