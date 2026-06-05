@@ -940,7 +940,7 @@ const getComboById = async (req, res) => {
 
 const getVendorCombos = async (req, res) => {
 	try {
-		const filter = { vendor: req.params.vendorId };
+		const filter = { vendor: req.params.vendorId, isAvailable: { $ne: false } };
 		const populateOptions = [
 			{
 				path: "vendor",
@@ -964,7 +964,7 @@ const getVendorCombosGrouped = async (req, res) => {
 	try {
 		const { vendorId } = req.params;
 
-		const combos = await Combo.find({ vendor: vendorId })
+		const combos = await Combo.find({ vendor: vendorId, isAvailable: { $ne: false } })
 			.populate("comboGroup", "name description")
 			.populate({
 				path: "selections.items.item",
