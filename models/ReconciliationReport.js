@@ -33,7 +33,7 @@ const reconciliationReportSchema = new mongoose.Schema(
 		},
 
 		// Optional raw error log if any check threw
-		errors: [{ check: String, message: String }],
+		reconciliationErrors: [{ check: String, message: String }],
 	},
 	{ timestamps: true },
 );

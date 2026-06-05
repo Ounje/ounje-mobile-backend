@@ -571,7 +571,7 @@ const runFullAudit = async (triggeredBy = "manual") => {
 	const reportData = {
 		triggeredBy,
 		checks: {},
-		errors: [],
+		reconciliationErrors: [],
 		summary: { totalIssues: 0, criticalIssues: 0, warningIssues: 0, infoIssues: 0 },
 	};
 
@@ -591,7 +591,7 @@ const runFullAudit = async (triggeredBy = "manual") => {
 			logger.info(`[Reconcile] ${name}: ${results.length} issue(s) found`);
 		} catch (err) {
 			logger.error(`[Reconcile] Check "${name}" threw: ${err.message}`);
-			reportData.errors.push({ check: name, message: err.message });
+			reportData.reconciliationErrors.push({ check: name, message: err.message });
 			reportData.checks[name] = [];
 		}
 	};
