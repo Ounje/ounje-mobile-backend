@@ -823,9 +823,7 @@ const verifyPhoneOtp = asyncHandler(async (req, res) => {
 				if (!profile) {
 					profile = new RiderProfile({ user: user._id, status: "pending" });
 					await profile.save();
-					logger.info(
-						`App Store Review: Auto-created missing RiderProfile for ${phone}`,
-					);
+					logger.info(`App Store Review: Auto-created missing RiderProfile for ${phone}`);
 				}
 			} else if (testRole === "vendor") {
 				profile = await VendorProfile.findOne({ owner: user._id });
@@ -841,9 +839,7 @@ const verifyPhoneOtp = asyncHandler(async (req, res) => {
 						isActive: true,
 					});
 					await profile.save();
-					logger.info(
-						`App Store Review: Auto-created missing VendorProfile for ${phone}`,
-					);
+					logger.info(`App Store Review: Auto-created missing VendorProfile for ${phone}`);
 				}
 			} else if (testRole === "customer") {
 				profile = await Customer.findOne({ user: user._id });
