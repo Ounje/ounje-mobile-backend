@@ -233,7 +233,7 @@ class VendorService {
 		const FoodItem = require("../models").FoodItem;
 		const Combo = require("../models").Combo;
 
-		const [foodItems, combos] = await Promise.all([
+		const [rawFoodItems, combos] = await Promise.all([
 			FoodItem.find({ vendor: vendor._id, isAvailable: true }).select(
 				"name price description category subCategory img preparationTime",
 			),
@@ -241,6 +241,20 @@ class VendorService {
 				"comboName basePrice description img time selections",
 			),
 		]);
+
+		// Filter out unavailable sub-items so customers only see what's actually on sale
+		const foodItems = rawFoodItems
+			.map((doc) => {
+				const item = doc.toObject ? doc.toObject() : doc;
+				item.subCategory = item.subCategory
+					.map((sub) => ({
+						...sub,
+						items: sub.items.filter((i) => i.isAvailable !== false),
+					}))
+					.filter((sub) => sub.items.length > 0);
+				return item;
+			})
+			.filter((item) => item.subCategory.length > 0);
 
 		// Calculate ETA if customer location provided
 		let estimatedDeliveryTime = null;
