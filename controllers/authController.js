@@ -28,7 +28,10 @@ const generateOtp = () => Math.floor(1000 + Math.random() * 9000).toString();
 const normalizePhone = require("../utils/phoneNormalizer");
 const { validateUserStatus } = require("../utils/accountValidator");
 const { provisionCustomerDVA } = require("../services/dva.service");
-const { generateId: generateProfileId } = require("../utils/generateProfileId");
+const {
+	generateVendorId,
+	generateRiderId,
+} = require("../utils/generateProfileId");
 
 // ─── Test Account Config ───────────────────────────────────────────────────
 // NOTE: normalizePhone() REMOVES the country code and leading 0.
@@ -112,12 +115,25 @@ const register = asyncHandler(async (req, res) => {
 				}
 
 				if (!profile) {
-					throw new AppError(`No profile found for existing user with phone ${finalPhone}`, 404);
+					throw new AppError(
+						`No profile found for existing user with phone ${finalPhone}`,
+						404,
+					);
 				}
 
-				const accessToken = generateAccessToken({ id: existingPhone._id, role: existingPhone.role });
-				const refreshToken = generateRefreshToken({ id: existingPhone._id, role: existingPhone.role });
-				await RefreshToken.create({ token: refreshToken, user: existingPhone._id, ip: req.ip });
+				const accessToken = generateAccessToken({
+					id: existingPhone._id,
+					role: existingPhone.role,
+				});
+				const refreshToken = generateRefreshToken({
+					id: existingPhone._id,
+					role: existingPhone.role,
+				});
+				await RefreshToken.create({
+					token: refreshToken,
+					user: existingPhone._id,
+					ip: req.ip,
+				});
 
 				return res.status(200).json({
 					success: true,
@@ -169,7 +185,7 @@ const register = asyncHandler(async (req, res) => {
 			},
 		});
 	} else if (role === "vendor") {
-		const vendorId = await generateProfileId("vendor_id", "VND");
+		const vendorId = await generateVendorId();
 		profile = new VendorProfile({
 			owner: user._id,
 			vendorId, // Assigned sequential ID
@@ -182,7 +198,7 @@ const register = asyncHandler(async (req, res) => {
 			isActive: true,
 		});
 	} else if (role === "rider") {
-		const riderId = await generateProfileId("rider_id", "RDR");
+		const riderId = await generateRiderId();
 		profile = new RiderProfile({
 			user: user._id,
 			riderId, // Assigned sequential ID
@@ -199,7 +215,9 @@ const register = asyncHandler(async (req, res) => {
 		} else if (role === "rider") {
 			opsAlerts.newRiderRegistered(user.name, finalPhone);
 		}
-	} catch { /* non-blocking */ }
+	} catch {
+		/* non-blocking */
+	}
 
 	if (role === "customer") {
 		setImmediate(() => {
@@ -805,7 +823,9 @@ const verifyPhoneOtp = asyncHandler(async (req, res) => {
 				if (!profile) {
 					profile = new RiderProfile({ user: user._id, status: "pending" });
 					await profile.save();
-					logger.info(`App Store Review: Auto-created missing RiderProfile for ${phone}`);
+					logger.info(
+						`App Store Review: Auto-created missing RiderProfile for ${phone}`,
+					);
 				}
 			} else if (testRole === "vendor") {
 				profile = await VendorProfile.findOne({ owner: user._id });
@@ -821,14 +841,18 @@ const verifyPhoneOtp = asyncHandler(async (req, res) => {
 						isActive: true,
 					});
 					await profile.save();
-					logger.info(`App Store Review: Auto-created missing VendorProfile for ${phone}`);
+					logger.info(
+						`App Store Review: Auto-created missing VendorProfile for ${phone}`,
+					);
 				}
 			} else if (testRole === "customer") {
 				profile = await Customer.findOne({ user: user._id });
 				if (!profile) {
 					profile = new Customer({ user: user._id });
 					await profile.save();
-					logger.info(`App Store Review: Auto-created missing Customer profile for ${phone}`);
+					logger.info(
+						`App Store Review: Auto-created missing Customer profile for ${phone}`,
+					);
 				}
 			}
 
@@ -1134,8 +1158,15 @@ const oauthSignin = asyncHandler(async (req, res) => {
 		await validateUserStatus(user._id, user.role);
 
 		const accessToken = generateAccessToken({ id: user._id, role: user.role });
-		const refreshToken = generateRefreshToken({ id: user._id, role: user.role });
-		await RefreshToken.create({ token: refreshToken, user: user._id, ip: req.ip });
+		const refreshToken = generateRefreshToken({
+			id: user._id,
+			role: user.role,
+		});
+		await RefreshToken.create({
+			token: refreshToken,
+			user: user._id,
+			ip: req.ip,
+		});
 
 		return res.json({
 			success: true,
@@ -1158,7 +1189,7 @@ const oauthSignin = asyncHandler(async (req, res) => {
 		const otpSession = jwt.sign(
 			{ email, name, provider, googleId, appleId },
 			process.env.JWT_SECRET,
-			{ expiresIn: "30m" }
+			{ expiresIn: "30m" },
 		);
 		return res.json({
 			success: true,

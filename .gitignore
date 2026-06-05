@@ -72,3 +72,4 @@ test/rider.test.js
 test/support.test.js
 test/user.test.js
 test/vendor.test.js
+migrate-combo-markup.js
