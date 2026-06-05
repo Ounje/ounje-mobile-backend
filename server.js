@@ -34,7 +34,9 @@ const newflashRouter = require("./routes/newflash.route");
 const searchRouter = require("./routes/search.routes");
 const notificationRouter = require("./routes/notification.router");
 const promoRouter = require("./routes/promo.routes");
+const referralRoutes = require("./routes/referralRoutes");
 const adminRoutes = require("./routes/adminRoutes");
+const reconcileRoutes = require("./routes/reconcileRoutes");
 
 
 const app = express();
@@ -86,10 +88,12 @@ app.use("/api/rating", ratingRouter);
 app.use("/api/search", searchRouter);
 app.use("/api/notifications", notificationRouter);
 app.use("/api/promo", promoRouter);
+app.use("/api/referrals", referralRoutes);
 app.use("/api/announcements", require("./routes/announcementRoutes"));
 app.use("/api/finance", require("./routes/financeRoutes"));
 app.use("/api/dva", require("./routes/dvaRoutes"));
 app.use("/api/admin", adminRoutes);
+app.use("/api/admin/reconcile", reconcileRoutes);
 
 
 // Deep link fallback
@@ -110,22 +114,57 @@ app.get("/VendorMenu/:id", (req, res) => {
 // ─────────────────────────────────────────────
 
 // ─────────────────────────────────────────────
+// DISTRIBUTED CRON LOCK HELPERS
+// ─────────────────────────────────────────────
+const acquireLock = async (jobName, lockTimeoutMs = 300000) => {
+	try {
+		const now = new Date();
+		const lock = await mongoose.model("CronLock").findOneAndUpdate(
+			{ 
+				jobName, 
+				lockedAt: { $lt: new Date(Date.now() - lockTimeoutMs) } 
+			},
+			{ lockedAt: now },
+			{ new: true }
+		);
+
+		if (lock) return true;
+
+		const exists = await mongoose.model("CronLock").findOne({ jobName });
+		if (exists) return false;
+
+		await mongoose.model("CronLock").create({ jobName, lockedAt: now });
+		return true;
+	} catch (err) {
+		if (err.code === 11000) return false;
+		logger.error(`[LOCK] Error acquiring lock for ${jobName}`, err);
+		return false;
+	}
+};
+
+const releaseLock = async (jobName) => {
+	try {
+		await mongoose.model("CronLock").deleteOne({ jobName });
+	} catch (err) {
+		logger.error(`[LOCK] Error releasing lock for ${jobName}`, err);
+	}
+};
+
+// ─────────────────────────────────────────────
 // CRON JOB — Process queued withdrawals
-// Runs every 15 minutes.
+// Runs every 1 minute.
 // Picks up withdrawals whose 2-hour hold has elapsed and fires Paystack transfers.
 // ─────────────────────────────────────────────
-
-let isProcessingPayouts = false;
 
 cron.schedule(
 	"*/1 * * * *",
 	async () => {
-		if (isProcessingPayouts) {
-			logger.warn("[CRON] Skipped — previous run still in progress");
+		const acquired = await acquireLock("pending-payouts", 600000);
+		if (!acquired) {
+			logger.debug("[CRON] Skipped pending-payouts — lock already held by another instance");
 			return;
 		}
 
-		isProcessingPayouts = true;
 		logger.info("[CRON] Withdrawal processor triggered");
 
 		try {
@@ -136,7 +175,7 @@ cron.schedule(
 				message: err.message,
 			});
 		} finally {
-			isProcessingPayouts = false;
+			await releaseLock("pending-payouts");
 		}
 	},
 	{ timezone: "Africa/Lagos" },
@@ -147,17 +186,15 @@ cron.schedule(
 // Runs every 1 minute.
 // ─────────────────────────────────────────────
 
-let isProcessingAutoCancels = false;
-
 cron.schedule(
 	"*/1 * * * *",
 	async () => {
-		if (isProcessingAutoCancels) {
-			logger.warn("[CRON] Skipped Auto-Cancel — previous run still in progress");
+		const acquired = await acquireLock("auto-cancel-orders", 300000);
+		if (!acquired) {
+			logger.debug("[CRON] Skipped auto-cancel-orders — lock already held by another instance");
 			return;
 		}
 
-		isProcessingAutoCancels = true;
 		try {
 			await processAutoCancelOrders();
 		} catch (err) {
@@ -165,7 +202,7 @@ cron.schedule(
 				message: err.message,
 			});
 		} finally {
-			isProcessingAutoCancels = false;
+			await releaseLock("auto-cancel-orders");
 		}
 	},
 	{ timezone: "Africa/Lagos" },
@@ -257,6 +294,25 @@ app.use(errorHandler);
 // ─────────────────────────────────────────────
 // HEALTH CHECK
 // ─────────────────────────────────────────────
+
+// ─────────────────────────────────────────────
+// DEV-ONLY: Test order alert sound
+// POST /test-alert/:vendorProfileId
+// Fires newOrderAvailable socket event to the vendor room.
+// ─────────────────────────────────────────────
+if (process.env.NODE_ENV !== "production") {
+  app.post("/test-alert/:vendorProfileId", (req, res) => {
+    const { vendorProfileId } = req.params;
+    if (!global.io) return res.status(500).json({ error: "Socket not ready" });
+    global.io.to(vendorProfileId).emit("newOrderAvailable", {
+      orderId: "TEST-" + Date.now(),
+      message: "🔔 Test order alert!",
+    });
+    logger.info(`[TEST] newOrderAvailable fired to vendor room: ${vendorProfileId}`);
+    return res.json({ success: true, firedTo: vendorProfileId });
+  });
+}
+
 
 app.get("/", (req, res) => {
 	res.send("Food Service API running 🚀");

@@ -25,6 +25,8 @@ const formatCustomerProfile = (customer, walletBalance = 0) => {
 	return {
 		...user,
 		...customerData,
+		profilePic: user.img || null,
+		img: user.img || null,
 		email: user.email ?? null,
 		name:
 			customer.firstName && customer.lastName
@@ -453,7 +455,9 @@ const getCustomerWallet = asyncHandler(async (req, res) => {
 			customer._id,
 			"CUSTOMER",
 		);
-	} catch (_) {}
+	} catch (_) {
+		// Ignore ledger service balance query failure
+	}
 
 	try {
 		const result = await ledgerService.getTransactionHistory(
@@ -463,7 +467,9 @@ const getCustomerWallet = asyncHandler(async (req, res) => {
 			0,
 		);
 		transactions = result.transactions ?? [];
-	} catch (_) {}
+	} catch (_) {
+		// Ignore ledger service transaction query failure
+	}
 
 	return res.json({
 		success: true,
@@ -481,6 +487,42 @@ const getCustomerWallet = asyncHandler(async (req, res) => {
 	});
 });
 
+const deleteCustomerProfileImage = async (req, res) => {
+	try {
+		const userId = req.user.id;
+		const user = await User.findById(userId);
+		if (!user) {
+			return res.status(404).json({ success: false, message: "User not found" });
+		}
+		if (!user.img) {
+			return res.status(400).json({ success: false, message: "No profile picture to delete" });
+		}
+
+		// Delete old image from Cloudinary if it is a Cloudinary URL
+		try {
+			const urlParts = user.img.split("/");
+			const publicIdWithExtension = urlParts[urlParts.length - 1];
+			const publicId = publicIdWithExtension.split(".")[0];
+			const folder = urlParts[urlParts.length - 2];
+			const { deleteImage } = require("../config/cloudinary");
+			await deleteImage(`${folder}/${publicId}`);
+		} catch (error) {
+			console.error("Error deleting old customer image from Cloudinary:", error);
+		}
+
+		user.img = null;
+		await user.save();
+
+		return res.status(200).json({ success: true, message: "Profile picture deleted successfully" });
+	} catch (error) {
+		console.error(`Delete Customer Profile Image Error: ${error.message}`);
+		return res.status(500).json({
+			success: false,
+			message: error.message || "Error deleting profile picture",
+		});
+	}
+};
+
 module.exports = {
 	getCustomerProfile,
 	requestProfileChange,
@@ -488,5 +530,6 @@ module.exports = {
 	updateCustomerProfile,
 	deleteCustomerProfile,
 	updateCustomerProfileImage,
+	deleteCustomerProfileImage,
 	getCustomerWallet,
 };

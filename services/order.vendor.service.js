@@ -1,9 +1,9 @@
 const mongoose = require("mongoose");
-const { Order, VendorProfile, Payment } = require("../models");
+const { Order, VendorProfile } = require("../models");
 const orderService = require("./order.service");
 const notificationService = require("./notification.service");
 const ledgerService = require("./ledger.service");
-const { refundTransaction } = require("./dva.service");
+
 const { ORDER_STATUS, ORDER_SUB_STATUS } = require("../utils/constants");
 const logger = require("../utils/logger");
 
@@ -53,52 +53,63 @@ const declineOrder = async (orderId, vendorId, declineData = {}) => {
 	if (!validDeclineReasons.includes(reason))
 		throw new Error("Invalid decline reason");
 
-	order.status = ORDER_STATUS.DECLINED;
-	order.subStatus = ORDER_SUB_STATUS.DECLINED;
-	order.declinedAt = new Date();
-	order.declinedBy = vendorId;
-	order.declineReason = reason;
-	order.declineNote = note || null;
-
-	if (order.paymentStatus === "paid") {
-		if (order.paymentMethod === "wallet") {
-			await ledgerService.creditAccount(
-				order.customer,
-				"CUSTOMER",
-				order.totalPrice,
-				"REFUND",
-				order._id,
-				{ reason: "vendor_declined" },
-			);
-			order.paymentStatus = "refunded";
-		} else if (order.paymentMethod === "paystack") {
-			const payment = await Payment.findOne({ orderId: order._id, status: "success" });
-			if (payment) {
-				try {
-					await refundTransaction(payment.reference, order.totalPrice * 100);
-					order.paymentStatus = "refunded";
-					logger.info(`[REFUND] Paystack refund issued for order ${order._id} ref ${payment.reference}`);
-				} catch (err) {
-					logger.error(`[REFUND] Paystack refund failed for order ${order._id}: ${err.message}`);
-				}
+	// Atomically transition the order to declined only if it is still confirming
+	const updatedOrder = await Order.findOneAndUpdate(
+		{ _id: orderId, status: ORDER_STATUS.CONFIRMING },
+		{
+			$set: {
+				status: ORDER_STATUS.DECLINED,
+				subStatus: ORDER_SUB_STATUS.DECLINED,
+				declinedAt: new Date(),
+				declinedBy: vendorId,
+				declineReason: reason,
+				declineNote: note || null,
 			}
-		}
+		},
+		{ new: true }
+	);
 
-		await ledgerService.reverseVendorHold(order.vendor, order._id);
+	if (!updatedOrder) {
+		throw new Error("Order was already accepted, cancelled, or declined by another process.");
+	}
 
-		if (order.rider) {
-			await ledgerService.reverseRiderFeeHold(order.rider, order._id);
+	if (updatedOrder.paymentStatus === "paid") {
+		// Atomically transition paymentStatus from paid to refunded
+		const refundedOrder = await Order.findOneAndUpdate(
+			{ _id: updatedOrder._id, paymentStatus: "paid" },
+			{ $set: { paymentStatus: "refunded" } },
+			{ new: true }
+		);
+		if (refundedOrder) {
+			const originalPaymentMethod = updatedOrder.paymentMethod || "paystack";
+			await ledgerService.creditAccount(
+				updatedOrder.customer,
+				"CUSTOMER",
+				updatedOrder.totalPrice,
+				"REFUND",
+				updatedOrder._id,
+				{ reason: "vendor_declined", originalPaymentMethod },
+			);
+			logger.info(`[REFUND] Order ${updatedOrder._id} payment refunded to O-Credit wallet`);
 		}
 	}
 
-	await order.save();
+	// Always reverse vendor and rider holds on decline — the holds are created
+	// by the Paystack webhook regardless of paymentStatus timing.
+	// reverseVendorHold and reverseRiderFeeHold are idempotent (alreadyReversed guard).
+	await ledgerService.reverseVendorHold(updatedOrder.vendor, updatedOrder._id);
+
+	if (updatedOrder.rider) {
+		await ledgerService.reverseRiderFeeHold(updatedOrder.rider, updatedOrder._id);
+	}
+
 
 	try {
 		const vendorProfile = await VendorProfile.findById(vendorId).select("storeName").lean();
 		const vendorName = vendorProfile?.storeName || "The vendor";
 		await notificationService.notifyCustomerOrderDeclined(
-			order.customer,
-			order,
+			updatedOrder.customer,
+			updatedOrder,
 			vendorName,
 		);
 		logger.info(
@@ -109,14 +120,20 @@ const declineOrder = async (orderId, vendorId, declineData = {}) => {
 	}
 
 	if (global.io) {
-		global.io.to(order.customer.toString()).emit("orderUpdate", {
-			orderId: order._id,
-			status: order.status,
-			subStatus: order.subStatus,
+		global.io.to(updatedOrder.customer.toString()).emit("orderUpdate", {
+			orderId: updatedOrder._id,
+			status: updatedOrder.status,
+			subStatus: updatedOrder.subStatus,
+		});
+		// Also notify the vendor's own socket room so their Cancelled tab updates instantly
+		global.io.to(vendorId.toString()).emit("orderUpdate", {
+			orderId: updatedOrder._id,
+			status: updatedOrder.status,
+			subStatus: updatedOrder.subStatus,
 		});
 	}
 
-	return order;
+	return updatedOrder;
 };
 
 const vendorAcceptOrder = async (orderId, vendorId) => {
@@ -162,6 +179,11 @@ const vendorAcceptOrder = async (orderId, vendorId) => {
 			status: order.status,
 			subStatus: order.subStatus,
 		});
+		global.io.to(vendorId.toString()).emit("orderUpdate", {
+			orderId: order._id,
+			status: order.status,
+			subStatus: order.subStatus,
+		});
 	}
 
 	return order;
@@ -190,6 +212,11 @@ const vendorStartPreparing = async (orderId, vendorId) => {
 	// Notify customer — they see "Restaurant is preparing your order"
 	if (global.io) {
 		global.io.to(order.customer.toString()).emit("orderUpdate", {
+			orderId: order._id,
+			status: order.status,
+			subStatus: order.subStatus,
+		});
+		global.io.to(vendorId.toString()).emit("orderUpdate", {
 			orderId: order._id,
 			status: order.status,
 			subStatus: order.subStatus,
@@ -228,6 +255,11 @@ const vendorMarkReady = async (orderId, vendorId) => {
 			status: order.status,
 			subStatus: order.subStatus,
 		});
+		global.io.to(vendorId.toString()).emit("orderUpdate", {
+			orderId: order._id,
+			status: order.status,
+			subStatus: order.subStatus,
+		});
 	}
 
 	try {
@@ -253,6 +285,11 @@ const vendorMarkReady = async (orderId, vendorId) => {
 		);
 		if (global.io) {
 			global.io.to(order.customer.toString()).emit("orderUpdate", {
+				orderId: order._id,
+				status: ORDER_STATUS.RIDING,
+				subStatus: ORDER_SUB_STATUS.LOOKING_FOR_RIDER,
+			});
+			global.io.to(vendorId.toString()).emit("orderUpdate", {
 				orderId: order._id,
 				status: ORDER_STATUS.RIDING,
 				subStatus: ORDER_SUB_STATUS.LOOKING_FOR_RIDER,
@@ -331,8 +368,8 @@ const getDeclineStats = async (vendorId, filters = {}) => {
 const getVendorOrders = async (vendorProfileId, query = {}) => {
 	const { status } = query;
 
-	// Only show orders that have been paid — unpaid orders are invisible to vendor
-	const filter = { vendor: vendorProfileId, paymentStatus: "paid" };
+	// Only show orders that have been paid or refunded — unpaid orders are invisible to vendor
+	const filter = { vendor: vendorProfileId, paymentStatus: { $in: ["paid", "refunded"] } };
 
 	if (status) {
 		if (status === "confirming") {

@@ -6,6 +6,7 @@ const {
 	updateCustomerProfile,
 	deleteCustomerProfile,
 	updateCustomerProfileImage,
+	deleteCustomerProfileImage,
 	getCustomerWallet,
 } = require("../controllers/customerController");
 const { authMiddleware, roleGuard } = require("../middleware/auth");
@@ -429,6 +430,13 @@ router.post(
 	roleGuard(["customer"]),
 	userUpload.single("profilePicture"),
 	updateCustomerProfileImage,
+);
+
+router.delete(
+	"/profile/picture",
+	authMiddleware,
+	roleGuard(["customer"]),
+	deleteCustomerProfileImage,
 );
 
 /**

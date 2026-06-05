@@ -23,6 +23,7 @@ const {
 	deactivateRiderAccount,
 	updatePushToken,
 	uploadProfilePicture,
+	deleteProfilePicture,
 	updateNotificationPreferences,
 	updateRiderOnlineStatus,
 } = require("../controllers/riderController");
@@ -96,6 +97,13 @@ router.post(
 	roleGuard(["rider"]),
 	riderUpload.single("profilePicture"),
 	uploadProfilePicture,
+);
+
+router.delete(
+	"/profile/picture",
+	authMiddleware,
+	roleGuard(["rider"]),
+	deleteProfilePicture,
 );
 
 // Rider updates their bank details and triggers pending payouts retry

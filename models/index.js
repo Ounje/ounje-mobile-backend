@@ -25,8 +25,11 @@ const SupportTicket = require("./SupportTicket");
 const User = require("./User");
 const VendorProfile = require("./VendorProfile");
 const PendingProfileChange = require("./pendingProfileChange");
+const CronLock = require("./CronLock");
+const ReconciliationReport = require("./ReconciliationReport");
 
 module.exports = {
+	CronLock,
 	Admin,
 	Announcement,
 	Category,
@@ -53,4 +56,5 @@ module.exports = {
 	User,
 	VendorProfile,
 	PendingProfileChange,
+	ReconciliationReport,
 };

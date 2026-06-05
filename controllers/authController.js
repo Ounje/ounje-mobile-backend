@@ -19,11 +19,19 @@ const { syncUserToKitchen } = require("../utils/kitchenSync");
 const asyncHandler = require("../utils/asyncHandler");
 const AppError = require("../utils/AppError");
 const logger = require("../utils/logger");
+const { OAuth2Client } = require("google-auth-library");
+const appleSignin = require("apple-signin-auth");
+
+const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
 
 const generateOtp = () => Math.floor(1000 + Math.random() * 9000).toString();
 const normalizePhone = require("../utils/phoneNormalizer");
 const { validateUserStatus } = require("../utils/accountValidator");
 const { provisionCustomerDVA } = require("../services/dva.service");
+const {
+	generateVendorId,
+	generateRiderId,
+} = require("../utils/generateProfileId");
 
 // ─── Test Account Config ───────────────────────────────────────────────────
 // NOTE: normalizePhone() REMOVES the country code and leading 0.
@@ -83,7 +91,69 @@ const register = asyncHandler(async (req, res) => {
 
 	if (finalPhone) {
 		const existingPhone = await User.findOne({ phone: finalPhone });
-		if (existingPhone) throw new AppError("Phone already exists", 400);
+		if (existingPhone) {
+			if (decoded.provider) {
+				// Account already exists with this phone. Since they successfully verified OAuth, link it!
+				if (decoded.provider === "google") {
+					existingPhone.googleId = decoded.googleId;
+				} else if (decoded.provider === "apple") {
+					existingPhone.appleId = decoded.appleId;
+				}
+				if (existingPhone.authProvider === "local") {
+					existingPhone.authProvider = decoded.provider;
+				}
+				await existingPhone.save();
+
+				// Fetch profile
+				let profile = null;
+				if (existingPhone.role === "rider") {
+					profile = await RiderProfile.findOne({ user: existingPhone._id });
+				} else if (existingPhone.role === "vendor") {
+					profile = await VendorProfile.findOne({ owner: existingPhone._id });
+				} else if (existingPhone.role === "customer") {
+					profile = await Customer.findOne({ user: existingPhone._id });
+				}
+
+				if (!profile) {
+					throw new AppError(
+						`No profile found for existing user with phone ${finalPhone}`,
+						404,
+					);
+				}
+
+				const accessToken = generateAccessToken({
+					id: existingPhone._id,
+					role: existingPhone.role,
+				});
+				const refreshToken = generateRefreshToken({
+					id: existingPhone._id,
+					role: existingPhone.role,
+				});
+				await RefreshToken.create({
+					token: refreshToken,
+					user: existingPhone._id,
+					ip: req.ip,
+				});
+
+				return res.status(200).json({
+					success: true,
+					accessToken,
+					refreshToken,
+					user: {
+						id: existingPhone._id,
+						name: existingPhone.name,
+						email: existingPhone.email,
+						phone: existingPhone.phone,
+						role: existingPhone.role,
+						profileId: profile._id,
+						address: existingPhone.address,
+						location: existingPhone.location,
+					},
+				});
+			} else {
+				throw new AppError("Phone already exists", 400);
+			}
+		}
 	}
 
 	const geo = await getCoordsFromAddress(location);
@@ -99,6 +169,9 @@ const register = asyncHandler(async (req, res) => {
 		location: coordinates,
 		role: role.toLowerCase(),
 		fcmToken: fcmToken || null,
+		googleId: decoded.googleId || undefined,
+		appleId: decoded.appleId || undefined,
+		authProvider: decoded.provider || "local",
 	});
 	await user.save();
 
@@ -112,8 +185,10 @@ const register = asyncHandler(async (req, res) => {
 			},
 		});
 	} else if (role === "vendor") {
+		const vendorId = await generateVendorId();
 		profile = new VendorProfile({
 			owner: user._id,
+			vendorId, // Assigned sequential ID
 			name: user.name,
 			location: {
 				type: "Point",
@@ -123,12 +198,26 @@ const register = asyncHandler(async (req, res) => {
 			isActive: true,
 		});
 	} else if (role === "rider") {
+		const riderId = await generateRiderId();
 		profile = new RiderProfile({
 			user: user._id,
+			riderId, // Assigned sequential ID
 			status: "pending",
 		});
 	}
 	await profile.save();
+
+	// Ops email alert for new vendor/rider registration
+	try {
+		const opsAlerts = require("../helpers/opsEmailAlerts");
+		if (role === "vendor") {
+			opsAlerts.newVendorRegistered(user.name, finalPhone, location);
+		} else if (role === "rider") {
+			opsAlerts.newRiderRegistered(user.name, finalPhone);
+		}
+	} catch {
+		/* non-blocking */
+	}
 
 	if (role === "customer") {
 		setImmediate(() => {
@@ -379,7 +468,7 @@ const verifyEmailOtp = asyncHandler(async (req, res) => {
 	if (!flow) throw new AppError("Flow (login/signup) is required", 400);
 
 	const REVIEW_MODE = process.env.REVIEW_MODE === "true";
-	const testEmailRole = TEST_EMAIL_MAP[email.toLowerCase()];
+	const testEmailRole = TEST_EMAIL_MAP.get(email.toLowerCase());
 	const isTestAccount =
 		REVIEW_MODE && !!testEmailRole && String(otp) === TEST_EMAIL_OTP;
 
@@ -502,7 +591,8 @@ const verifyEmailOtp = asyncHandler(async (req, res) => {
 
 	if (flow === "login") {
 		const user = await User.findOne({ email, role });
-		if (!user) throw new AppError(`No ${role} account found with this email`, 404);
+		if (!user)
+			throw new AppError(`No ${role} account found with this email`, 404);
 
 		let profile = null;
 		if (role === "rider") {
@@ -730,17 +820,37 @@ const verifyPhoneOtp = asyncHandler(async (req, res) => {
 			let profile = null;
 			if (testRole === "rider") {
 				profile = await RiderProfile.findOne({ user: user._id });
+				if (!profile) {
+					profile = new RiderProfile({ user: user._id, status: "pending" });
+					await profile.save();
+					logger.info(`App Store Review: Auto-created missing RiderProfile for ${phone}`);
+				}
 			} else if (testRole === "vendor") {
 				profile = await VendorProfile.findOne({ owner: user._id });
+				if (!profile) {
+					profile = new VendorProfile({
+						owner: user._id,
+						name: "Test Vendor",
+						location: {
+							type: "Point",
+							coordinates: [3.3792, 6.5244],
+							address: "Lagos",
+						},
+						isActive: true,
+					});
+					await profile.save();
+					logger.info(`App Store Review: Auto-created missing VendorProfile for ${phone}`);
+				}
 			} else if (testRole === "customer") {
 				profile = await Customer.findOne({ user: user._id });
+				if (!profile) {
+					profile = new Customer({ user: user._id });
+					await profile.save();
+					logger.info(
+						`App Store Review: Auto-created missing Customer profile for ${phone}`,
+					);
+				}
 			}
-
-			if (!profile)
-				throw new AppError(
-					`No ${testRole} account found with this phone number`,
-					404,
-				);
 
 			if (fcmToken) {
 				user.fcmToken = fcmToken;
@@ -805,7 +915,10 @@ const verifyPhoneOtp = asyncHandler(async (req, res) => {
 	if (flow === "login") {
 		const user = await User.findOne({ phone, role });
 		if (!user)
-			throw new AppError(`No ${role} account found with this phone number`, 404);
+			throw new AppError(
+				`No ${role} account found with this phone number`,
+				404,
+			);
 
 		let profile = null;
 		if (role === "rider") {
@@ -975,6 +1088,116 @@ const checkPhone = asyncHandler(async (req, res) => {
 	return res.json({ exists: false });
 });
 
+const oauthSignin = asyncHandler(async (req, res) => {
+	const { idToken, provider, role, fcmToken } = req.body;
+	if (!idToken || !provider || !role) {
+		throw new AppError("idToken, provider, and role are required", 400);
+	}
+
+	let email, name, googleId, appleId;
+
+	try {
+		if (provider === "google") {
+			const ticket = await googleClient.verifyIdToken({
+				idToken: idToken,
+				audience: process.env.GOOGLE_CLIENT_ID,
+			});
+			const payload = ticket.getPayload();
+			email = payload.email;
+			name = payload.name;
+			googleId = payload.sub;
+		} else if (provider === "apple") {
+			const payload = await appleSignin.verifyIdToken(idToken, {
+				audience: process.env.APPLE_CLIENT_ID,
+				ignoreExpiration: true,
+			});
+			email = payload.email;
+			appleId = payload.sub;
+			name = "Apple User"; // Apple only sends name on first login, typically needs client side passing
+		} else {
+			throw new AppError("Invalid provider", 400);
+		}
+	} catch (err) {
+		logger.error(`OAuth verification failed: ${err.message}`);
+		throw new AppError("Invalid OAuth token", 401);
+	}
+
+	if (!email) {
+		throw new AppError("Email not provided by OAuth provider", 400);
+	}
+
+	let user = await User.findOne({ email });
+
+	if (user) {
+		// Link account
+		if (provider === "google" && !user.googleId) user.googleId = googleId;
+		if (provider === "apple" && !user.appleId) user.appleId = appleId;
+		if (user.authProvider === "local") user.authProvider = provider;
+		if (fcmToken) user.fcmToken = fcmToken;
+		await user.save();
+
+		// Check if profile exists
+		let profile = null;
+		if (user.role === "rider") {
+			profile = await RiderProfile.findOne({ user: user._id });
+		} else if (user.role === "vendor") {
+			profile = await VendorProfile.findOne({ owner: user._id });
+		} else if (user.role === "customer") {
+			profile = await Customer.findOne({ user: user._id });
+		}
+
+		if (!profile) {
+			// Profile missing, but user exists. Edge case.
+			throw new AppError(`No ${role} profile found for this user`, 404);
+		}
+
+		await validateUserStatus(user._id, user.role);
+
+		const accessToken = generateAccessToken({ id: user._id, role: user.role });
+		const refreshToken = generateRefreshToken({
+			id: user._id,
+			role: user.role,
+		});
+		await RefreshToken.create({
+			token: refreshToken,
+			user: user._id,
+			ip: req.ip,
+		});
+
+		return res.json({
+			success: true,
+			action: "login",
+			accessToken,
+			refreshToken,
+			user: {
+				id: user._id,
+				name: user.name,
+				email: user.email,
+				phone: user.phone,
+				role: user.role,
+				profileId: profile._id,
+				address: user.address,
+				location: user.location,
+			},
+		});
+	} else {
+		// New User Registration Required
+		const otpSession = jwt.sign(
+			{ email, name, provider, googleId, appleId },
+			process.env.JWT_SECRET,
+			{ expiresIn: "30m" },
+		);
+		return res.json({
+			success: true,
+			action: "register",
+			otpSession,
+			message: "Phone number required to complete registration",
+			email,
+			name,
+		});
+	}
+});
+
 module.exports = {
 	register,
 	login,
@@ -987,4 +1210,5 @@ module.exports = {
 	checkUserExist,
 	updateFcmToken,
 	checkPhone,
+	oauthSignin,
 };

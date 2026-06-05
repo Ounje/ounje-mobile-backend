@@ -90,7 +90,9 @@ const orderSchema = new mongoose.Schema(
 		foodTotal: { type: Number, default: 0 }, // gross food subtotal (sum of items)
 		vendorEarning: { type: Number, default: 0 }, // net to vendor after platform commission
 		platformMarkupRevenue: { type: Number, default: 0 }, // platform's 10% from all items
-		comboMarkupRevenue: { type: Number, default: 0 }, // platform's extra share from combo markup (non-promo orders)
+		// comboMarkupRevenue: { type: Number, default: 0 },   platform's extra share from combo markup (non-promo orders)
+		discountAmount: { type: Number, default: 0 }, // Amount subtracted from total
+		promoCodeApplied: { type: String, default: null }, // The code itself
 		zone: {
 			type: String,
 		}, // e.g., "Ikeja"
@@ -255,6 +257,9 @@ orderSchema.pre(["update", "updateOne", "updateMany", "findOneAndUpdate"], funct
 orderSchema.index({ customer: 1, status: 1 });
 orderSchema.index({ vendor: 1, status: 1 });
 orderSchema.index({ rider: 1, status: 1 });
+orderSchema.index({ customer: 1, status: 1, createdAt: -1 });
+orderSchema.index({ vendor: 1, status: 1, createdAt: -1 });
+orderSchema.index({ rider: 1, status: 1, createdAt: -1 });
 orderSchema.index({ status: 1, subStatus: 1 });
 orderSchema.index({ createdAt: -1 });
 orderSchema.index({ cancelledAt: -1 });

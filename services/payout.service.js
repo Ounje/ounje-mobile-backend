@@ -186,8 +186,8 @@ const requestWithdrawal = async ({
 
 	// ── 2. Calculate fees (naira) ─────────────────────────────────────────────
 	const fees = calculateFees(amount);
-	const totalDebit = amount + fees.total; // what leaves available balance
-	const netAmount = amount; // what lands in their bank
+	const totalDebit = amount; // what leaves available balance (amount entered is gross debit)
+	const netAmount = Math.max(0, amount - fees.total); // what lands in their bank after deducting fees
 
 	logger.info(
 		`[requestWithdrawal] Fees — gross=₦${amount} paystackFee=₦${fees.paystackFee} stampDuty=₦${fees.stampDuty} totalFee=₦${fees.total} totalDebit=₦${totalDebit} netSentToBank=₦${netAmount}`,
@@ -237,7 +237,7 @@ const requestWithdrawal = async ({
 		return {
 			success: false,
 			reason: "insufficient_funds",
-			detail: `Insufficient balance. You need ₦${totalDebit} (₦${amount} + ₦${fees.total} fees). Available: ₦${balance.availableBalance}`,
+			detail: `Insufficient balance. You requested ₦${amount} (which includes ₦${fees.total} in fees). Available balance: ₦${balance.availableBalance}`,
 			availableBalance: balance.availableBalance,
 			fees,
 		};
@@ -519,31 +519,19 @@ const _fireTransfer = async (payout) => {
 		`[_fireTransfer] Transfer initiated — transferCode=${transferCode}`,
 	);
 
-	// Save transferCode before touching ledger.
-	// If ledger update crashes, the webhook can still find and settle this payout.
+	// Save transferCode, update status to processing, and release lock.
+	// We DO NOT complete the payout in the ledger here. That is done in handleTransferSuccess webhook.
 	await Payout.findByIdAndUpdate(payout._id, {
-		$set: { transactionRef: transferCode },
-	});
-
-	// Transfer confirmed — debit the ledger
-	const ledgerType = recipientType === "VendorProfile" ? "VENDOR" : "RIDER";
-	const ledgerEntry = await ledgerService.completePayout(
-		recipientId,
-		ledgerType,
-		payout.amount, // naira — full reserved amount (gross + fee)
-	);
-
-	await Payout.findByIdAndUpdate(payout._id, {
-		$set: {
-			status: "success",
-			ledgerEntry: ledgerEntry.entry._id,
-			processedAt: new Date(),
+		$set: { 
+			transactionRef: transferCode,
+			status: "processing",
+			processedAt: new Date()
 		},
 		$unset: { lockedAt: "" },
 	});
 
 	logger.info(
-		`[_fireTransfer] ✅ SUCCESS — payoutId=${payout._id} transferCode=${transferCode} netSent=₦${netAmount} fee=₦${payout.feeDeducted}`,
+		`[_fireTransfer] ✅ INITIATED — payoutId=${payout._id} transferCode=${transferCode} netSent=₦${netAmount} fee=₦${payout.feeDeducted} (awaiting Paystack webhook)`,
 	);
 };
 

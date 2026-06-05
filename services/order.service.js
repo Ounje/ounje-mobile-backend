@@ -8,7 +8,9 @@ const {
 	RiderProfile,
 	Payment,
 	User,
+	Promotion,
 } = require("../models");
+const promoService = require("../services/promo.service");
 const { calculateOunjeFee, identifyZone } = require("../utils/delivery");
 const { parseTime: _parseTime } = require("../utils/time");
 const {
@@ -37,17 +39,19 @@ const calculateRiderRank = (totalDeliveries) => {
 	return "New Rider";
 };
 
-// ── UPDATED CONSTANTS ─────────────────────────────────────────────────────────
+// ── Constants ─────────────────────────────────────────────────────────────────
 // The 10% service fee is permanent and independent of food item markups.
-const SERVICE_FEE_RATE = 0.10;
+const SERVICE_FEE_RATE = 0.1;
 const EXEMPT_CATEGORIES = ["drinks"];
 
 // ── _calculateFees ────────────────────────────────────────────────────────────
-// Full replacement. Vendor always receives originalPrice. Platform keeps the markup.
-const _calculateFees = (items, promoApplied = false) => {
+// Combos now carry the same standard 10% platform markup as FoodItems/Plates.
+// The extra 20% combo markup has been removed.
+// Vendor always receives originalPrice. Platform keeps the 10% markup.
+const _calculateFees = (items) => {
 	let vendorEarning = 0;
 	let platformMarkupRevenue = 0;
-	let comboMarkupRevenue = 0;
+	let comboSubtotal = 0;
 
 	for (const item of items) {
 		const qty = item.quantity ?? 1;
@@ -55,24 +59,22 @@ const _calculateFees = (items, promoApplied = false) => {
 		const exempt = EXEMPT_CATEGORIES.includes(item.category?.toLowerCase());
 
 		if (item.itemType === "Combo") {
-			const originalPrice = item.originalPrice ?? Math.round(paidPrice / (1.10 * 1.20));
-			const withPlatformMarkup = Math.round(originalPrice * 1.10);
+			// Vendor always gets originalPrice.
+			// Standard 10% platform markup only — no extra combo markup.
+			// Reverse: originalPrice = paidPrice / 1.1
+			const originalPrice = item.originalPrice ?? Math.round(paidPrice / 1.1);
 
 			vendorEarning += originalPrice * qty;
-			platformMarkupRevenue += (withPlatformMarkup - originalPrice) * qty;
-
-			if (!promoApplied) {
-				comboMarkupRevenue += (paidPrice - withPlatformMarkup) * qty;
-			}
+			platformMarkupRevenue += (paidPrice - originalPrice) * qty;
+			comboSubtotal += paidPrice * qty;
 		} else {
 			// FoodItem or Plate
-			const originalPrice = item.originalPrice ?? (
-				exempt ? paidPrice : Math.round(paidPrice / 1.10)
-			);
+			const originalPrice =
+				item.originalPrice ??
+				(exempt ? paidPrice : Math.round(paidPrice / 1.1));
 
 			vendorEarning += originalPrice * qty;
 
-			// Drinks have no markup so no platform revenue from them
 			if (!exempt) {
 				platformMarkupRevenue += (paidPrice - originalPrice) * qty;
 			}
@@ -85,7 +87,7 @@ const _calculateFees = (items, promoApplied = false) => {
 		serviceFee,
 		vendorEarning,
 		platformMarkupRevenue,
-		comboMarkupRevenue,
+		comboSubtotal,
 	};
 };
 
@@ -198,7 +200,7 @@ const _calculateAndValidateItemPrice = async (item, models) => {
 
 		if (isFlatItem) {
 			itemPrice = product.price;
-			originalPrice = product.originalPrice ?? Math.round(itemPrice / 1.10);
+			originalPrice = product.originalPrice ?? Math.round(itemPrice / 1.1);
 			finalSubCatId = null;
 			resolvedName = product.name;
 		} else {
@@ -227,7 +229,7 @@ const _calculateAndValidateItemPrice = async (item, models) => {
 				throw new AppError(`Item "${foundItem.name}" is not available`, 400);
 
 			itemPrice = foundItem.price;
-			originalPrice = foundItem.originalPrice ?? Math.round(itemPrice / 1.10);
+			originalPrice = foundItem.originalPrice ?? Math.round(itemPrice / 1.1);
 			resolvedName = foundItem.name;
 
 			if (
@@ -284,7 +286,8 @@ const _calculateAndValidateItemPrice = async (item, models) => {
 			);
 
 		itemPrice = product.basePrice;
-		originalPrice = product.originalPrice ?? Math.round(itemPrice / (1.10 * 1.20));
+		// Combo originalPrice now uses the same 10% reverse as FoodItem/Plate
+		originalPrice = product.originalPrice ?? Math.round(itemPrice / 1.1);
 		resolvedName = product.comboName;
 
 		validatedComboSelections = [];
@@ -404,7 +407,7 @@ const _calculateAndValidateItemPrice = async (item, models) => {
 			throw new AppError(`Plate with ID ${actualItemId} not found`, 404);
 
 		itemPrice = product.price;
-		originalPrice = product.originalPrice ?? Math.round(itemPrice / 1.10);
+		originalPrice = product.originalPrice ?? Math.round(itemPrice / 1.1);
 		resolvedName = product.name;
 	}
 
@@ -423,6 +426,42 @@ const _calculateAndValidateItemPrice = async (item, models) => {
 		actualItemId,
 		finalSubCatId,
 	};
+};
+
+const doesOrderRequirePackaging = async (items, categoriesRequiringPlate) => {
+	if (!categoriesRequiringPlate || categoriesRequiringPlate.length === 0) return false;
+	const reqCategories = categoriesRequiringPlate.map(c => c.toLowerCase());
+
+	for (const item of items) {
+		const { itemId, itemType, comboSelections } = item;
+
+		if (itemType === "FoodItem") {
+			const food = await FoodItem.findById(itemId).select("category").lean();
+			if (food && food.category && reqCategories.includes(food.category.toLowerCase())) {
+				return true;
+			}
+		} else if (itemType === "Plate") {
+			const plate = await Plate.findById(itemId).populate("items", "category").lean();
+			if (plate && plate.items) {
+				for (const subItem of plate.items) {
+					if (subItem && subItem.category && reqCategories.includes(subItem.category.toLowerCase())) {
+						return true;
+					}
+				}
+			}
+		} else if (itemType === "Combo") {
+			if (comboSelections && comboSelections.length > 0) {
+				const selectionItemIds = comboSelections.flatMap(s => (s.items || []).map(i => i.itemId));
+				const foodItems = await FoodItem.find({ _id: { $in: selectionItemIds } }).select("category").lean();
+				for (const food of foodItems) {
+					if (food && food.category && reqCategories.includes(food.category.toLowerCase())) {
+						return true;
+					}
+				}
+			}
+		}
+	}
+	return false;
 };
 
 const createOrder = async (userId, data) => {
@@ -459,6 +498,26 @@ const createOrder = async (userId, data) => {
 	const vendorAddress = vendor.location.address;
 	if (!vendorAddress) {
 		throw new AppError("Vendor address is missing", 400);
+	}
+
+	// 1a. Check and auto-inject takeaway packaging if needed
+	if (vendor.fulfillmentSettings?.requiresTakeawayPackaging && vendor.fulfillmentSettings?.packagingItemId) {
+		const reqPlate = await doesOrderRequirePackaging(items, vendor.fulfillmentSettings.categoriesRequiringPlate);
+		const alreadyHasPlate = items.some(item => item.itemId.toString() === vendor.fulfillmentSettings.packagingItemId.toString());
+
+		if (reqPlate && !alreadyHasPlate) {
+			const pkgItem = await FoodItem.findById(vendor.fulfillmentSettings.packagingItemId).lean();
+			if (pkgItem) {
+				const pkgOption = pkgItem.subCategory?.[0]?.items?.[0];
+				items.push({
+					itemId: pkgItem._id.toString(),
+					itemType: "FoodItem",
+					subCategoryItemId: pkgOption ? pkgOption._id.toString() : undefined,
+					quantity: 1,
+				});
+				logger.info(`Auto-injected Takeaway Packaging item ${pkgItem._id} to order`);
+			}
+		}
 	}
 
 	// 1b. Enforce vendor operating schedule
@@ -515,8 +574,8 @@ const createOrder = async (userId, data) => {
 			item: actualItemId,
 			name: resolvedName,
 			quantity,
-			price: itemPrice,                           // marked-up price customer pays
-			originalPrice: originalPrice,               // vendor's true price
+			price: itemPrice,
+			originalPrice,
 			notes,
 			subCategoryItemId: finalSubCatId || null,
 		};
@@ -584,11 +643,30 @@ const createOrder = async (userId, data) => {
 	const customer = await Customer.findOne({ user: userId });
 	if (!customer) throw new AppError("Customer profile not found", 404);
 
-	// 6. Calculate fees with the promo code flag
-	const promoApplied = !!data.promoCode;
+	// 6. Calculate fees
+	const { serviceFee, vendorEarning, platformMarkupRevenue, comboSubtotal } =
+		_calculateFees(orderItems);
 
-	const { serviceFee, vendorEarning, platformMarkupRevenue, comboMarkupRevenue } =
-		_calculateFees(orderItems, promoApplied);
+	// 6a. Apply promo code if provided
+	let discountAmount = 0;
+	let promo = null;
+
+	if (data.promoCode) {
+		promo = await promoService.findPromoByCode(data.promoCode);
+
+		const promoError = promoService.getPromoError(promo, userId, {
+			total: itemsTotalPrice,
+			comboSubtotal,
+		});
+
+		if (promoError) throw new AppError(promoError.message, promoError.status);
+
+		discountAmount = promoService.calculateDiscount(
+			promo,
+			itemsTotalPrice,
+			comboSubtotal,
+		);
+	}
 
 	// 6b. Resolve delivery coordinates
 	let finalDeliveryLat = deliveryLatitude ?? null;
@@ -615,13 +693,17 @@ const createOrder = async (userId, data) => {
 		customer: customer._id,
 		vendor: vendorId,
 		items: orderItems,
-		totalPrice: itemsTotalPrice + fee + serviceFee,
+		totalPrice: Math.max(
+			0,
+			itemsTotalPrice + fee + serviceFee - discountAmount,
+		),
 		deliveryFee: fee,
 		serviceFee,
 		foodTotal: itemsTotalPrice,
+		discountAmount,
+		promoCodeApplied: promo ? promo.code : null,
 		vendorEarning,
-		platformMarkupRevenue,  // new field
-		comboMarkupRevenue,     // new field
+		platformMarkupRevenue,
 		deliveryAddress,
 		deliveryLatitude: finalDeliveryLat,
 		deliveryLongitude: finalDeliveryLng,
@@ -631,17 +713,37 @@ const createOrder = async (userId, data) => {
 		isPreorder: vendor.storeDetails?.[0]?.servicesOffered === "preOrderMeals",
 		preparationTime:
 			vendor.storeDetails?.[0]?.preorderPeriods?.[0]?.preparationTime,
+		paymentMethod: data.paymentMethod || "wallet",
 	});
+
+	logger.info(
+		`[Order] itemsTotalPrice=${itemsTotalPrice} fee=${fee} serviceFee=${serviceFee} discountAmount=${discountAmount} totalPrice=${order.totalPrice}`,
+	);
+
 	order.orderNumber = await generateOrderNumber(order._id);
 	await order.save();
 
-	// 8. Notify vendor
+	if (promo) {
+		await Promotion.findByIdAndUpdate(promo._id, {
+			$inc: { usedCount: 1 },
+			$addToSet: { usedBy: userId },
+		});
+	}
+
+	// 7. Notify vendor
 	try {
 		await notificationService.notifyNewOrder(vendorId, order);
 		logger.info(`New order notification sent to vendor ${vendorId}`);
 	} catch (error) {
 		logger.error(`Failed to send new order notification: ${error.message}`);
 	}
+
+	// 8. Ops email alert
+	try {
+		const opsAlerts = require("../helpers/opsEmailAlerts");
+		const vendorDoc = await require("../models/VendorProfile").findById(vendorId).select("name").lean();
+		opsAlerts.newOrder(order, vendorDoc?.name, customerName);
+	} catch { /* non-blocking */ }
 
 	return order;
 };
@@ -694,7 +796,7 @@ const sendOrderConfirmationEmailForOrder = async (order, vendor, user) => {
 /**
  * Calculate totalPrice, deliveryFee, serviceFee for a cart WITHOUT creating an order.
  */
-const estimateOrderPrice = async (cartData) => {
+const estimateOrderPrice = async (cartData, userId = null) => {
 	const { items, vendorId, deliveryAddress, promoCode } = cartData;
 
 	if (!mongoose.isValidObjectId(vendorId))
@@ -715,6 +817,26 @@ const estimateOrderPrice = async (cartData) => {
 	if (!vendor.location?.address)
 		throw new AppError("Vendor address is missing", 400);
 
+	// Check and auto-inject takeaway packaging if needed
+	if (vendor.fulfillmentSettings?.requiresTakeawayPackaging && vendor.fulfillmentSettings?.packagingItemId) {
+		const reqPlate = await doesOrderRequirePackaging(items, vendor.fulfillmentSettings.categoriesRequiringPlate);
+		const alreadyHasPlate = items.some(item => item.itemId.toString() === vendor.fulfillmentSettings.packagingItemId.toString());
+
+		if (reqPlate && !alreadyHasPlate) {
+			const pkgItem = await FoodItem.findById(vendor.fulfillmentSettings.packagingItemId).lean();
+			if (pkgItem) {
+				const pkgOption = pkgItem.subCategory?.[0]?.items?.[0];
+				items.push({
+					itemId: pkgItem._id.toString(),
+					itemType: "FoodItem",
+					subCategoryItemId: pkgOption ? pkgOption._id.toString() : undefined,
+					quantity: 1,
+				});
+				logger.info(`[Estimate] Auto-injected Takeaway Packaging item ${pkgItem._id}`);
+			}
+		}
+	}
+
 	if (!isVendorOpenNow(vendor)) {
 		throw new AppError(buildClosedReason(vendor), 400);
 	}
@@ -725,26 +847,46 @@ const estimateOrderPrice = async (cartData) => {
 	let itemsTotalPrice = 0;
 	const formattedItems = [];
 	for (const item of items) {
-		const { itemPrice, originalPrice } = await _calculateAndValidateItemPrice(item, models);
+		const { itemPrice, originalPrice, resolvedName } =
+			await _calculateAndValidateItemPrice(item, models);
 		itemsTotalPrice += itemPrice * (item.quantity ?? 1);
 		formattedItems.push({
 			...item,
+			name: resolvedName,
 			price: itemPrice,
-			originalPrice: originalPrice
+			originalPrice,
 		});
 	}
 
-	const promoApplied = !!promoCode;
-	const { serviceFee, vendorEarning } = _calculateFees(
-		formattedItems,
-		promoApplied
-	);
+	const { serviceFee, vendorEarning, comboSubtotal } =
+		_calculateFees(formattedItems);
+
+	let discountAmount = 0;
+	if (promoCode) {
+		const promo = await promoService.findPromoByCode(promoCode);
+
+		const promoError = promoService.getPromoError(promo, userId, {
+			total: itemsTotalPrice,
+			comboSubtotal,
+		});
+
+		if (!promoError && promo) {
+			discountAmount = promoService.calculateDiscount(
+				promo,
+				itemsTotalPrice,
+				comboSubtotal,
+			);
+		}
+	}
+
+	const baseTotal = itemsTotalPrice + fee + serviceFee;
 
 	return {
 		foodTotal: itemsTotalPrice,
 		deliveryFee: fee,
 		serviceFee,
-		totalPrice: itemsTotalPrice + fee + serviceFee,
+		discountAmount,
+		totalPrice: Math.max(0, baseTotal - discountAmount),
 		vendorEarning,
 	};
 };
@@ -776,10 +918,29 @@ const updateOrderStatus = async (orderId, status, subStatus) => {
 	return order;
 };
 
-const sendDeliveryOtp = async (order) => {
+const sendDeliveryOtp = async (order, forceRegenerate = false) => {
 	if (!order) throw new AppError("Order required", 400);
 	const customer = await Customer.findById(order.customer);
 	if (!customer) throw new AppError("Customer not found", 404);
+
+	const hasExpired = order.deliveryOtpExpiresAt && new Date() > new Date(order.deliveryOtpExpiresAt);
+
+	if (order.deliveryOtpCode && !hasExpired && !forceRegenerate) {
+		logger.info(`Reusing existing OTP for order ${order._id}`);
+		try {
+			if (global.io) {
+				global.io.to(order.customer.toString()).emit("delivery-otp", {
+					orderId: order._id,
+					customerId: order.customer,
+					otp: order.deliveryOtpCode,
+					expiresAt: order.deliveryOtpExpiresAt,
+				});
+			}
+		} catch (err) {
+			logger.error(`Failed to emit existing delivery OTP via socket.io: ${err.message}`);
+		}
+		return { success: true };
+	}
 
 	const otp = generateNumericOtp(
 		parseInt(process.env.DELIVERY_OTP_LENGTH || 6),
@@ -794,7 +955,7 @@ const sendDeliveryOtp = async (order) => {
 	await order.save();
 
 	logger.info(
-		`Generated OTP for order ${order._id} (hash stored, plaintext not persisted)`,
+		`Generated new OTP for order ${order._id} (hash stored, plaintext not persisted)`,
 	);
 
 	try {
@@ -835,6 +996,77 @@ const verifyDeliveryOtp = async (order, otp, riderId) => {
 	order.deliveryOtpSentAt = null;
 
 	await order.save();
+
+	// Referral reward processing
+	try {
+		if (order.promoCodeApplied) {
+			const promoCode = order.promoCodeApplied.trim().toUpperCase();
+			const Referral = require("../models/referralCode");
+			const referral = await Referral.findOne({ code: promoCode, isActive: true });
+			if (referral) {
+				// Verify order qualifying threshold of ₦2,500
+				if (order.totalPrice >= 2500) {
+					// Check for self-referral
+					if (referral.referrer.toString() !== order.customer.toString()) {
+						// Check if this customer has already been referred for this code, or if this is their first order with it
+						const alreadyReferred = referral.referredUsers.some(
+							(ru) => ru.user && ru.user.toString() === order.customer.toString() && ru.rewardGranted
+						);
+						if (!alreadyReferred) {
+							// Credit the referrer's wallet
+							const creditRes = await ledgerService.creditAccount(
+								referral.referrer,
+								"CUSTOMER",
+								200,
+								"REFERRAL_REWARD",
+								order._id,
+								{ referralCode: promoCode, refereeId: order.customer }
+							);
+							
+							if (creditRes && creditRes.success) {
+								// Update referral stats
+								referral.referredUsers.push({
+									user: order.customer,
+									joinedAt: new Date(),
+									rewardGranted: true,
+									rewardGrantedAt: new Date(),
+								});
+								referral.successfulReferrals = (referral.successfulReferrals || 0) + 1;
+								await referral.save();
+
+								logger.info(
+									`[REFERRAL] Successfully credited ₦200 to referrer ${referral.referrer} for order ${order._id} using code ${promoCode}`
+								);
+
+								// Send push notification to referrer
+								try {
+									const User = require("../models/User");
+									const referrerUser = await User.findById(referral.referrer);
+									if (referrerUser && referrerUser.fcmToken) {
+										const { sendPushNotification } = require("./push.notification.service");
+										await sendPushNotification(
+											referrerUser.fcmToken,
+											"Referral Reward Credited!",
+											`You've earned ₦200 from your referral code ${promoCode}!`,
+											{ data: { type: "wallet_topup", orderId: order._id.toString() } }
+										);
+									}
+								} catch (err) {
+									logger.error(`Failed to send referral push notification: ${err.message}`);
+								}
+							}
+						}
+					} else {
+						logger.info(`[REFERRAL] Self-referral detected for order ${order._id}. Skipping reward.`);
+					}
+				} else {
+					logger.info(`[REFERRAL] Order total ₦${order.totalPrice} is less than qualifying threshold ₦2,500. Skipping reward.`);
+				}
+			}
+		}
+	} catch (referralErr) {
+		logger.error(`[REFERRAL] Failed to process referral reward: ${referralErr.message}`);
+	}
 
 	await ledgerService.releaseRiderFee(order.rider, order._id);
 
@@ -998,6 +1230,18 @@ const acceptOrder = async (orderId, riderId) => {
 		message: "A rider has accepted your order and is on the way!",
 	});
 
+	if (global.io) {
+		const payload = {
+			orderId: order._id.toString(),
+			status: order.status,
+			subStatus: order.subStatus,
+		};
+		const rooms = [order.vendor?.toString(), riderId.toString()].filter(Boolean);
+		rooms.forEach((room) => {
+			global.io.to(room).emit("orderUpdate", payload);
+		});
+	}
+
 	try {
 		const { cancelDispatch } = require("./order.rider.service");
 		cancelDispatch(orderId);
@@ -1048,7 +1292,9 @@ const pickUpOrder = async (orderId, riderId) => {
 	if (order.rider.toString() !== riderId) {
 		throw new AppError("You are not the assigned rider for this order", 403);
 	}
-
+	if (order.subStatus === ORDER_SUB_STATUS.PICKED_UP) {
+		throw new AppError("Order has already been picked up", 400);
+	}
 	order.status = ORDER_STATUS.RIDING;
 	order.subStatus = ORDER_SUB_STATUS.PICKED_UP;
 	await order.save();
@@ -1065,6 +1311,18 @@ const pickUpOrder = async (orderId, riderId) => {
 		);
 	} catch (error) {
 		logger.error(`Failed to send pickup notification: ${error.message}`);
+	}
+
+	if (global.io) {
+		const payload = {
+			orderId: order._id.toString(),
+			status: order.status,
+			subStatus: order.subStatus,
+		};
+		const rooms = [order.customer?.toString(), order.vendor?.toString(), riderId].filter(Boolean);
+		rooms.forEach((room) => {
+			global.io.to(room).emit("orderUpdate", payload);
+		});
 	}
 
 	return order;
@@ -1101,13 +1359,17 @@ const completeDelivery = async (orderId, riderId, otp) => {
 		message: "Delivery confirmed! Enjoy your meal.",
 	});
 
-	if (global.io && order.vendor) {
-		global.io.to(order.vendor.toString()).emit("orderUpdate", {
-			orderId: order._id,
+	if (global.io) {
+		const payload = {
+			orderId: order._id.toString(),
 			status: ORDER_STATUS.DELIVERED,
 			subStatus: ORDER_SUB_STATUS.DELIVERED,
+		};
+		const rooms = [order.vendor?.toString(), riderId.toString()].filter(Boolean);
+		rooms.forEach((room) => {
+			global.io.to(room).emit("orderUpdate", payload);
 		});
-		logger.info(`Delivered status emitted to vendor ${order.vendor}`);
+		logger.info(`Delivered status emitted to vendor ${order.vendor} and rider ${riderId}`);
 	}
 
 	logger.info(`Order ${orderId} delivered by Rider ${riderId}`);
@@ -1133,46 +1395,53 @@ const cancelOrder = async (orderId, customerId) => {
 		);
 	}
 
-	order.status = ORDER_STATUS.CANCELLED;
-	order.subStatus = ORDER_SUB_STATUS.CANCELLED;
-	order.cancelledAt = new Date();
-	order.cancelledBy = customerId;
-	order.cancellationCategory = "customer";
+	// Atomically transition the order to cancelled only if it is still confirming
+	const updatedOrder = await Order.findOneAndUpdate(
+		{ 
+			_id: orderId, 
+			status: ORDER_STATUS.CONFIRMING,
+			subStatus: ORDER_SUB_STATUS.CONFIRMING
+		},
+		{
+			$set: {
+				status: ORDER_STATUS.CANCELLED,
+				subStatus: ORDER_SUB_STATUS.CANCELLED,
+				cancelledAt: new Date(),
+				cancelledBy: customerId,
+				cancellationCategory: "customer",
+			}
+		},
+		{ new: true }
+	);
 
-	await order.save();
+	if (!updatedOrder) {
+		throw new AppError(
+			"Order has already been accepted, cancelled, or declined.",
+			400,
+		);
+	}
 
-	if (order.paymentStatus === "paid") {
+	if (updatedOrder.paymentStatus === "paid") {
 		try {
-			if (order.paymentMethod === "wallet") {
+			// Atomically transition paymentStatus from paid to refunded
+			const refundedOrder = await Order.findOneAndUpdate(
+				{ _id: updatedOrder._id, paymentStatus: "paid" },
+				{ $set: { paymentStatus: "refunded" } },
+				{ new: true }
+			);
+			if (refundedOrder) {
+				const originalPaymentMethod = updatedOrder.paymentMethod || "paystack";
 				await ledgerService.creditAccount(
-					order.customer,
+					updatedOrder.customer,
 					"CUSTOMER",
-					order.totalPrice,
+					updatedOrder.totalPrice,
 					"REFUND",
-					order._id,
-					{ reason: "customer_cancelled" },
+					updatedOrder._id,
+					{ reason: "customer_cancelled", originalPaymentMethod },
 				);
-				order.paymentStatus = "refunded";
-				await order.save();
-			} else if (order.paymentMethod === "paystack") {
-				const payment = await Payment.findOne({
-					orderId: order._id,
-					status: "success",
-				});
-				if (payment) {
-					try {
-						await refundTransaction(payment.reference, order.totalPrice * 100);
-						order.paymentStatus = "refunded";
-						await order.save();
-						logger.info(
-							`[REFUND] Paystack refund issued for cancelled order ${order._id}`,
-						);
-					} catch (refundErr) {
-						logger.error(
-							`[REFUND] Paystack refund failed for order ${order._id}: ${refundErr.message}`,
-						);
-					}
-				}
+				logger.info(
+					`[REFUND] Order ${updatedOrder._id} payment refunded to O-Credit wallet`,
+				);
 			}
 		} catch (error) {
 			logger.error(
@@ -1182,7 +1451,7 @@ const cancelOrder = async (orderId, customerId) => {
 	}
 
 	try {
-		await ledgerService.reverseOrderEarnings(order);
+		await ledgerService.reverseOrderEarnings(updatedOrder);
 	} catch (error) {
 		logger.error(
 			`Failed to reverse ledger for cancelled order ${orderId}: ${error.message}`,
@@ -1190,15 +1459,34 @@ const cancelOrder = async (orderId, customerId) => {
 	}
 
 	try {
-		await notificationService.notifyOrderCancelled(order.vendor, order);
+		await notificationService.notifyOrderCancelled(updatedOrder.vendor, updatedOrder);
 		logger.info(
-			`Order ${orderId} cancelled by customer ${customerId}, vendor ${order.vendor} notified`,
+			`Order ${orderId} cancelled by customer ${customerId}, vendor ${updatedOrder.vendor} notified`,
 		);
 	} catch (error) {
 		logger.error(`Failed to send cancellation notification: ${error.message}`);
 	}
 
-	return order;
+	if (global.io) {
+		if (updatedOrder.vendor) {
+			global.io.to(updatedOrder.vendor.toString()).emit("orderUpdate", {
+				orderId: updatedOrder._id,
+				status: updatedOrder.status,
+				subStatus: updatedOrder.subStatus,
+				message: "Order was cancelled by the customer.",
+			});
+		}
+		if (updatedOrder.rider) {
+			global.io.to(updatedOrder.rider.toString()).emit("orderUpdate", {
+				orderId: updatedOrder._id,
+				status: updatedOrder.status,
+				subStatus: updatedOrder.subStatus,
+				message: "Order was cancelled by the customer.",
+			});
+		}
+	}
+
+	return updatedOrder;
 };
 
 const vendorAcceptOrder = async (orderId, vendorId) => {
@@ -1302,4 +1590,5 @@ module.exports = {
 	generateNumericOtp,
 	hashOtp,
 	sendOrderConfirmationEmailForOrder,
+	_calculateFees,
 };

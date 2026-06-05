@@ -350,10 +350,8 @@ const getTransactionHistory = async (
  * Credit vendor from successful payment.
  * order.totalPrice is in NAIRA.
  */
-const creditVendorFromOrder = async (order, commission = 0.1) => {
-	const vendorGross = order.totalPrice;
-	const vendorCommission = Math.round(vendorGross * commission * 100) / 100;
-	const vendorNet = vendorGross - vendorCommission;
+const creditVendorFromOrder = async (order) => {
+	const vendorNet = order.vendorEarning || order.totalPrice;
 
 	await creditAccount(
 		order.vendor,
@@ -362,9 +360,9 @@ const creditVendorFromOrder = async (order, commission = 0.1) => {
 		"ORDER_EARNING",
 		order._id,
 		{
-			gross: vendorGross,
-			commission: vendorCommission,
-			commissionRate: commission,
+			gross: order.totalPrice,
+			vendorNet: vendorNet,
+			markupRevenue: (order.platformMarkupRevenue || 0) + (order.comboMarkupRevenue || 0),
 		},
 	);
 

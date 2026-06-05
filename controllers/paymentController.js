@@ -99,6 +99,38 @@ const _sendOrderEmail = async (order) => {
 	}
 };
 
+/**
+ * Mark order as paid. Handles webhook race conditions where the order is already
+ * cancelled or declined before the payment webhook arrives.
+ */
+const markOrderAsPaid = async (orderId, paymentMethod) => {
+	const order = await Order.findById(orderId);
+	if (!order) return null;
+	if (order.paymentStatus === "paid" || order.paymentStatus === "refunded") return order;
+
+	if (order.status === "cancelled" || order.status === "declined") {
+		// Already cancelled/declined — mark refunded immediately and credit wallet
+		order.paymentStatus = "refunded";
+		order.paymentMethod = paymentMethod;
+		await order.save();
+
+		await ledgerService.creditAccount(
+			order.customer,
+			"CUSTOMER",
+			order.totalPrice,
+			"REFUND",
+			order._id,
+			{ reason: `payment_received_after_${order.status}`, originalPaymentMethod: paymentMethod },
+		);
+		logger.info(`[REFUND] Payment received after order ${order._id} was ${order.status}. Auto-refunded to O-Credit wallet.`);
+	} else {
+		order.paymentStatus = "paid";
+		order.paymentMethod = paymentMethod;
+		await order.save();
+	}
+	return order;
+};
+
 // ─── CONTROLLERS ──────────────────────────────────────────────────────────────
 
 /**
@@ -129,7 +161,7 @@ const initialisePayment = async (req, res) => {
 		let priceBreakdown = null;
 
 		if (cartData) {
-			const estimate = await orderService.estimateOrderPrice(cartData);
+			const estimate = await orderService.estimateOrderPrice(cartData, userId);
 			priceBreakdown = estimate;
 			amountInKobo = toKobo(estimate.totalPrice);
 			orderMetadata.cartMode = true;
@@ -181,6 +213,7 @@ const initialisePayment = async (req, res) => {
 			deliveryFee: priceBreakdown?.deliveryFee ?? null,
 			serviceFee: priceBreakdown?.serviceFee ?? null,
 			foodTotal: priceBreakdown?.foodTotal ?? null,
+			discountAmount: priceBreakdown?.discountAmount ?? null,
 		});
 	} catch (err) {
 		logger.error(
@@ -262,12 +295,10 @@ const verifyPayment = async (req, res) => {
 					}
 				}
 			} else if (payment.orderId) {
-				await Order.findByIdAndUpdate(payment.orderId, {
-					paymentStatus: "paid",
-					paymentMethod: "paystack",
-				});
-				createdOrder = await Order.findById(payment.orderId);
-				_sendOrderEmail(createdOrder).catch(() => {});
+				createdOrder = await markOrderAsPaid(payment.orderId, "paystack");
+				if (createdOrder) {
+					_sendOrderEmail(createdOrder).catch(() => {});
+				}
 			}
 		}
 
@@ -323,13 +354,15 @@ const webhookHandler = async (req, res) => {
 			event = JSON.parse(bodyString);
 		}
 	} catch (err) {
-		logger.warn(`[Webhook] invalid JSON body | error=${err.message} | body_type=${typeof req.body}`);
+		logger.warn(
+			`[Webhook] invalid JSON body | error=${err.message} | body_type=${typeof req.body}`,
+		);
 		return res.status(400).send("Invalid JSON");
 	}
 
 	const bodyToVerify = Buffer.isBuffer(req.body)
 		? req.body
-		: (req.rawBody || bodyString);
+		: req.rawBody || bodyString;
 
 	const signatureHeader = req.headers["x-paystack-signature"];
 
@@ -341,12 +374,12 @@ const webhookHandler = async (req, res) => {
 	const sigOk = hash === signatureHeader;
 
 	logger.info(
-		`[Webhook] received event="${event?.event}" sig_ok=${sigOk} | originalUrl=${req.originalUrl} | x-paystack-signature=${signatureHeader ? signatureHeader.substring(0, 10) + "..." : "missing"}`
+		`[Webhook] received event="${event?.event}" sig_ok=${sigOk} | originalUrl=${req.originalUrl} | x-paystack-signature=${signatureHeader ? signatureHeader.substring(0, 10) + "..." : "missing"}`,
 	);
 
 	if (!sigOk) {
 		logger.warn(
-			`[Webhook] signature mismatch | body_is_buffer=${Buffer.isBuffer(req.body)} | body_has_raw=${Buffer.isBuffer(req.rawBody)} | body_length=${bodyString?.length} | computed_hash=${hash.substring(0, 10)}... | x-paystack-signature=${signatureHeader ? signatureHeader.substring(0, 10) + "..." : "missing"}`
+			`[Webhook] signature mismatch | body_is_buffer=${Buffer.isBuffer(req.body)} | body_has_raw=${Buffer.isBuffer(req.rawBody)} | body_length=${bodyString?.length} | computed_hash=${hash.substring(0, 10)}... | x-paystack-signature=${signatureHeader ? signatureHeader.substring(0, 10) + "..." : "missing"}`,
 		);
 		return res.status(400).send("Invalid signature");
 	}
@@ -372,6 +405,17 @@ const webhookHandler = async (req, res) => {
 			const reason = event.data?.reason || event.event;
 			if (transferCode)
 				await payoutService.handleTransferFailure(transferCode, reason);
+			return res.status(200).send("Webhook processed");
+		}
+
+		// ── charge.failed ─────────────────────────────────────────────────────
+		if (event.event === "charge.failed") {
+			const { reference, amount, customer: pc, metadata } = event.data ?? {};
+			try {
+				const opsAlerts = require("../helpers/opsEmailAlerts");
+				opsAlerts.paymentFailed(reference, (amount ?? 0) / 100, pc?.email ?? metadata?.email);
+			} catch { /* non-blocking */ }
+			logger.info(`[Webhook] charge.failed | ref=${reference}`);
 			return res.status(200).send("Webhook processed");
 		}
 
@@ -423,7 +467,9 @@ const webhookHandler = async (req, res) => {
 			// ── DVA top-up via virtual account ────────────────────────────────
 			if (event.data.channel === "dedicated_nuban") {
 				try {
-					logger.info(`[Webhook] DVA top-up info | customer_code=${paystackCustomer?.customer_code} email=${paystackCustomer?.email} ref=${reference}`);
+					logger.info(
+						`[Webhook] DVA top-up info | customer_code=${paystackCustomer?.customer_code} email=${paystackCustomer?.email} ref=${reference}`,
+					);
 
 					const customer = await Customer.findOne({
 						paystackCustomerCode: paystackCustomer.customer_code,
@@ -446,7 +492,9 @@ const webhookHandler = async (req, res) => {
 						return res.status(200).send("Already processed");
 					}
 
-					logger.info(`[Webhook] DVA creating payment record and crediting wallet for customer=${customer._id} amountNaira=${amountNaira}`);
+					logger.info(
+						`[Webhook] DVA creating payment record and crediting wallet for customer=${customer._id} amountNaira=${amountNaira}`,
+					);
 
 					await Payment.create({
 						reference,
@@ -465,7 +513,9 @@ const webhookHandler = async (req, res) => {
 						{ paystackReference: reference, channel: event.data.channel },
 					);
 
-					logger.info(`[Webhook] DVA ledger credit complete | result=${JSON.stringify(result)}`);
+					logger.info(
+						`[Webhook] DVA ledger credit complete | result=${JSON.stringify(result)}`,
+					);
 
 					Customer.findById(customer._id)
 						.populate("user")
@@ -551,8 +601,25 @@ const webhookHandler = async (req, res) => {
 							),
 						);
 
-					await _holdVendorEarnings(order);
-					await _holdRiderFee(order);
+					// ── Idempotency guard — prevent double-hold ──────────────────
+					const { LedgerEntry, LedgerAccount } = require("../models");
+					const vendorAcct = await LedgerAccount.findOne({ userId: order.vendor, type: "VENDOR" });
+					const alreadyHeld = vendorAcct
+						? await LedgerEntry.findOne({
+								accountId: vendorAcct._id,
+								orderId: order._id,
+								reason: "VENDOR_EARNING_HOLD",
+						  })
+						: null;
+
+					if (!alreadyHeld) {
+						await _holdVendorEarnings(order);
+						await _holdRiderFee(order);
+					} else {
+						logger.warn(
+							`[Webhook] cart: holds already exist for order ${order._id} — skipping to prevent double-hold`,
+						);
+					}
 
 					if (global.io) {
 						global.io.to(order.vendor.toString()).emit("newOrderAvailable", {
@@ -569,14 +636,13 @@ const webhookHandler = async (req, res) => {
 			}
 
 			// ── Legacy flow (orderId in metadata) ─────────────────────────────
-			const order = await Order.findById(metadata?.orderId).populate("items");
+			let order = await Order.findById(metadata?.orderId).populate("items");
 			if (!order) return res.status(200).send("Order not found");
-			if (order.paymentStatus === "paid")
+			if (order.paymentStatus === "paid" || order.paymentStatus === "refunded")
 				return res.status(200).send("Already processed");
 
-			order.paymentStatus = "paid";
-			order.paymentMethod = "paystack";
-			await order.save();
+			order = await markOrderAsPaid(order._id, "paystack");
+			if (!order) return res.status(200).send("Order update failed");
 
 			_sendOrderEmail(order).catch(() => {});
 
@@ -588,18 +654,35 @@ const webhookHandler = async (req, res) => {
 					),
 				);
 
+		// ── Idempotency guard — prevent double-hold if Paystack retries webhook ──
+		const { LedgerEntry: _LE, LedgerAccount: _LA } = require("../models");
+		const _legacyVendorAcct = await _LA.findOne({ userId: order.vendor, type: "VENDOR" });
+		const _legacyAlreadyHeld = _legacyVendorAcct
+			? await _LE.findOne({
+					accountId: _legacyVendorAcct._id,
+					orderId: order._id,
+					reason: "VENDOR_EARNING_HOLD",
+			  })
+			: null;
+
+		if (!_legacyAlreadyHeld) {
 			await _holdVendorEarnings(order);
 			await _holdRiderFee(order);
-
-			if (global.io) {
-				global.io.to(order.vendor.toString()).emit("newOrderAvailable", {
-					orderId: order._id,
-					message: "New order received!",
-				});
-			}
-
-			logger.info(`[Webhook] legacy: Order ${order._id} distributed`);
+		} else {
+			logger.warn(
+				`[Webhook] legacy: holds already exist for order ${order._id} — skipping to prevent double-hold`,
+			);
 		}
+
+		if (global.io) {
+			global.io.to(order.vendor.toString()).emit("newOrderAvailable", {
+				orderId: order._id,
+				message: "New order received!",
+			});
+		}
+
+		logger.info(`[Webhook] legacy: Order ${order._id} distributed`);
+	}
 
 		return res.status(200).send("Webhook processed");
 	} catch (err) {
@@ -698,7 +781,7 @@ const walletPayment = async (req, res) => {
 			await ledgerService.debitAccount(
 				customer._id,
 				"CUSTOMER",
-				totalKobo,
+				order.totalPrice,
 				"WALLET_PAYMENT",
 				order._id,
 			);
@@ -718,8 +801,25 @@ const walletPayment = async (req, res) => {
 				),
 			);
 
-		await _holdVendorEarnings(order);
-		await _holdRiderFee(order);
+		// ── Idempotency guard — prevent double-hold if Paystack retries webhook ──
+		const { LedgerEntry: LE, LedgerAccount: LA } = require("../models");
+		const legacyVendorAcct = await LA.findOne({ userId: order.vendor, type: "VENDOR" });
+		const legacyAlreadyHeld = legacyVendorAcct
+			? await LE.findOne({
+					accountId: legacyVendorAcct._id,
+					orderId: order._id,
+					reason: "VENDOR_EARNING_HOLD",
+			  })
+			: null;
+
+		if (!legacyAlreadyHeld) {
+			await _holdVendorEarnings(order);
+			await _holdRiderFee(order);
+		} else {
+			logger.warn(
+				`[Webhook] legacy: holds already exist for order ${order._id} — skipping to prevent double-hold`,
+			);
+		}
 
 		if (global.io) {
 			global.io.to(order.vendor.toString()).emit("newOrderAvailable", {

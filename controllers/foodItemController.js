@@ -6,14 +6,11 @@ const {
 const { paginate } = require("../utils/paginate");
 
 // ─── MARKUP CONSTANTS ─────────────────────────────────────────────────────────
-const PLATFORM_MARKUP = 1.10;       // 10% added to all items except drinks
-const COMBO_MARKUP = 1.20;          // additional 20% added to combos only
+const PLATFORM_MARKUP = 1.1; // 10% added to all items including combos
 const EXEMPT_CATEGORIES = ["drinks"]; // categories excluded from platform markup
 
-// The markup will only become active on Wednesday, May 27, 2026, 00:00:00 UTC.
 const isMarkupActive = () => {
-	const rolloutDate = new Date("2026-05-27T00:00:00Z");
-	return new Date() >= rolloutDate;
+	return true;
 };
 
 const applyMarkup = (price, multiplier) => {
@@ -223,10 +220,10 @@ const createFoodItem = async (req, res) => {
 
 				builtItems.push({
 					name: item.name,
-					originalPrice: item.price,                                      // vendor's exact price
+					originalPrice: item.price,
 					price: isMarkupExempt(category)
-						? item.price                                                // drinks — no markup
-						: applyMarkup(item.price, PLATFORM_MARKUP),                 // all others — 10% markup
+						? item.price
+						: applyMarkup(item.price, PLATFORM_MARKUP),
 					description: item.description || null,
 					preparationTime: item.preparationTime || null,
 					minQuantity: item.minQuantity || 1,
@@ -296,7 +293,6 @@ const addSubCategories = async (req, res) => {
 				.status(400)
 				.json({ success: false, message: "subCategoryName is required." });
 
-		// Normalize subcategory name to lowercase
 		subCategoryName = subCategoryName.toLowerCase();
 
 		if (!getSubCategoryValues().includes(subCategoryName))
@@ -316,7 +312,6 @@ const addSubCategories = async (req, res) => {
 				.status(400)
 				.json({ success: false, message: "Price must be greater than 0." });
 
-		// Normalize servicesOffered to handle both array and string
 		const serviceType = Array.isArray(vendor.servicesOffered)
 			? vendor.servicesOffered
 			: [vendor.servicesOffered];
@@ -332,7 +327,6 @@ const addSubCategories = async (req, res) => {
 				.status(400)
 				.json({ success: false, message: "Image is required." });
 
-		// Business limit check
 		const vendorFoodItems = await FoodItem.find({ vendor: vendor._id });
 		const existingItemsCount = vendorFoodItems.reduce((acc, fi) => {
 			return (
@@ -352,10 +346,10 @@ const addSubCategories = async (req, res) => {
 
 		const newItem = {
 			name: itemName,
-			originalPrice: price,                                           // vendor's exact price
+			originalPrice: price,
 			price: isMarkupExempt(foodItem.category)
-				? price                                                     // drinks — no markup
-				: applyMarkup(price, PLATFORM_MARKUP),                      // all others — 10% markup
+				? price
+				: applyMarkup(price, PLATFORM_MARKUP),
 			description: description || null,
 			preparationTime: preparationTime || null,
 			minQuantity: minQuantity || 1,
@@ -363,7 +357,6 @@ const addSubCategories = async (req, res) => {
 			img: req.files.img[0].path,
 		};
 
-		// Check if subcategory group already exists
 		const existingSubCategory = foodItem.subCategory.find(
 			(sub) => sub.name === subCategoryName,
 		);
@@ -432,7 +425,6 @@ const deleteSubCategory = async (req, res) => {
 			});
 
 		if (itemId) {
-			// Remove a specific item from the subcategory
 			const subCategory = foodItem.subCategory[subCategoryIndex];
 			const itemIndex = subCategory.items.findIndex(
 				(item) => item._id.toString() === itemId,
@@ -446,16 +438,13 @@ const deleteSubCategory = async (req, res) => {
 
 			subCategory.items.splice(itemIndex, 1);
 
-			// If no items left in subcategory, remove the subcategory group too
 			if (subCategory.items.length === 0) {
 				foodItem.subCategory.splice(subCategoryIndex, 1);
 			}
 		} else {
-			// Remove the entire subcategory group and all its items
 			foodItem.subCategory.splice(subCategoryIndex, 1);
 		}
 
-		// If no subcategories left, isCompulsory must be false
 		if (foodItem.subCategory.length === 0) {
 			foodItem.isCompulsory = false;
 		}
@@ -474,7 +463,6 @@ const deleteSubCategory = async (req, res) => {
 	}
 };
 
-// UPDATE FOOD ITEM
 const updateFoodItem = async (req, res) => {
 	try {
 		const { foodItemId } = req.params;
@@ -512,7 +500,6 @@ const updateFoodItem = async (req, res) => {
 			}
 		});
 
-		// Validate category & subcategory
 		if (foodItem.category && !getCategoryValues().includes(foodItem.category))
 			return res
 				.status(400)
@@ -532,7 +519,6 @@ const updateFoodItem = async (req, res) => {
 				message: "Subcategory required for compulsory items",
 			});
 
-		// Update images if provided
 		if (req.files) {
 			if (req.files.img && req.files.img[0])
 				foodItem.img = req.files.img[0].path;
@@ -560,7 +546,6 @@ const deleteFoodItem = async (req, res) => {
 			return res
 				.status(404)
 				.json({ success: false, message: "Food item not found" });
-		// Check if current user owns the vendor profile
 		if (!foodItem.vendor.owner.equals(req.user.id))
 			return res.status(403).json({
 				success: false,
@@ -579,7 +564,6 @@ const getAllFoodItems = async (req, res) => {
 		const filter = { isAvailable: true };
 		if (req.query.category) filter.category = req.query.category;
 
-		// Define what we want to "join" from the Vendor model
 		const populate = {
 			path: "vendor",
 			select:
@@ -612,17 +596,36 @@ const getFoodItemById = async (req, res) => {
 
 const getMyFoodItems = async (req, res) => {
 	try {
-		// Find the vendor profile for this user
 		const vendor = await VendorProfile.findOne({ owner: req.user.id });
 		if (!vendor) {
 			return res
 				.status(404)
 				.json({ success: false, message: "Vendor profile not found" });
 		}
-		// Create a filter using VendorProfile ID
 		const filter = { vendor: vendor._id };
 
 		const result = await paginate(FoodItem, req.query, null, filter);
+
+		// Revert price to originalPrice for vendor view so they see their real price
+		if (result && result.data) {
+			result.data = result.data.map((doc) => {
+				const foodItem = doc.toObject ? doc.toObject() : doc;
+				if (foodItem.subCategory) {
+					foodItem.subCategory = foodItem.subCategory.map((subCat) => {
+						if (subCat.items) {
+							subCat.items = subCat.items.map((item) => {
+								if (item.originalPrice) {
+									item.price = item.originalPrice;
+								}
+								return item;
+							});
+						}
+						return subCat;
+					});
+				}
+				return foodItem;
+			});
+		}
 
 		res.status(200).json(result);
 	} catch (err) {
@@ -630,7 +633,6 @@ const getMyFoodItems = async (req, res) => {
 	}
 };
 
-// Helper to process selections
 const processSelections = async (selections, vendorId) => {
 	if (!selections) return [];
 	let parsedSelections = selections;
@@ -654,13 +656,11 @@ const processSelections = async (selections, vendorId) => {
 
 	if (itemIds.length === 0) return parsedSelections;
 
-	// Query parent FoodItem docs that contain any of these nested item _ids
 	const foodItemDocs = await FoodItem.find({
 		vendor: vendorId,
 		"subCategory.items._id": { $in: itemIds },
 	});
 
-	// Build a flat map of itemId -> nested item data
 	const itemMap = new Map();
 	foodItemDocs.forEach((doc) => {
 		doc.subCategory.forEach((sub) => {
@@ -726,17 +726,15 @@ const createCombo = async (req, res) => {
 		const processedSelections = await processSelections(selections, vendor._id);
 
 		const originalPrice = Number(basePrice);
-		// Step 1: apply standard 10% platform markup
-		const withPlatformMarkup = applyMarkup(originalPrice, PLATFORM_MARKUP);
-		// Step 2: apply additional 20% combo markup on top
-		const markedUpPrice = applyMarkup(withPlatformMarkup, COMBO_MARKUP);
+		// 10% platform markup only — same as FoodItems/Plates
+		const markedUpPrice = applyMarkup(originalPrice, PLATFORM_MARKUP);
 
 		const combo = await Combo.create({
 			comboName,
 			description,
-			originalPrice,              // vendor's exact price — used for earnings
-			basePrice: markedUpPrice,   // final price customers see (10% + 20% stacked)
-			markupPercent: 20,
+			originalPrice,
+			basePrice: markedUpPrice,
+			markupPercent: 10,
 			selections: processedSelections,
 			vendor: vendor._id,
 			img: req.file.path,
@@ -776,15 +774,14 @@ const updateCombo = async (req, res) => {
 
 		const { vendor, selections, ...updateData } = req.body;
 
-		// If vendor is updating their price, re-apply both markups
+		// If vendor is updating their price, re-apply 10% markup only
 		if (updateData.basePrice !== undefined) {
 			const originalPrice = Number(updateData.basePrice);
-			const withPlatformMarkup = applyMarkup(originalPrice, PLATFORM_MARKUP);
-			const markedUpPrice = applyMarkup(withPlatformMarkup, COMBO_MARKUP);
+			const markedUpPrice = applyMarkup(originalPrice, PLATFORM_MARKUP);
 
 			updateData.originalPrice = originalPrice;
 			updateData.basePrice = markedUpPrice;
-			updateData.markupPercent = 20;
+			updateData.markupPercent = 10;
 		}
 
 		if (selections) {
@@ -819,7 +816,6 @@ const deleteCombo = async (req, res) => {
 			return res
 				.status(404)
 				.json({ success: false, message: "Combo not found" });
-		// Check if current user owns the vendor profile
 		if (!combo.vendor.owner.equals(req.user.id))
 			return res.status(403).json({
 				success: false,
@@ -844,7 +840,6 @@ const getAllCombos = async (req, res) => {
 
 		let onlineVendorIds;
 		if (lat && lng) {
-			// Return combos only from vendors within 10km of customer
 			const nearbyVendors = await VendorProfile.aggregate([
 				{
 					$geoNear: {
@@ -886,14 +881,12 @@ const getAllCombos = async (req, res) => {
 
 const getMyCombos = async (req, res) => {
 	try {
-		// Find the vendor profile for this user
 		const vendor = await VendorProfile.findOne({ owner: req.user.id });
 		if (!vendor) {
 			return res
 				.status(404)
 				.json({ success: false, message: "Vendor profile not found" });
 		}
-		// Create a filter using VendorProfile ID
 		const filter = { vendor: vendor._id };
 		const populateOptions = [
 			{
@@ -904,6 +897,19 @@ const getMyCombos = async (req, res) => {
 		];
 
 		const result = await paginate(Combo, req.query, populateOptions, filter);
+
+		// Revert price to originalPrice for vendor view so they see their real price
+		if (result && result.data) {
+			result.data = result.data.map((doc) => {
+				const combo = doc.toObject ? doc.toObject() : doc;
+				if (combo.originalPrice) {
+					combo.price = combo.originalPrice;
+					combo.basePrice = combo.originalPrice;
+				}
+				return combo;
+			});
+		}
+
 		res.status(200).json(result);
 	} catch (error) {
 		res.status(500).json({ success: false, message: error.message });
@@ -934,7 +940,7 @@ const getComboById = async (req, res) => {
 
 const getVendorCombos = async (req, res) => {
 	try {
-		const filter = { vendor: req.params.vendorId };
+		const filter = { vendor: req.params.vendorId, isAvailable: { $ne: false } };
 		const populateOptions = [
 			{
 				path: "vendor",
@@ -958,22 +964,20 @@ const getVendorCombosGrouped = async (req, res) => {
 	try {
 		const { vendorId } = req.params;
 
-		// Fetch all combos for the vendor
-		const combos = await Combo.find({ vendor: vendorId })
+		const combos = await Combo.find({ vendor: vendorId, isAvailable: { $ne: false } })
 			.populate("comboGroup", "name description")
 			.populate({
 				path: "selections.items.item",
 				select: "name img description price",
 			});
 
-		// Group by ComboGroup name
 		const grouped = {};
 		const uncategorized = [];
 
 		combos.forEach((combo) => {
 			if (combo.comboGroup) {
 				const groupName = combo.comboGroup.name;
-				const groupId = combo.comboGroup.id; // toJSON plugin uses id
+				const groupId = combo.comboGroup.id;
 
 				if (!grouped[groupId]) {
 					grouped[groupId] = {
@@ -987,7 +991,6 @@ const getVendorCombosGrouped = async (req, res) => {
 			}
 		});
 
-		// Convert object to array for easier frontend consumption
 		const groupsArray = Object.values(grouped).sort((a, b) =>
 			a.groupInfo.name.localeCompare(b.groupInfo.name),
 		);
@@ -1038,8 +1041,6 @@ const toggleFoodItemAvailability = async (req, res) => {
 	}
 };
 
-// GET /api/food-items/vendors-by-category?category=rice&page=1&limit=20
-// Returns vendors that have food items in the given category.
 const getVendorsByCategory = async (req, res) => {
 	try {
 		const { category, page = 1, limit = 20 } = req.query;
@@ -1085,6 +1086,7 @@ const getVendorsByCategory = async (req, res) => {
 							"active",
 						],
 					},
+					storeDetails: "$vendor.storeDetails",
 					averageRating: { $ifNull: ["$vendor.averageRating", 0] },
 					totalRating: { $ifNull: ["$vendor.ratingCount", 0] },
 					deliveryFee: {
@@ -1142,8 +1144,6 @@ const toggleComboAvailability = async (req, res) => {
 	}
 };
 
-// PATCH /api/food-items/:foodItemId/subcategory/:subItemId/availability
-// Toggles the isAvailable flag on a single sub-category item
 const toggleSubItemAvailability = async (req, res) => {
 	try {
 		const { foodItemId, subItemId } = req.params;
@@ -1164,7 +1164,6 @@ const toggleSubItemAvailability = async (req, res) => {
 				.status(404)
 				.json({ success: false, message: "Food item not found" });
 
-		// Find the sub-item across all subcategory groups
 		let found = false;
 		for (const group of foodItem.subCategory) {
 			const subItem = group.items.id(subItemId);
@@ -1182,7 +1181,6 @@ const toggleSubItemAvailability = async (req, res) => {
 
 		await foodItem.save();
 
-		// Return the updated state of the toggled sub-item
 		let updatedItem = null;
 		for (const group of foodItem.subCategory) {
 			const subItem = group.items.id(subItemId);
