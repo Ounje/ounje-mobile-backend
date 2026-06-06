@@ -36,14 +36,14 @@ const {
 // ─── Test Account Config ───────────────────────────────────────────────────
 // NOTE: normalizePhone() REMOVES the country code and leading 0.
 // Update these to match whatever normalizePhone() returns for your test numbers
-const TEST_PHONES = ["+2348022000001", "+2348022000002", "+2348022000003"];
+const TEST_PHONES = ["+2348022000001", "+2348022000008", "+2348022000009"];
 const TEST_EMAILS = ["test@ounjefood.com"];
 const TEST_PHONE_OTP = "123456";
 const TEST_EMAIL_OTP = "0123";
 const TEST_PHONE_MAP = new Map([
 	["+2348022000001", "customer"],
-	["+2348022000002", "vendor"],
-	["+2348022000003", "rider"],
+	["+2348022000008", "vendor"],
+	["+2348022000009", "rider"],
 ]);
 const TEST_EMAIL_MAP = new Map([["test@ounjefood.com", "customer"]]);
 // ──────────────────────────────────────────────────────────────────────────
