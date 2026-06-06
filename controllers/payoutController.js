@@ -1,5 +1,5 @@
 const ledgerService = require("../services/ledger.service");
-const { Payout } = require("../models");
+const { Payout, User } = require("../models");
 const payoutService = require("../services/payout.service");
 const RiderProfile = require("../models/RiderProfile");
 const VendorProfile = require("../models/VendorProfile");
@@ -42,6 +42,12 @@ const formatPayout = (p) => ({
 
 // ─── CONTROLLERS ──────────────────────────────────────────────────────────────
 
+const isTestPhone = (phone) => {
+	if (!phone) return false;
+	const cleanPhone = phone.replace(/[^0-9]/g, "");
+	return cleanPhone.endsWith("8022000008") || cleanPhone.endsWith("8022000009");
+};
+
 /**
  * GET /api/payouts/balance
  * Returns balance in naira directly from ledger.
@@ -54,6 +60,17 @@ const getBalance = async (req, res) => {
 			return res
 				.status(403)
 				.json({ error: "Only riders and vendors can view balances" });
+		}
+
+		// Intercept test account to show test balance
+		const userDoc = await User.findById(userId);
+		if (userDoc && isTestPhone(userDoc.phone)) {
+			return res.json({
+				availableBalance: 25000,
+				holdBalance: 0,
+				pendingBalance: 0,
+				totalEarnings: 25000,
+			});
 		}
 
 		const recipient = await resolveRecipient(userId, userType);
@@ -126,6 +143,14 @@ const requestPayout = async (req, res) => {
 			return res
 				.status(403)
 				.json({ error: "Only riders and vendors can request payouts" });
+		}
+
+		// Intercept test account to block actual withdrawal
+		const userDoc = await User.findById(userId);
+		if (userDoc && isTestPhone(userDoc.phone)) {
+			return res
+				.status(400)
+				.json({ error: "This is test money and cannot be withdrawn." });
 		}
 		if (!amount || amount <= 0) {
 			return res.status(400).json({ error: "Amount must be greater than 0" });
