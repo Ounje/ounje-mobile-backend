@@ -502,6 +502,9 @@ const webhookHandler = async (req, res) => {
 						amount: amountNaira, // Payment model stores naira (legacy)
 						status: "success",
 						paidAt: event.data.paid_at,
+						paymentChannel: event.data.channel ?? null,
+						paymentBank: event.data.authorization?.bank ?? null,
+						paystackCustomerCode: paystackCustomer.customer_code ?? null,
 					});
 
 					const result = await ledgerService.creditAccount(
@@ -589,7 +592,12 @@ const webhookHandler = async (req, res) => {
 
 					await Payment.findOneAndUpdate(
 						{ reference },
-						{ orderId: order._id, status: "success" },
+						{
+							orderId: order._id,
+							status: "success",
+							paymentChannel: event.data.channel ?? null,
+							paymentBank: event.data.authorization?.bank ?? null,
+						},
 					);
 					await PendingCheckout.deleteOne({ reference });
 
@@ -643,6 +651,15 @@ const webhookHandler = async (req, res) => {
 
 			order = await markOrderAsPaid(order._id, "paystack");
 			if (!order) return res.status(200).send("Order update failed");
+
+			await Payment.findOneAndUpdate(
+				{ reference },
+				{
+					status: "success",
+					paymentChannel: event.data.channel ?? null,
+					paymentBank: event.data.authorization?.bank ?? null,
+				},
+			);
 
 			_sendOrderEmail(order).catch(() => {});
 
