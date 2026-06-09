@@ -36,14 +36,14 @@ const {
 // ─── Test Account Config ───────────────────────────────────────────────────
 // NOTE: normalizePhone() REMOVES the country code and leading 0.
 // Update these to match whatever normalizePhone() returns for your test numbers
-const TEST_PHONES = ["+2348022000001", "+2348022000002", "+2348022000003"];
+const TEST_PHONES = ["+2348022000001", "+2348022000008", "+2348022000009"];
 const TEST_EMAILS = ["test@ounjefood.com"];
 const TEST_PHONE_OTP = "123456";
 const TEST_EMAIL_OTP = "0123";
 const TEST_PHONE_MAP = new Map([
 	["+2348022000001", "customer"],
-	["+2348022000002", "vendor"],
-	["+2348022000003", "rider"],
+	["+2348022000008", "vendor"],
+	["+2348022000009", "rider"],
 ]);
 const TEST_EMAIL_MAP = new Map([["test@ounjefood.com", "customer"]]);
 // ──────────────────────────────────────────────────────────────────────────
@@ -654,7 +654,7 @@ const requestPhoneOtp = asyncHandler(async (req, res) => {
 
 	const REVIEW_MODE = process.env.REVIEW_MODE === "true";
 
-	if (REVIEW_MODE && TEST_PHONES.includes(phone)) {
+	if (TEST_PHONES.includes(phone)) {
 		await OtpVerification.deleteMany({ phone, isPhone: true });
 		await OtpVerification.create({ phone, otp: TEST_PHONE_OTP, isPhone: true });
 		logger.info(`App Store Review: Test OTP sent to phone: ${phone}`);
@@ -755,7 +755,7 @@ const verifyPhoneOtp = asyncHandler(async (req, res) => {
 	const otpStr = String(otp || "");
 	const testPhoneRole = TEST_PHONE_MAP.get(phone);
 	const isTestAccount =
-		REVIEW_MODE && !!testPhoneRole && otpStr === TEST_PHONE_OTP;
+		!!testPhoneRole && otpStr === TEST_PHONE_OTP;
 
 	// Log for debugging — remove after confirming test accounts work
 	logger.info(
