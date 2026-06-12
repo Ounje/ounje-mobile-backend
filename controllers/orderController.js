@@ -10,6 +10,7 @@ const {
 	calculateOunjeFeeFromCoords,
 	buildFeeBreakdown,
 } = require("../utils/delivery");
+const { getSurgeMultiplier } = require("../utils/getSurgeMultiplier");
 
 const cleanOrderItems = (items) => {
 	if (items && Array.isArray(items)) {
@@ -102,13 +103,15 @@ exports.getDeliveryEstimate = asyncHandler(async (req, res) => {
 	}
 
 	const [cLng, cLat] = savedCoords;
+	const surge = await getSurgeMultiplier();
 	const { fee, distanceKm } = calculateOunjeFeeFromCoords(
 		vLng,
 		vLat,
 		cLng,
 		cLat,
+		surge,
 	);
-	const breakdown = buildFeeBreakdown(distanceKm);
+	const breakdown = buildFeeBreakdown(distanceKm, surge);
 
 	res
 		.status(200)

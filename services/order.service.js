@@ -12,6 +12,7 @@ const {
 } = require("../models");
 const promoService = require("../services/promo.service");
 const { calculateOunjeFee, identifyZone } = require("../utils/delivery");
+const { getSurgeMultiplier } = require("../utils/getSurgeMultiplier");
 const { parseTime: _parseTime } = require("../utils/time");
 const {
 	isVendorOpenNow,
@@ -533,7 +534,8 @@ const createOrder = async (userId, data) => {
 	);
 
 	// 3. Calculate Delivery Fee
-	const fee = await calculateOunjeFee(vendorAddress, deliveryAddress);
+	const surge = await getSurgeMultiplier();
+	const fee = await calculateOunjeFee(vendorAddress, deliveryAddress, surge);
 
 	// 4. Build Order Items
 	let itemsTotalPrice = 0;
@@ -841,7 +843,8 @@ const estimateOrderPrice = async (cartData, userId = null) => {
 		throw new AppError(buildClosedReason(vendor), 400);
 	}
 
-	const fee = await calculateOunjeFee(vendor.location.address, deliveryAddress);
+	const surge = await getSurgeMultiplier();
+	const fee = await calculateOunjeFee(vendor.location.address, deliveryAddress, surge);
 	const models = { FoodItem, Combo, Plate };
 
 	let itemsTotalPrice = 0;

@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 // Import the logic from your utils folder
 const { calculateOunjeFee } = require('../utils/delivery');
+const { getSurgeMultiplier } = require('../utils/getSurgeMultiplier');
 
 // Define the route using router.get instead of app.get
 /**
@@ -45,7 +46,8 @@ router.get('/quote', async (req, res) => {
             });
         }
 
-        const fee = await calculateOunjeFee(vendor, customer);
+        const surge = await getSurgeMultiplier();
+        const fee = await calculateOunjeFee(vendor, customer, surge);
 
         // fee will be a number if successful, otherwise an error is thrown
 
